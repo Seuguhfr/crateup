@@ -28,22 +28,36 @@
 
   <style>
     :root {
-      --bg-darker: #0d0d0f;
-      --bg-dark: #141417;
-      --bg-card: #1d1d22;
-      --border-color: #2b2b33;
-      --text-main: #e4e4e7;
-      --text-muted: #8b8b9a;
+      /* Early Pressing Hardware Palette */
+      --paper:    #F2E8D5;
+      --paper-2:  #E8D9BF;
+      --paper-3:  #DDD0B5;
+      --espresso: #1A0F05;
+      --roast:    #2E1C0A;
+      --mocha:    #5C3D1A;
+      --tan:      #8B6A45;
+      --sand:     #9B7A50;
+      --accent:   #B5410E;
+      --accent-d: #8B3008;
+      --gold:     #C8A87A;
+      --border-color: #C8B89A;
+
+      /* Mapping Core Variables */
+      --bg-darker: var(--paper-3);
+      --bg-dark: var(--espresso);
+      --bg-card: var(--paper-2);
+      --text-main: var(--espresso);
+      --text-muted: var(--tan);
       
-      /* DJ Neon Color System */
-      --cyan: #00f0ff;
-      --orange: #ff9f00;
-      --green: #39ff14;
-      --red: #ff3838;
+      /* DJ Neon Color System - Mapped to Early Pressing */
+      --cyan: var(--accent);
+      --orange: var(--sand);
+      --green: var(--accent-d);
+      --red: var(--accent);
       
-      --cyan-glow: rgba(0, 240, 255, 0.15);
-      --orange-glow: rgba(255, 159, 0, 0.15);
-      --green-glow: rgba(57, 255, 20, 0.15);
+      --cyan-glow: rgba(181, 65, 14, 0.15);
+      --orange-glow: rgba(155, 122, 80, 0.15);
+      --green-glow: rgba(139, 48, 8, 0.15);
       --card-radius: 12px;
       --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
@@ -55,11 +69,23 @@
     }
 
     body {
-      background-color: var(--bg-darker);
-      color: var(--text-main);
+      background-color: var(--espresso);
+      color: var(--espresso);
       font-family: 'Outfit', sans-serif;
-      overflow-x: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 0;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    .window {
+      width: 100vw;
       height: 100vh;
+      background: var(--paper);
+      overflow: hidden;
       display: flex;
       flex-direction: column;
     }
@@ -71,19 +97,20 @@
 
     /* Header Design */
     header {
-      background-color: var(--bg-dark);
-      border-bottom: 1px solid var(--border-color);
-      padding: 16px;
+      background-color: var(--espresso);
+      border-bottom: 0.5px solid var(--border-color);
+      padding: 11px 18px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       height: 70px;
+      flex-shrink: 0;
     }
 
     .logo-container {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
 
     .header-logo {
@@ -97,18 +124,14 @@
       font-size: 20px;
       font-weight: 700;
       letter-spacing: 0.5px;
-      background: linear-gradient(to right, #fff, var(--text-muted));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .picker-btn {
+      color: var(--gold);
+    }    .picker-btn {
       position: relative;
-      background: linear-gradient(135deg, #2b2b33 0%, #1e1e24 100%);
-      border: 1px solid var(--border-color);
-      color: var(--text-main);
+      background: var(--paper-2);
+      border: 0.5px solid var(--border-color);
+      color: var(--espresso);
       padding: 10px 20px;
-      border-radius: 8px;
+      border-radius: 6px;
       font-weight: 500;
       cursor: pointer;
       display: flex;
@@ -119,8 +142,37 @@
     }
 
     .picker-btn:hover {
-      border-color: var(--cyan);
-      box-shadow: 0 0 10px var(--cyan-glow);
+      border-color: var(--accent);
+      background-color: var(--espresso);
+      color: var(--gold);
+      box-shadow: none;
+    }
+
+    #reset-session-btn {
+      background-color: var(--paper);
+      color: var(--espresso);
+      border: 0.5px solid var(--border-color);
+      font-weight: 600;
+    }
+
+    #reset-session-btn:hover {
+      background-color: var(--paper-hover);
+      color: var(--espresso);
+      border-color: var(--accent);
+    }
+
+    #shortcuts-toggle-btn {
+      background-color: transparent;
+      border: 0.5px solid var(--border-color);
+      color: var(--paper);
+      border-radius: 20px; /* Outlined pill style */
+      font-weight: 500;
+    }
+
+    #shortcuts-toggle-btn:hover {
+      background-color: var(--paper);
+      color: var(--espresso);
+      border-color: var(--border-color);
     }
 
     .picker-btn input[type="file"] {
@@ -176,16 +228,21 @@
 
     /* Active Track Header Info */
     .track-meta-card {
-      background-color: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--card-radius);
+      background-color: var(--paper-2);
+      border: 0.5px solid var(--border-color);
+      border-radius: 7px;
       padding: 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      color: var(--espresso);
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
     }
 
     .track-info-primary h2 {
+      font-family: 'Playfair Display', serif;
       font-size: 22px;
       margin-bottom: 4px;
       font-weight: 600;
@@ -198,30 +255,32 @@
 
     .badge {
       display: inline-block;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 3px;
+      font-size: 10px;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--espresso);
+      color: var(--gold);
     }
 
     .badge-downloaded {
-      background-color: rgba(0, 240, 255, 0.1);
-      border: 1px solid var(--cyan);
-      color: var(--cyan);
+      background: var(--espresso);
+      color: var(--gold);
     }
 
     .badge-unidentified {
-      background-color: rgba(255, 56, 56, 0.1);
-      border: 1px solid var(--red);
-      color: var(--red);
+      background: var(--espresso);
+      color: var(--tan);
     }
 
     .badge-not-on-deezer {
-      background-color: rgba(255, 159, 0, 0.1);
-      border: 1px solid var(--orange);
-      color: var(--orange);
+      background: var(--espresso);
+      color: var(--tan);
     }
 
     /* Waveform Deck Containers */
@@ -232,62 +291,94 @@
     }
 
     .deck {
-      background-color: var(--bg-card);
-      border: 2px solid var(--border-color);
-      border-radius: var(--card-radius);
+      background-color: var(--paper-2);
+      border: 0.5px solid var(--border-color);
+      border-radius: 7px;
       padding: 16px;
       position: relative;
       transition: var(--transition);
+      opacity: 1 !important;
     }
 
     /* Highlight Active Focus Deck */
     .deck.focused.original-deck {
-      border-color: var(--orange);
-      box-shadow: 0 0 15px var(--orange-glow);
+      border-color: var(--sand);
+      box-shadow: 0 0 0 1.5px var(--sand);
     }
 
     .deck.focused.staged-deck {
-      border-color: var(--cyan);
-      box-shadow: 0 0 15px var(--cyan-glow);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1.5px var(--accent);
+    }
+
+    .waveform-display,
+    #original-waveform canvas,
+    #staged-waveform canvas {
+      opacity: 1 !important;
+      filter: none !important;
+    }
+
+    /* Deck typography matching */
+    .original-deck .deck-label,
+    .original-deck .deck-time,
+    .original-deck #original-format {
+      color: var(--tan) !important;
+    }
+    .original-deck .deck-play-btn {
+      border-color: var(--sand);
+      color: var(--mocha);
+    }
+
+    .staged-deck .deck-label,
+    .staged-deck .deck-time,
+    .staged-deck #staged-format {
+      color: var(--accent) !important;
+    }
+    .staged-deck .deck-play-btn {
+      border-color: var(--accent);
+      color: var(--accent);
     }
 
     .deck-label {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 1px;
+      letter-spacing: 0.13em;
       text-transform: uppercase;
       margin-bottom: 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      color: var(--tan);
     }
 
     .deck-label-left {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
     }
 
     .focus-dot {
-      width: 8px;
-      height: 8px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      background-color: transparent;
+      background-color: var(--sand);
       transition: var(--transition);
     }
 
     .deck.focused.original-deck .focus-dot {
-      background-color: var(--orange);
-      box-shadow: 0 0 8px var(--orange);
+      background-color: var(--sand);
+      transform: scale(1.3);
+      box-shadow: 0 0 8px var(--sand);
     }
 
     .deck.focused.staged-deck .focus-dot {
-      background-color: var(--cyan);
-      box-shadow: 0 0 8px var(--cyan);
+      background-color: var(--accent);
+      transform: scale(1.3);
+      box-shadow: 0 0 8px var(--accent);
     }
 
     .waveform-display {
-      background-color: var(--bg-darker);
+      background-color: var(--paper-3);
       border-radius: 6px;
       padding: 8px;
       min-height: 120px;
@@ -317,9 +408,9 @@
 
     /* Deck Info Overlay Card for Unresolved Items */
     .unresolved-card {
-      background-color: var(--bg-card);
-      border: 1px dashed var(--border-color);
-      border-radius: var(--card-radius);
+      background-color: var(--paper-2);
+      border: 0.5px dashed var(--border-color);
+      border-radius: 7px;
       padding: 40px;
       text-align: center;
       display: flex;
@@ -331,27 +422,30 @@
 
     /* Right Sidebar Queue list */
     .sidebar {
-      background-color: var(--bg-dark);
-      border-left: 1px solid var(--border-color);
+      background-color: var(--espresso);
+      border-left: 0.5px solid var(--border-color);
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      color: var(--gold);
     }
 
     .sidebar-header {
       padding: 20px;
-      border-bottom: 1px solid var(--border-color);
+      border-bottom: 0.5px solid var(--roast);
     }
 
     .sidebar-header h3 {
-      font-size: 16px;
-      font-weight: 600;
+      font-family: 'Playfair Display', serif;
+      font-size: 24px;
+      color: var(--gold);
+      line-height: 1;
       margin-bottom: 4px;
     }
 
     .sidebar-header p {
       font-size: 13px;
-      color: var(--text-muted);
+      color: var(--mocha);
     }
 
     .queue-list {
@@ -364,10 +458,11 @@
     }
 
     .queue-item {
-      padding: 10px 14px;
-      border-radius: 6px;
-      background-color: rgba(255, 255, 255, 0.02);
-      border: 1px solid transparent;
+      padding: 10px 0;
+      border-bottom: 0.5px solid var(--roast);
+      border-radius: 0;
+      background-color: transparent;
+      border-left: 2px solid transparent;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -377,12 +472,13 @@
     }
 
     .queue-item:hover {
-      background-color: rgba(255, 255, 255, 0.05);
+      background-color: rgba(255, 255, 255, 0.02);
     }
 
     .queue-item.active {
-      background-color: rgba(0, 240, 255, 0.05);
-      border-color: rgba(0, 240, 255, 0.3);
+      background-color: rgba(255, 255, 255, 0.03);
+      border-left: 2px solid var(--accent);
+      padding-left: 10px;
     }
 
     .queue-item-text {
@@ -390,12 +486,22 @@
       overflow: hidden;
     }
 
-    .queue-item-title {
-      font-size: 13px;
-      font-weight: 500;
+    .queue-item-name {
+      font-size: 12px;
+      color: var(--sand);
+      transition: color 0.12s;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .queue-item:hover .queue-item-name {
+      color: var(--gold);
+    }
+
+    .queue-item.active .queue-item-name {
+      color: var(--gold);
+      font-weight: 500;
     }
 
     .queue-item-status {
@@ -408,6 +514,7 @@
     }
 
     .queue-item-decision {
+      font-family: 'JetBrains Mono', monospace;
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
@@ -416,74 +523,89 @@
     }
 
     .decision-approved {
-      background-color: rgba(57, 255, 20, 0.1);
-      color: var(--green);
+      color: var(--accent);
     }
 
     .decision-skipped {
-      background-color: rgba(255, 56, 56, 0.1);
-      color: var(--red);
+      color: var(--mocha);
     }
 
     .decision-pending {
-      color: var(--text-muted);
+      color: #4A3020;
     }
 
     /* Keyboard Help Card */
     .help-panel {
-      background-color: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--card-radius);
-      padding: 16px;
-      margin-top: auto;
+      background-color: var(--paper-2);
+      border: 0.5px solid var(--border-color);
+      border-radius: 7px;
+      padding: 12px 14px;
+      margin-top: 0;
     }
 
     .help-panel-title {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      color: var(--text-muted);
+      color: var(--tan);
       margin-bottom: 12px;
     }
 
     .help-grid {
       display: grid;
       grid-template-columns: auto 1fr;
-      gap: 10px;
-      font-size: 13px;
+      gap: 8px 16px;
+      font-size: 11px;
     }
 
-    .kbd {
-      background-color: var(--bg-darker);
-      border: 1px solid var(--border-color);
+    .help-grid > div:nth-child(odd) {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--tan);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+    }
+
+    .help-grid > div:nth-child(even) {
+      color: var(--mocha);
+      display: flex;
+      align-items: center;
+    }
+
+    kbd, .kbd {
+      background-color: var(--paper-3);
+      border: 0.5px solid var(--border-color);
       padding: 2px 6px;
       border-radius: 4px;
       font-size: 11px;
       text-align: center;
       min-width: 50px;
       display: inline-block;
+      color: var(--espresso);
     }
 
-    /* Commit Actions Footer */
     .commit-section {
       padding: 20px;
-      border-top: 1px solid var(--border-color);
+      border-top: 0.5px solid var(--roast);
       display: flex;
       flex-direction: column;
       gap: 12px;
     }
 
     .apply-btn {
-      background: linear-gradient(135deg, var(--green) 0%, #29b50e 100%);
+      width: 100%;
+      background: var(--accent);
+      color: var(--paper);
       border: none;
-      color: #000;
-      padding: 14px;
-      border-radius: 8px;
-      font-weight: 700;
-      cursor: pointer;
+      border-radius: 4px;
+      padding: 11px;
+      font-size: 11px;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      cursor: pointer;
+      font-weight: 500;
       transition: var(--transition);
       display: flex;
       justify-content: center;
@@ -492,13 +614,12 @@
     }
 
     .apply-btn:hover {
-      box-shadow: 0 0 15px var(--green-glow);
-      transform: translateY(-1px);
+      background: var(--accent-d);
     }
 
     .apply-btn:disabled {
-      background: #2b2b33;
-      color: var(--text-muted);
+      background: var(--roast);
+      color: var(--mocha);
       cursor: not-allowed;
       box-shadow: none;
       transform: none;
@@ -511,7 +632,7 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background-color: rgba(0, 0, 0, 0.85);
+      background-color: rgba(26, 15, 5, 0.85);
       z-index: 1000;
       display: flex;
       align-items: center;
@@ -543,29 +664,31 @@
     }
 
     .modal-title {
+      font-family: 'Playfair Display', serif;
       font-size: 20px;
       font-weight: 600;
       margin-bottom: 12px;
       display: flex;
       align-items: center;
       gap: 8px;
+      color: var(--espresso);
     }
 
     .modal-title-warning {
-      color: var(--orange);
+      color: var(--accent);
     }
 
     .modal-body {
-      color: var(--text-muted);
+      color: var(--espresso);
       font-size: 15px;
       line-height: 1.6;
       margin-bottom: 24px;
     }
 
     .modal-btn {
-      background-color: var(--cyan);
+      background-color: var(--accent);
       border: none;
-      color: #000;
+      color: var(--paper);
       padding: 12px 24px;
       border-radius: 6px;
       font-weight: 600;
@@ -575,7 +698,8 @@
     }
 
     .modal-btn:hover {
-      box-shadow: 0 0 10px var(--cyan-glow);
+      background-color: var(--accent-d);
+      box-shadow: none;
     }
 
     /* Ledger Output Modal specific */
@@ -601,9 +725,9 @@
     }
 
     .deck-play-btn {
-      background-color: var(--bg-darker);
-      border: 1px solid var(--border-color);
-      color: var(--text-main);
+      background-color: transparent;
+      border: 0.5px solid var(--sand);
+      color: var(--mocha);
       padding: 6px 14px;
       border-radius: 4px;
       font-family: 'JetBrains Mono', monospace;
@@ -614,29 +738,37 @@
     }
     
     .original-deck .deck-play-btn:hover {
-      border-color: var(--orange);
-      color: var(--orange);
+      background-color: var(--paper-3);
     }
     
     .staged-deck .deck-play-btn:hover {
-      border-color: var(--cyan);
-      color: var(--cyan);
+      border-color: var(--accent);
+      color: var(--accent-d);
+      background-color: var(--paper-3);
     }
 
     .metadata-comparison-grid {
-      background-color: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--card-radius);
-      padding: 14px 20px;
+      background-color: var(--paper-3);
+      border: 0.5px solid var(--border-color);
+      border-radius: 7px;
+      padding: 8px 12px;
       display: grid;
-      grid-template-columns: 1fr auto 1fr;
-      gap: 10px 24px;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 4px 8px;
       align-items: center;
-      font-size: 13px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      max-width: 480px;
+      width: 100%;
+      margin: 0 auto;
     }
 
     .meta-col-left {
+      grid-column: span 3;
       text-align: right;
+      color: var(--espresso);
+      font-weight: 500;
+      padding-right: 12px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -644,15 +776,18 @@
     }
 
     .meta-col-center {
+      grid-column: span 1;
       text-align: center;
-      color: var(--text-muted);
-      font-weight: 500;
+      color: var(--tan);
+      font-weight: 600;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      background-color: var(--bg-darker);
+      font-size: 10px;
+      text-transform: uppercase;
+      opacity: 0.7;
+      background-color: transparent;
       padding: 2px 8px;
       border-radius: 4px;
-      border: 1px solid var(--border-color);
+      border: none;
     }
     @keyframes spin {
       0% { transform: rotate(0deg); }
@@ -660,7 +795,11 @@
     }
 
     .meta-col-right {
+      grid-column: span 3;
       text-align: left;
+      color: var(--espresso);
+      font-weight: 500;
+      padding-left: 12px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -668,11 +807,12 @@
     }
 
     .meta-original-text {
-      color: #F59E0B;
+      color: var(--mocha);
     }
 
     .meta-staged-text {
-      color: #06B6D4;
+      color: var(--accent);
+      font-weight: 700;
     }
 
     .hidden {
@@ -686,9 +826,9 @@
       border: 1px solid var(--green) !important;
     }
     @keyframes pulse-glow {
-      0% { box-shadow: 0 0 8px rgba(57, 255, 20, 0.4); }
-      50% { box-shadow: 0 0 25px rgba(57, 255, 20, 0.8); }
-      100% { box-shadow: 0 0 8px rgba(57, 255, 20, 0.4); }
+      0% { box-shadow: 0 0 8px rgba(181, 65, 14, 0.4); }
+      50% { box-shadow: 0 0 25px rgba(181, 65, 14, 0.8); }
+      100% { box-shadow: 0 0 8px rgba(181, 65, 14, 0.4); }
     }
 
     /* Playlist Tree Styles */
@@ -696,42 +836,43 @@
       transition: var(--transition);
     }
     .tree-node-header:hover {
-      background-color: rgba(255, 255, 255, 0.05);
+      background-color: var(--paper-hover);
     }
     .tree-node-header.selected-playlist {
-      background-color: rgba(0, 240, 255, 0.1) !important;
-      color: var(--cyan) !important;
-      border: 1px solid rgba(0, 240, 255, 0.3);
+      background-color: rgba(181, 65, 14, 0.1) !important;
+      color: var(--accent) !important;
+      border: 1px solid rgba(181, 65, 14, 0.3);
     }
 
     .status-badge {
       display: inline-block;
       padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 10px;
+      border-radius: 2px;
+      font-size: 9px;
       font-weight: 700;
+      letter-spacing: 0.09em;
       text-transform: uppercase;
       margin-left: 6px;
     }
     .status-ready {
-      background-color: rgba(0, 240, 255, 0.1);
-      border: 1px solid var(--cyan);
-      color: var(--cyan);
+      background-color: #2A1205;
+      border: 0.5px solid #4A2010;
+      color: var(--accent);
     }
     .status-unidentified {
-      background-color: rgba(139, 139, 154, 0.1);
-      border: 1px solid var(--text-muted);
-      color: var(--text-muted);
+      background-color: #2A1205;
+      border: 0.5px solid var(--roast);
+      color: var(--mocha);
     }
     .status-not-on-deezer {
-      background-color: rgba(255, 159, 0, 0.1);
-      border: 1px solid var(--orange);
-      color: var(--orange);
+      background-color: #2A1205;
+      border: 0.5px solid var(--roast);
+      color: var(--sand);
     }
     .status-download-failed {
-      background-color: rgba(255, 56, 56, 0.1);
-      border: 1px solid var(--red);
-      color: var(--red);
+      background-color: #2A1205;
+      border: 0.5px solid #4A2010;
+      color: var(--accent);
     }
 
     /* Home Screen Container */
@@ -935,21 +1076,40 @@
     main.sidebar-hidden {
       grid-template-columns: 1fr;
     }
+
+    /* Shortcuts Modal Custom overrides */
+    #shortcuts-modal-backdrop .modal {
+      max-width: 650px;
+      padding: 40px;
+    }
+    #shortcuts-modal-backdrop .help-grid {
+      font-size: 13px;
+      gap: 12px 20px;
+    }
+    #shortcuts-modal-backdrop kbd {
+      font-size: 12px;
+      padding: 4px 8px;
+    }
   </style>
 </head>
-<body>  <!-- Header -->
-  <header>
-    <div class="logo-container">
-      <img src="./icon.png" alt="CrateUp" class="header-logo" style="width: 28px; height: 28px; border-radius: 6px;" />
-      <h1>CrateUp <span class="mono" style="font-size: 12px; color: var(--cyan); border: 1px solid rgba(0,240,255,0.3); padding: 2px 6px; border-radius: 4px; margin-left: 6px;">Ver. 2.0</span></h1>
-    </div>
-    
-    <div style="display: flex; gap: 12px; align-items: center;">
-      <button class="picker-btn hidden" id="reset-session-btn" tabindex="-1" style="border-color: rgba(255, 56, 56, 0.4); color: var(--red);">
-        <span>↺ Reset Session</span>
-      </button>
-    </div>
-  </header>
+<body>
+  <div class="window">
+    <!-- Header -->
+    <header>
+      <div class="logo-container">
+        <img src="./icon.png" alt="CrateUp" class="header-logo" style="width: 28px; height: 28px; border-radius: 6px;" />
+        <h1>CrateUp <span class="mono" style="font-size: 10px; color: var(--mocha); border: 0.5px solid var(--roast); padding: 2px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.1em;">Ver. 2.0</span></h1>
+      </div>
+      
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <button class="picker-btn hidden" id="shortcuts-toggle-btn" tabindex="-1">
+          <span>⌨ Shortcuts</span>
+        </button>
+        <button class="picker-btn hidden" id="reset-session-btn" tabindex="-1">
+          <span>↺ Reset Session</span>
+        </button>
+      </div>
+    </header>
 
   <!-- Workspace & Sidebar -->
   <main class="sidebar-hidden">
@@ -1000,17 +1160,17 @@
           <h3 style="margin: 0;">Run Pipeline</h3>
           <p style="color: var(--text-muted); font-size: 14px; margin: 6px 0 0;">No progress ledger found in this directory. Set up and start a new scan and download pipeline.</p>
           
-          <div style="display: flex; gap: 20px; align-items: center; margin-top: 20px;">
+          <div style="display: flex; gap: 20px; align-items: flex-end; margin-top: 20px;">
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 12px; color: var(--text-muted);">Output Format</label>
-              <select id="pipeline-format-select" class="mono" style="background-color: var(--bg-darker); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 12px; border-radius: 4px; font-size: 12px;">
+              <select id="pipeline-format-select" class="mono" style="background-color: var(--bg-darker); border: 0.5px solid var(--border-color); color: var(--text-main); padding: 0 12px; border-radius: 4px; font-size: 12px; height: 35px; box-sizing: border-box; outline: none; cursor: pointer; width: 180px;">
                 <option value="mp3">MP3 320 kbps</option>
                 <option value="flac" selected>FLAC (Lossless)</option>
                 <option value="aiff">AIFF (Lossless)</option>
                 <option value="wav">WAV (Lossless)</option>
               </select>
             </div>
-            <button class="apply-btn" id="start-pipeline-btn" style="margin-top: 18px; padding: 10px 20px; font-size: 12px; height: 35px; box-sizing: border-box;">
+            <button class="apply-btn" id="start-pipeline-btn" style="padding: 0 20px; font-size: 12px; height: 35px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; width: auto;">
               <span>Start Scan & Download</span>
             </button>
           </div>
@@ -1138,6 +1298,8 @@
                 <span class="deck-time mono" id="staged-time">00:00 / 00:00</span>
               </div>
             </div>
+
+            <!-- Keyboard Help toggled via Modal now -->
           </div>
 
           <!-- Unresolved Placeholder Badges -->
@@ -1146,25 +1308,6 @@
             <h3 id="unresolved-title">Track Unresolved</h3>
             <p id="unresolved-description" style="color: var(--text-muted); max-width: 400px; font-size: 14px;">This track failed to match or was absent on Deezer during Phase 1. No replacement audio is available.</p>
             <p style="font-size: 13px; color: var(--orange);" class="mono">Press [Enter] or [Backspace] to Keep Original</p>
-          </div>
-        </div>
-        
-        <!-- Keyboard Help -->
-        <div class="help-panel">
-          <div class="help-panel-title">Deck Controls Keyboard Shortcuts</div>
-          <div class="help-grid">
-            <div><kbd class="mono">Space</kbd></div>
-            <div>Toggle play / pause (focused player)</div>
-            <div><kbd class="mono">↑</kbd></div>
-            <div>Focus Top Deck (Original)</div>
-            <div><kbd class="mono">↓</kbd></div>
-            <div>Focus Bottom Deck (Staged Upgrade)</div>
-            <div><kbd class="mono">←</kbd> / <kbd class="mono">→</kbd></div>
-            <div>Seek -10s / +10s (focused player)</div>
-            <div><kbd class="mono">Enter</kbd></div>
-            <div><strong style="color: var(--green);">Approve Upgrade</strong> (Accepts replacement & advances)</div>
-            <div><kbd class="mono">Backspace</kbd></div>
-            <div><strong style="color: var(--red);">Keep Original</strong> (Skips replacement & advances)</div>
           </div>
         </div>
 
@@ -1179,7 +1322,7 @@
       </div>
 
       <!-- Completion Banner -->
-      <div id="completion-banner" class="hidden" style="background-color: rgba(57, 255, 20, 0.1); border: 1px solid var(--green); padding: 12px 16px; margin: 10px; border-radius: 6px; font-size: 13px; color: var(--green); line-height: 1.4; font-weight: 500;">
+      <div id="completion-banner" class="hidden" style="background-color: rgba(139, 48, 8, 0.15); border: 1px solid var(--green); padding: 12px 16px; margin: 10px; border-radius: 6px; font-size: 13px; color: var(--green); line-height: 1.4; font-weight: 500;">
         All X tracks reviewed — Y approved, Z skipped. Ready to apply changes.
       </div>
 
@@ -1194,6 +1337,7 @@
       </div>
     </div>
   </main>
+  </div>
 
   <!-- Modal 1: WAV Warning -->
   <div class="modal-backdrop" id="wav-warning-backdrop">
@@ -1243,7 +1387,7 @@
         <p style="color: var(--text-muted); font-size: 13px; margin: 0; text-align: left;">Browse your Rekordbox playlists/folders and select one or choose Select All.</p>
         
         <!-- Select All Option -->
-        <div id="select-all-option-container" class="tree-node-header" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 6px; cursor: pointer; user-select: none; border: 1px solid var(--border-color); margin-top: 4px; background-color: rgba(255, 255, 255, 0.02); box-sizing: border-box;">
+        <div id="select-all-option-container" class="tree-node-header" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 6px; cursor: pointer; user-select: none; border: 1px solid var(--border-color); margin-top: 4px; background-color: var(--paper-2); box-sizing: border-box;">
           <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--text-main);">
             <span>✨</span> Select All Playlists (Entire Collection)
           </span>
@@ -1261,6 +1405,32 @@
           <span>Upgrade Selected (0 tracks)</span>
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal 4: Keyboard Shortcuts -->
+  <div class="modal-backdrop" id="shortcuts-modal-backdrop">
+    <div class="modal" style="box-sizing: border-box;">
+      <div class="modal-title">
+        <span>⌨</span> Keyboard Shortcuts
+      </div>
+      <div class="modal-body" style="box-sizing: border-box;">
+        <div class="help-grid">
+          <div><kbd class="mono">Space</kbd></div>
+          <div>Toggle play / pause (focused player)</div>
+          <div><kbd class="mono">↑</kbd></div>
+          <div>Focus Top Deck (Original)</div>
+          <div><kbd class="mono">↓</kbd></div>
+          <div>Focus Bottom Deck (Staged Upgrade)</div>
+          <div><kbd class="mono">←</kbd> / <kbd class="mono">→</kbd></div>
+          <div>Seek -10s / +10s (focused player)</div>
+          <div><kbd class="mono">Enter</kbd></div>
+          <div><strong style="color: var(--green);">Approve Upgrade</strong> (Accepts replacement & advances)</div>
+          <div><kbd class="mono">Backspace</kbd></div>
+          <div><strong style="color: var(--red);">Keep Original</strong> (Skips replacement & advances)</div>
+        </div>
+      </div>
+      <button class="modal-btn" id="shortcuts-modal-close" style="width: 100%;">Close</button>
     </div>
   </div>
 
@@ -1308,6 +1478,14 @@
       document.getElementById('home-screen').classList.add('hidden');
       document.getElementById('pipeline-panel').classList.add('hidden');
       document.getElementById('deck-workspace').classList.add('hidden');
+      
+      // Enforce Page Isolation for Shortcuts button
+      const shortcutsBtn = document.getElementById('shortcuts-toggle-btn');
+      if (viewName === 'review') {
+        shortcutsBtn.classList.remove('hidden');
+      } else {
+        shortcutsBtn.classList.add('hidden');
+      }
       
       if (viewName === 'home') {
         document.getElementById('home-screen').classList.remove('hidden');
@@ -1430,6 +1608,20 @@
     // Close WAV Warning Modal
     wavWarningClose.addEventListener('click', () => {
       wavWarningBackdrop.classList.remove('show');
+    });
+
+    // Toggle Keyboard Shortcuts Modal
+    const shortcutsModal = document.getElementById('shortcuts-modal-backdrop');
+    document.getElementById('shortcuts-toggle-btn').addEventListener('click', () => {
+      shortcutsModal.classList.add('show');
+    });
+    document.getElementById('shortcuts-modal-close').addEventListener('click', () => {
+      shortcutsModal.classList.remove('show');
+    });
+    shortcutsModal.addEventListener('click', (e) => {
+      if (e.target === shortcutsModal) {
+        shortcutsModal.classList.remove('show');
+      }
     });
 
     // Waveform container click listeners to transfer focus
@@ -2488,9 +2680,9 @@
       // Original Waveform
       waveSurferOriginal = WaveSurfer.create({
         container: '#original-waveform',
-        waveColor: '#4b3c2a',
-        progressColor: '#ff9f00',
-        cursorColor: '#ff9f00',
+        waveColor: '#c8b89a',
+        progressColor: '#1A0F05',
+        cursorColor: '#1A0F05',
         height: 120,
         responsive: true,
         backend: 'MediaElement'
@@ -2499,9 +2691,9 @@
       // Staged Waveform
       waveSurferStaged = WaveSurfer.create({
         container: '#staged-waveform',
-        waveColor: '#1a3c42',
-        progressColor: '#00f0ff',
-        cursorColor: '#00f0ff',
+        waveColor: '#c8b89a',
+        progressColor: '#b5410e',
+        cursorColor: '#b5410e',
         height: 120,
         responsive: true,
         backend: 'MediaElement'
@@ -2966,6 +3158,7 @@
       if (currentIndex === -1) return;
       if (wavWarningBackdrop.classList.contains('show')) return;
       if (document.getElementById('commit-results-backdrop').classList.contains('show')) return;
+      if (document.getElementById('shortcuts-modal-backdrop').classList.contains('show')) return;
 
       const track = reviewQueue[currentIndex];
 
@@ -3079,7 +3272,7 @@
       title.style.color = 'var(--cyan)';
       body.innerHTML = `
         <div style="text-align: center; padding: 20px; box-sizing: border-box;">
-          <div style="width: 40px; height: 40px; border: 3px solid rgba(0,240,255,0.1); border-top-color: var(--cyan); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px;"></div>
+          <div style="width: 40px; height: 40px; border: 3px solid rgba(181, 65, 14, 0.1); border-top-color: var(--cyan); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px;"></div>
           <p style="margin: 0; font-size: 14px;">Applying high-quality replacements to your library files. Please do not close the app.</p>
         </div>
       `;

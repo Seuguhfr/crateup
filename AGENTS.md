@@ -216,7 +216,7 @@ Fixed critical production-only bugs:
 - **Header Logo Explicit Sizing**: Added `.header-logo` class with explicit dimensions and `!important` declarations to the HTML and CSS blocks in `ui/index.html` to prevent production-only style regressions from blowing up the logo's width and height.
 - **Verification**: Verified that all Jest and Pytest unit tests pass successfully, `cargo check` compiles, and `npm run tauri build` successfully builds both release bundles (.app and .dmg).
 
-## Last session
+## Previous session
 Fixed production environment bottlenecks and WebKit UI issues:
 - **Fixed ffmpeg / ffprobe Environment Pathing**: Prepend the app bundle's Resources directory (`../Resources` relative to the Node executable) to `process.env.PATH` at the top of the entry points: [node-sidecar/pipeline.js](file:///Users/hugues/Code/crateup/node-sidecar/pipeline.js), [node-sidecar/identify.js](file:///Users/hugues/Code/crateup/node-sidecar/identify.js), and [node-sidecar/refetch.js](file:///Users/hugues/Code/crateup/node-sidecar/refetch.js). This ensures child processes (including Python/deemix and ffprobe/ffmpeg invocations) can resolve the bundled binaries in the standalone macOS app.
 - **Fixed Environment Path Template Syntax & Triple Suffix Resolution**: Fixed a path template interpolation syntax in `node-sidecar/index.js` (and other node entry points) and added dynamic target-triple suffix identification (e.g., `-aarch64-apple-darwin` or `-x86_64-apple-darwin`) based on `process.arch` and `process.platform`. Programmatically created non-suffixed symlinks for `ffmpeg` and `ffprobe` pointing to the actual suffixed binaries from the Tauri resource path in a temporary folder (`os.tmpdir()/crateup-bin`), prepended it to `process.env.PATH`, and explicitly mapped target-suffixed binary copy directives using wildcards in `src-tauri/tauri.conf.json`.
@@ -232,4 +232,28 @@ Fixed production environment bottlenecks and WebKit UI issues:
   - Introduced a native watcher ignore file [src-tauri/.taurignore](file:///Users/hugues/Code/crateup/src-tauri/.taurignore) to explicitly ignore file attribute/metadata changes inside the `binaries/` directory.
   - Verified compiler integrity with a clean release build.
 - **Unified ignore rule configuration and Vite watch list extension**: Updated the root [.gitignore](file:///Users/hugues/Code/crateup/.gitignore) to exclude Python caches, Rust target artifacts, test library structures, and the private credentials file (`.arl`). Extended the watcher ignore array inside [vite.config.ts](file:///Users/hugues/Code/crateup/vite.config.ts) to explicitly skip `src-tauri`, `test-library`, and `node-sidecar/node_modules` subdirectories, neutralizing file-watcher loops during development runtimes.
+
+## Last session
+Completely re-skinned the CrateUp application UI to the warm editorial "Early Pressing" look:
+- Expanded `theme.extend.colors` inside [ui/tailwind.config.js](file:///Users/hugues/Code/crateup/ui/tailwind.config.js) to include the exact Early Pressing hardware-palette definitions (`paper`, `espresso`, `roast`, `accent`, etc.).
+- Re-skinned the application shell and window capsule wrapper to use centered flex layout, `bg-espresso` body background, and `bg-paper` for the `.window` container with clean borders and deep shadow.
+- Inverted the review queue sidebar container to run with `bg-espresso`, shifting track list nodes to clean typography, muted status borders, and the prominent orange highlight indicator for the active index track state.
+- Re-architected the mid-section metrics panel into a fluid, responsive container using `bg-paper-dark` and a strict 7-column layout mapping comparative metadata fields linearly side-by-side.
+- Repositioned the keyboard shortcuts HUD panel, converting it into an isolated card nested squarely underneath the bottom deck (staged upgrade player).
+- Polished home screen buttons, warning/results/playlist modals, and loading spinners to use the warm paper theme variables, replacing all old neon blue and green colors.
+- Applied layout refinements and Visual Enhancements to the "Early Pressing" look:
+  - Maximized the container viewport boundary to occupy 100% of width and height fluidly (`100vw`/`100vh`), removing artificial margins, outer body padding, and hardcoded maximum widths.
+  - Aligned and matched the block heights and padding matrices of the Output Format select dropdown and the primary "Start Scan & Download" execution button on the download screen.
+  - Normalized waveform opacities to render both original and staged waveforms at full equal brightness, relying strictly on the color tokens to separate them.
+  - Elevated the deck focused state by rendering a clear border highlight stroke (`var(--sand)` for original, `var(--accent)` for staged) and a glowing active focus dot indicator when active.
+  - Extracted the keyboard shortcuts block into a clean, toggleable header modal with backdrop overlay, and disabled keyboard shortcut handling when the modal is displayed.
+- Verified that all automated Jest tests and Python pytest test suites run and pass cleanly, the Rust backend compiles successfully, and `npm run build` compiles without issues.
+- Completed final layout calibration and visual refinements for the "Early Pressing" look:
+  - Synchronized WaveSurfer unplayed backgrounds (`waveColor`) to look identical using the exact `--border` token (`#C8B89A`), and mapped the active played progress (`progressColor`) to `var(--espresso)` (`#1A0F05`) for the Top Deck and `--accent` (`#B5410E`) for the Bottom Deck.
+  - Forced text surrounding the Top Deck (labels, timecodes, format badges, and default play button) to use consistent matching typography (`var(--tan)` / `--mocha`), and forced Bottom Deck text to dynamically match the upgrade accent (`var(--accent)`).
+  - Tightened the mid-section metrics comparison section to a maximum width of `480px` (centered) with collapsed empty voids to bring original/upgrade properties closer to their tags.
+  - Forced the track metadata box card (`.track-meta-card`) at the top of the review column to stretch to full width (`100%`) with no margin/max-width limits.
+  - Redesigned titlebar header buttons to fix contrast blinding on hover: created a prominent high-visibility solid cream background fill (`var(--paper)`) with dark text (`var(--espresso)`) for the Reset Session button, an outlined pill style with high contrast text for the Shortcuts button, and restricted the Shortcuts toggle button visibility to the Review Page section only.
+  - Enhanced the Keyboard Shortcuts modal sizing (`max-width: 650px` with deep padding), bumped shortcut typography scales up by 1-2 points, and added explicit empty spacing between the bold key phrases and the descriptive brackets: `Approve Upgrade (Accepts replacement & advances)` and `Keep Original (Skips replacement & advances)`.
+  - Expanded the Output Format selector dropdown width to `180px` on the download pipeline card to match next-door action buttons.
 
