@@ -72,6 +72,58 @@ function sanitizeFilenamePart(part) {
   return clean;
 }
 
+const https = require('https');
+
+function fetchDeezerMetadata(deezerId) {
+  return new Promise((resolve) => {
+    const url = `https://api.deezer.com/track/${deezerId}`;
+    if (typeof fetch !== 'undefined') {
+      fetch(url)
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error(`HTTP ${res.status}`);
+        })
+        .then(data => {
+          if (data && !data.error) {
+            resolve({
+              artist: data.artist?.name || null,
+              title: data.title || null
+            });
+          } else {
+            resolve(null);
+          }
+        })
+        .catch(err => {
+          console.warn(`[NODE] fetch failed: ${err.message}`);
+          resolve(null);
+        });
+    } else {
+      https.get(url, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed && !parsed.error) {
+              resolve({
+                artist: parsed.artist?.name || null,
+                title: parsed.title || null
+              });
+            } else {
+              resolve(null);
+            }
+          } catch (e) {
+            resolve(null);
+          }
+        });
+      }).on('error', (err) => {
+        console.warn(`[NODE] https.get failed: ${err.message}`);
+        resolve(null);
+      });
+    }
+  });
+}
+
 async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, title) {
   const bridge = new PythonBridge();
   bridge.start();
@@ -82,6 +134,17 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
     const relativeStaged = 'crateup-staging/' + relativeBase.replace(ext, '.' + outputFormat);
     const stagedAbsPath = path.join(rootPath, relativeStaged);
 
+    let matchedArtist = artist;
+    let matchedTitle = title;
+
+    if (!matchedArtist || matchedArtist === 'Unknown Artist' || !matchedTitle || matchedTitle === 'Unknown Title') {
+      const meta = await fetchDeezerMetadata(deezerId);
+      if (meta) {
+        if (meta.artist) matchedArtist = meta.artist;
+        if (meta.title) matchedTitle = meta.title;
+      }
+    }
+
     // Call Python download
     const downloadResult = await bridge.call('download', {
       deezer_id: parseInt(deezerId, 10),
@@ -90,13 +153,25 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
     });
 
     // Rename file
-    const cleanArtist = sanitizeFilenamePart(artist || 'Unknown Artist');
-    const cleanTitle = sanitizeFilenamePart(title || 'Unknown Title');
-    let combined = `${cleanArtist} - ${cleanTitle}`;
+    let combined = '';
+    const hasArtist = matchedArtist && matchedArtist !== 'Unknown Artist';
+    const hasTitle = matchedTitle && matchedTitle !== 'Unknown Title';
+
+    if (hasArtist || hasTitle) {
+      const cleanArtist = sanitizeFilenamePart(matchedArtist || 'Unknown Artist');
+      const cleanTitle = sanitizeFilenamePart(matchedTitle || 'Unknown Title');
+      combined = `${cleanArtist} - ${cleanTitle}`;
+    } else {
+      combined = path.basename(relPath, path.extname(relPath));
+    }
+
     if (combined.length > 150) {
       combined = combined.substring(0, 150);
     }
     combined = combined.trim().replace(/^\.+|\.+$/g, '').trim();
+    if (!combined) {
+      combined = path.basename(relPath, path.extname(relPath));
+    }
     const finalFilename = `${combined}.${outputFormat}`;
 
     const stagedDir = path.dirname(stagedAbsPath);
@@ -130,8 +205,8 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
         ledger.files[relPath].staged_path = finalAbsoluteStaged;
         ledger.files[relPath].proxy_path = absoluteProxy;
         ledger.files[relPath].staged_bitrate = stagedBitrate;
-        ledger.files[relPath].artist = artist;
-        ledger.files[relPath].title = title;
+        ledger.files[relPath].artist = matchedArtist;
+        ledger.files[relPath].title = matchedTitle;
         ledger.files[relPath].decision = 'pending';
         fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf8');
       }
@@ -143,10 +218,11 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
       staged_path: finalAbsoluteStaged,
       proxy_path: absoluteProxy,
       staged_bitrate: stagedBitrate,
-      artist: artist,
-      title: title
+      artist: matchedArtist,
+      title: matchedTitle
     };
   } finally {
+
     bridge.stop();
   }
 }

@@ -1,6 +1,68 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const child_process = require('child_process');
+
+const resourcesPath = path.join(path.dirname(process.execPath), '../Resources');
+process.env.PATH = `${resourcesPath}:${process.env.PATH}`;
+
+function setupBinaries() {
+  try {
+    const arch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'arm64' ? 'aarch64' : process.arch);
+    let platformStr = '';
+    if (process.platform === 'darwin') platformStr = 'apple-darwin';
+    else if (process.platform === 'win32') platformStr = 'pc-windows-msvc';
+    else if (process.platform === 'linux') platformStr = 'unknown-linux-gnu';
+
+    const suffix = `-${arch}-${platformStr}`;
+    const binDir = path.join(os.tmpdir(), 'crateup-bin');
+    
+    if (!fs.existsSync(binDir)) {
+      fs.mkdirSync(binDir, { recursive: true });
+    }
+
+    const prodBinDir = path.join(resourcesPath, 'binaries');
+    const devBinDir = path.join(__dirname, '..', 'src-tauri', 'binaries');
+    
+    let activeBinDir = fs.existsSync(prodBinDir) ? prodBinDir : devBinDir;
+
+    const binaries = ['ffmpeg', 'ffprobe'];
+    for (const bin of binaries) {
+      const targetLinkPath = path.join(binDir, bin);
+      const sourceFilePath = path.join(activeBinDir, `${bin}${suffix}`);
+      
+      if (!fs.existsSync(targetLinkPath)) {
+        if (fs.existsSync(sourceFilePath)) {
+          try {
+            fs.symlinkSync(sourceFilePath, targetLinkPath);
+            fs.chmodSync(targetLinkPath, 0o755);
+            console.log(`[NODE] Created symlink: ${targetLinkPath} -> ${sourceFilePath}`);
+          } catch (e) {
+            try {
+              fs.copyFileSync(sourceFilePath, targetLinkPath);
+              fs.chmodSync(targetLinkPath, 0o755);
+              console.log(`[NODE] Copied fallback: ${targetLinkPath} -> ${sourceFilePath}`);
+            } catch (copyErr) {
+              console.error(`[NODE] Failed to copy fallback for ${bin}: ${copyErr.message}`);
+            }
+          }
+        } else {
+          console.error(`[NODE] Source binary not found: ${sourceFilePath}`);
+        }
+      } else if (activeBinDir === prodBinDir) {
+        try {
+          fs.chmodSync(targetLinkPath, 0o755);
+        } catch (e) {}
+      }
+    }
+
+    process.env.PATH = `${binDir}:${process.env.PATH}`;
+  } catch (err) {
+    console.error(`[NODE] Error setting up binaries: ${err.message}`);
+  }
+}
+setupBinaries();
+
 
 /**
  * Helper to format local date as YYYY-MM-DD
@@ -164,13 +226,27 @@ async function commit(ledgerPath, decisions, outputPath) {
     const entry = files[relPath];
     const decision = decisions.get(relPath);
 
-    if (decision === 'approved' && entry.status === 'downloaded') {
+    if (decision === 'approved') {
       const originalAbsPath = path.join(rootPath, relPath);
       const relClean = relPath.replace(/^\/+/, '');
+      
+      let targetBasename = path.basename(relPath);
+      if (entry.status === 'downloaded' && entry.staged_path) {
+        targetBasename = path.basename(entry.staged_path);
+      } else {
+        const hasArtist = entry.artist && entry.artist !== 'Unknown Artist';
+        const hasTitle = entry.title && entry.title !== 'Unknown Title';
+        if (hasArtist || hasTitle) {
+          const cleanArtist = entry.artist.replace(/[\/\\:*?"<>|]/g, '').trim();
+          const cleanTitle = entry.title.replace(/[\/\\:*?"<>|]/g, '').trim();
+          targetBasename = `${cleanArtist} - ${cleanTitle}${path.extname(relPath)}`;
+        }
+      }
+
       const targetAbsPath = path.join(
         outputPath,
         path.dirname(relClean),
-        path.basename(entry.staged_path)
+        targetBasename
       );
       const newRelPath = path.relative(outputPath, targetAbsPath).split(path.sep).join('/');
 
@@ -179,51 +255,83 @@ async function commit(ledgerPath, decisions, outputPath) {
       const artistTitle = `${meta.artist || 'Unknown Artist'} - ${meta.name || 'Unknown Title'}`;
 
       try {
-        const deezerId = entry.deezer_id;
+        if (entry.status === 'downloaded') {
+          const deezerId = entry.deezer_id;
 
-        if (deezerId && committedPaths.has(deezerId)) {
-          // Duplicate / clone handling
-          const sourceCommittedPath = committedPaths.get(deezerId);
-          
-          fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
-          fs.copyFileSync(sourceCommittedPath, targetAbsPath);
+          if (deezerId && committedPaths.has(deezerId)) {
+            // Duplicate / clone handling
+            const sourceCommittedPath = committedPaths.get(deezerId);
+            
+            fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
+            fs.copyFileSync(sourceCommittedPath, targetAbsPath);
 
-          writeLog('DUPLICATE', `${artistTitle}  →  cloned from committed copy in output folder`);
-          entry.status = 'committed';
-          entry.output_path = targetAbsPath;
-        } else {
-          // Standard copy handling
-          let stagedAbsPath = getStagedAbsPath(entry, rootPath);
+            writeLog('DUPLICATE', `${artistTitle}  →  cloned from committed copy in output folder`);
+            entry.status = 'committed';
+            entry.output_path = targetAbsPath;
+          } else {
+            // Standard copy handling
+            let stagedAbsPath = getStagedAbsPath(entry, rootPath);
 
-          if (!stagedAbsPath || !fs.existsSync(stagedAbsPath)) {
-            stagedAbsPath = findStagedFileOnDisk(deezerId, rootPath, files);
-          }
-
-          if (!stagedAbsPath || !fs.existsSync(stagedAbsPath)) {
-            throw new Error(`Staged file not found for Deezer ID ${deezerId}`);
-          }
-
-          // Leave original file untouched, just copy staged file to output folder
-          fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
-          fs.copyFileSync(stagedAbsPath, targetAbsPath);
-
-          // Delete the staged file from crateup-staging/ after copying
-          if (fs.existsSync(stagedAbsPath)) {
-            fs.unlinkSync(stagedAbsPath);
-          }
-
-          if (outputFormat.toLowerCase() === 'aiff') {
-            const proxyStagedPath = stagedAbsPath + '.proxy.mp3';
-            if (fs.existsSync(proxyStagedPath)) {
-              fs.unlinkSync(proxyStagedPath);
+            if (!stagedAbsPath || !fs.existsSync(stagedAbsPath)) {
+              stagedAbsPath = findStagedFileOnDisk(deezerId, rootPath, files);
             }
+
+            if (!stagedAbsPath || !fs.existsSync(stagedAbsPath)) {
+              throw new Error(`Staged file not found for Deezer ID ${deezerId}`);
+            }
+
+            // Leave original file untouched, just copy staged file to output folder
+            fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
+            fs.copyFileSync(stagedAbsPath, targetAbsPath);
+
+            // Delete the staged file from crateup-staging/ after copying
+            if (fs.existsSync(stagedAbsPath)) {
+              fs.unlinkSync(stagedAbsPath);
+            }
+
+            if (outputFormat.toLowerCase() === 'aiff') {
+              const proxyStagedPath = stagedAbsPath + '.proxy.mp3';
+              if (fs.existsSync(proxyStagedPath)) {
+                fs.unlinkSync(proxyStagedPath);
+              }
+            }
+
+            if (deezerId) {
+              committedPaths.set(deezerId, targetAbsPath);
+            }
+
+            writeLog('COMMITTED', `${artistTitle}  →  ${newRelPath} (copied to output folder)`);
+            entry.status = 'committed';
+            entry.output_path = targetAbsPath;
+          }
+        } else {
+          // Unresolved/failed track but approved to copy original and write metadata tags
+          fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
+
+          const hasShazamMeta = entry.artist && entry.title;
+          if (hasShazamMeta) {
+            // Copy original file and write metadata tags using ffmpeg
+            const spawnResult = child_process.spawnSync('ffmpeg', [
+              '-y',
+              '-i', originalAbsPath,
+              '-metadata', `artist=${entry.artist}`,
+              '-metadata', `title=${entry.title}`,
+              '-codec', 'copy',
+              targetAbsPath
+            ]);
+
+            if (spawnResult.status !== 0) {
+              // Fallback to simple copy if ffmpeg fails
+              fs.copyFileSync(originalAbsPath, targetAbsPath);
+              writeLog('COMMITTED_WARN', `${artistTitle}  →  ${newRelPath} (copied without tags due to ffmpeg error)`);
+            } else {
+              writeLog('COMMITTED_TAGGED', `${artistTitle}  →  ${newRelPath} (original copied & metadata tagged)`);
+            }
+          } else {
+            fs.copyFileSync(originalAbsPath, targetAbsPath);
+            writeLog('COMMITTED', `${artistTitle}  →  ${newRelPath} (copied original without changes)`);
           }
 
-          if (deezerId) {
-            committedPaths.set(deezerId, targetAbsPath);
-          }
-
-          writeLog('COMMITTED', `${artistTitle}  →  ${newRelPath} (copied to output folder)`);
           entry.status = 'committed';
           entry.output_path = targetAbsPath;
         }
@@ -238,40 +346,40 @@ async function commit(ledgerPath, decisions, outputPath) {
     const entry = files[relPath];
     const decision = decisions.get(relPath);
 
-    if (decision === 'skipped' || entry.status === 'unidentified' || entry.status === 'not_on_deezer') {
-      const originalAbsPath = path.join(rootPath, relPath);
-      const relClean = relPath.replace(/^\/+/, '');
-      const targetAbsPath = path.join(outputPath, relClean);
-      const meta = getFileMetadata(originalAbsPath);
-      const artistTitle = `${meta.artist || 'Unknown Artist'} - ${meta.name || 'Unknown Title'}`;
+    if (decision === 'approved') continue;
 
-      try {
-        // Delete staging file if it was downloaded but skipped
-        if (entry.status === 'downloaded' && entry.staged_path) {
-          const stagedAbsPath = getStagedAbsPath(entry, rootPath);
-          if (stagedAbsPath && fs.existsSync(stagedAbsPath)) {
-            fs.unlinkSync(stagedAbsPath);
-          }
-          if (outputFormat.toLowerCase() === 'aiff' && stagedAbsPath) {
-            const proxyStagedPath = stagedAbsPath + '.proxy.mp3';
-            if (fs.existsSync(proxyStagedPath)) {
-              fs.unlinkSync(proxyStagedPath);
-            }
+    const originalAbsPath = path.join(rootPath, relPath);
+    const relClean = relPath.replace(/^\/+/, '');
+    const targetAbsPath = path.join(outputPath, relClean);
+    const meta = getFileMetadata(originalAbsPath);
+    const artistTitle = `${meta.artist || 'Unknown Artist'} - ${meta.name || 'Unknown Title'}`;
+
+    try {
+      // Delete staging file if it was downloaded but skipped
+      if (entry.status === 'downloaded' && entry.staged_path) {
+        const stagedAbsPath = getStagedAbsPath(entry, rootPath);
+        if (stagedAbsPath && fs.existsSync(stagedAbsPath)) {
+          fs.unlinkSync(stagedAbsPath);
+        }
+        if (outputFormat.toLowerCase() === 'aiff' && stagedAbsPath) {
+          const proxyStagedPath = stagedAbsPath + '.proxy.mp3';
+          if (fs.existsSync(proxyStagedPath)) {
+            fs.unlinkSync(proxyStagedPath);
           }
         }
-
-        // Copy original file to output folder so output folder is a complete library
-        if (fs.existsSync(originalAbsPath)) {
-          fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
-          fs.copyFileSync(originalAbsPath, targetAbsPath);
-        }
-
-        entry.status = 'skipped';
-        entry.output_path = targetAbsPath;
-        writeLog('SKIPPED', `${artistTitle}  →  original copied to output folder`);
-      } catch (err) {
-        failures.push({ relPath, error: err.message });
       }
+
+      // Copy original file to output folder so output folder is a complete library
+      if (fs.existsSync(originalAbsPath)) {
+        fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
+        fs.copyFileSync(originalAbsPath, targetAbsPath);
+      }
+
+      entry.status = 'skipped';
+      entry.output_path = targetAbsPath;
+      writeLog('SKIPPED', `${artistTitle}  →  original copied to output folder`);
+    } catch (err) {
+      failures.push({ relPath, error: err.message });
     }
   }
 

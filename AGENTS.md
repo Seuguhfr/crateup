@@ -233,7 +233,7 @@ Fixed production environment bottlenecks and WebKit UI issues:
   - Verified compiler integrity with a clean release build.
 - **Unified ignore rule configuration and Vite watch list extension**: Updated the root [.gitignore](file:///Users/hugues/Code/crateup/.gitignore) to exclude Python caches, Rust target artifacts, test library structures, and the private credentials file (`.arl`). Extended the watcher ignore array inside [vite.config.ts](file:///Users/hugues/Code/crateup/vite.config.ts) to explicitly skip `src-tauri`, `test-library`, and `node-sidecar/node_modules` subdirectories, neutralizing file-watcher loops during development runtimes.
 
-## Last session
+## Previous session
 Completed final micro-layout refinements on the `style/early-pressing` branch:
 - **Calibrated Text Colors & Focus Indicators Around Waveforms**: Forced all informational text, timestamps, format labels, loaders, spans, paragraphs, focus outline, focus dot, and play button borders/text for the Top Deck to strictly use the played progress color `var(--espresso)`. Mapped all corresponding typography, timers, unresolved error messages, loader tags, focus dot, and focus outline for the Bottom (Staged) Deck to explicitly use the vivid upgrade identity color `var(--accent)` (#B5410E).
 - **Normalized Play/Pause Button Dimensions**: Locked `.deck-play-btn` bounds to a fixed width of `90px` and height of `28px` (using `padding: 0` and flex centering) to completely eliminate dimension adjustments from font bounding box differences between `▶ PLAY` and `⏸ PAUSE` symbols.
@@ -244,4 +244,28 @@ Completed final micro-layout refinements on the `style/early-pressing` branch:
 - **Formatted Keyboard Shortcuts Modal & Replaced Missing Icons**: Expanded the Shortcuts modal container layout with `max-width: 650px`, padded bounds, scaled up typography size by 2 points (to 15px), and verified clean string spacing for descriptive phrases. Replaced the missing keyboard emoji icon `⌨` with the universally supported Option key glyph `⌥` to resolve tofu box rendering errors in standard WebKit WebViews.
 - **Widened Download Page Format Selector**: Scaled the width of the Output Format drop-down menu on the download dashboard to `240px` to visually balance with the adjacent execution buttons.
 - **Verification**: Verified that all backend/frontend packages compile cleanly and automated pytest and Jest test suites pass 100%.
+
+## Previous session - Metadata leak and manual fetch fixes
+Fixed a metadata display leak in the review screen when a track is not found:
+- Reset the staged metadata comparison fields (`meta-staged-file`, `meta-staged-size`, `meta-staged-format`, `meta-staged-bitrate`, and `meta-staged-time`) to `'-'` at the beginning of `loadTrack` to ensure no metadata from the previously viewed track is displayed.
+- Invoked `waveSurferStaged.empty()` at the start of `loadTrack` so that the bottom player's loaded audio and waveform canvas are cleared when switching to an unresolved track.
+- Implemented backend Deezer metadata fetching in `node-sidecar/refetch.js` to bypass frontend WebView CORS limitations and correctly rename manually refetched files.
+- Implemented original track filename fallback in both `node-sidecar/refetch.js` and `node-sidecar/pipeline.js` when track artist and title metadata cannot be resolved.
+- Guarded `waveSurferStaged` event listeners (`ready`, `timeupdate`, and `decode`) in `ui/index.html` to return early if the track status is not downloaded. This keeps the staged duration display (`staged-time` and `meta-staged-time`) as `--:--` and `'-'` respectively, preventing the asynchronous `.empty()` loader from overwriting them with `00:00`.
+- Updated manual track identification in `node-sidecar/identify.js` and `ui/index.html` to persist Shazam match results directly to the ledger on disk.
+- Enhanced manual identify feedback to distinguish between `"✓ Found on Deezer"`, `"⚠ Identified, not on Deezer"`, and `"✗ Not identified"` statuses.
+- Configured track review headers in `ui/index.html` to display the Shazam-identified song title and artist for unresolved/failed tracks if they exist in the ledger.
+- Verified that all unit tests (Jest & Pytest) pass cleanly.
+
+## Last session
+Implemented manual approval for unresolved tracks that have Shazam metadata:
+- Updated `approveCurrent()` in [ui/index.html](file:///Users/hugues/Code/crateup/ui/index.html) to set `ledgerFile.decision = 'approved'` instead of falling back to `'skipped'` when the track status is not downloaded but valid Shazam metadata is present.
+- Updated the keydown listener to allow using `Enter` to approve tracks that are not downloaded but possess Shazam metadata.
+- Added a `#staged-unresolved-subtext` element inside the unresolved bottom deck placeholder to display the action instruction:
+  - If Shazam metadata is present: `Press Enter to copy original file to output and write Shazam metadata ("Artist - Title"), or Backspace to skip metadata updates.`
+  - If Shazam metadata is absent: `Press Backspace to skip (original file is still copied to output as-is)`
+- Added a `keydown` handler on the `#manual-deezer-id-input` field so that pressing `Enter` inside it automatically unfocuses (blurs) the input field and triggers the "Refetch" action by programmatically clicking `#refetch-deezer-id-btn`.
+- Verified that all Node/JS Jest test suites and Python pytest test suites run and pass cleanly, and the Tauri Rust backend compiles successfully.
+
+
 

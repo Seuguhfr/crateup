@@ -76,6 +76,32 @@ async function identifyTrack(rootPath, relPath) {
   try {
     const absPath = path.join(rootPath, relPath);
     const result = await bridge.call('fingerprint', { path: absPath });
+
+    // Update ledger on disk if identified
+    if (result && (result.artist || result.title)) {
+      const isProdDir = fs.existsSync(path.join(__dirname, '../../Resources/binaries')) || fs.existsSync(path.join(path.dirname(process.execPath), '../Resources/binaries'));
+      const isTestMode = process.env.NODE_ENV === 'test';
+      const ledgerFilename = (isProdDir || isTestMode) ? '.crateup-progress.json' : '.crateup-progress-dev.json';
+      const ledgerPath = path.join(rootPath, ledgerFilename);
+      if (fs.existsSync(ledgerPath)) {
+        try {
+          const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+          if (ledger.files && ledger.files[relPath]) {
+            ledger.files[relPath].artist = result.artist || null;
+            ledger.files[relPath].title = result.title || null;
+            if (result.deezer_id) {
+              ledger.files[relPath].deezer_id = result.deezer_id;
+            } else {
+              ledger.files[relPath].status = 'not_on_deezer';
+            }
+            fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf8');
+          }
+        } catch (ledgerErr) {
+          console.error(`[NODE] Failed to update ledger in identify.js: ${ledgerErr.message}`);
+        }
+      }
+    }
+
     return result;
   } finally {
     bridge.stop();

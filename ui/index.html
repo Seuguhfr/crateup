@@ -1126,7 +1126,7 @@
     <header>
       <div class="logo-container">
         <img src="./icon.png" alt="CrateUp" class="header-logo" style="width: 28px; height: 28px; border-radius: 6px;" />
-        <h1>CrateUp <span class="mono" style="font-size: 10px; color: var(--mocha); border: 0.5px solid var(--roast); padding: 2px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.1em;">Ver. 2.1.0</span></h1>
+        <h1>CrateUp <span class="mono" style="font-size: 10px; color: var(--mocha); border: 0.5px solid var(--roast); padding: 2px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.1em;">Ver. 2.1.1</span></h1>
       </div>
       
       <div style="display: flex; gap: 12px; align-items: center;">
@@ -1176,7 +1176,7 @@
         </div>
         
         <div class="home-footer-badge">
-          v2.1.0 · Personal use only
+          v2.1.1 · Personal use only
         </div>
       </div>
 
@@ -1319,6 +1319,7 @@
                 <div id="staged-unresolved-placeholder" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px; box-sizing: border-box;">
                   <span style="font-size: 24px;">⚠️</span>
                   <span id="staged-unresolved-text" style="font-weight: 500; color: var(--orange);">No upgrade available</span>
+                  <span id="staged-unresolved-subtext" style="font-size: 11px; color: var(--text-muted); max-width: 450px; margin-top: 4px; line-height: 1.4;"></span>
                 </div>
               </div>
               <div class="deck-controls">
@@ -1743,8 +1744,8 @@
         ledger.files[track.relPath].staged_path = result.staged_path;
         ledger.files[track.relPath].proxy_path = result.proxy_path;
         ledger.files[track.relPath].staged_bitrate = result.staged_bitrate;
-        ledger.files[track.relPath].artist = artist;
-        ledger.files[track.relPath].title = title;
+        ledger.files[track.relPath].artist = result.artist || artist;
+        ledger.files[track.relPath].title = result.title || title;
         ledger.files[track.relPath].decision = 'pending';
         
         // Update review queue item
@@ -1765,6 +1766,15 @@
       } finally {
         btnSpan.textContent = originalText;
         btn.removeAttribute('disabled');
+      }
+    });
+
+    // Enter key triggers refetch inside manual Deezer ID input
+    document.getElementById('manual-deezer-id-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.target.blur();
+        document.getElementById('refetch-deezer-id-btn').click();
       }
     });
 
@@ -1797,15 +1807,37 @@
         });
         
         const result = JSON.parse(resultStr);
-        if (result && result.deezer_id) {
-          document.getElementById('manual-deezer-id-input').value = result.deezer_id;
-          showRefetchFeedback("✓ Found", "var(--green)");
+        if (result && (result.artist || result.title)) {
+          // Update local memory
+          ledger.files[track.relPath].artist = result.artist;
+          ledger.files[track.relPath].title = result.title;
+          
+          if (result.deezer_id) {
+            ledger.files[track.relPath].deezer_id = result.deezer_id;
+            track.deezerId = result.deezer_id;
+            document.getElementById('manual-deezer-id-input').value = result.deezer_id;
+            showRefetchFeedback("✓ Found on Deezer", "var(--green)");
+          } else {
+            ledger.files[track.relPath].status = 'not_on_deezer';
+            track.status = 'not_on_deezer';
+            showRefetchFeedback("⚠ Identified, not on Deezer", "var(--orange)");
+          }
+          
+          // Reload track view to show identified metadata immediately
+          await loadTrack(currentIndex);
+          renderQueueList();
+          updateQueueHeader();
         } else {
-          showRefetchFeedback("✗ Not found", "var(--red)");
+          showRefetchFeedback("✗ Not identified", "var(--red)");
         }
       } catch (err) {
         console.error("Manual identification failed:", err);
-        showRefetchFeedback("✗ Not found", "var(--red)", err.message || String(err));
+        const errMsg = err.message || String(err);
+        if (errMsg.includes("unidentified")) {
+          showRefetchFeedback("✗ Not identified", "var(--red)");
+        } else {
+          showRefetchFeedback("✗ Error", "var(--red)", errMsg);
+        }
       } finally {
         btnSpan.textContent = originalText;
         btn.removeAttribute('disabled');
@@ -2768,9 +2800,14 @@
       });
 
       waveSurferStaged.on('timeupdate', (time) => {
+        const track = reviewQueue[currentIndex];
+        if (!track || track.status !== 'downloaded') return;
         document.getElementById('staged-time').textContent = formatTime(time) + ' / ' + formatTime(waveSurferStaged.getDuration());
       });
       waveSurferStaged.on('ready', () => {
+        const track = reviewQueue[currentIndex];
+        if (!track || track.status !== 'downloaded') return;
+
         console.log("WS duration:", waveSurferStaged.getDuration());
         console.log("Audio element duration:", waveSurferStaged.getMediaElement() ? waveSurferStaged.getMediaElement().duration : null);
         console.log("Backend:", waveSurferStaged.options ? waveSurferStaged.options.backend : null);
@@ -2792,6 +2829,8 @@
       });
       if (hasDecode) {
         waveSurferStaged.on('decode', () => {
+          const track = reviewQueue[currentIndex];
+          if (!track || track.status !== 'downloaded') return;
           readyState.staged.decode = true;
           checkUsable('staged');
         });
@@ -2865,12 +2904,37 @@
       originalFileUrl = null;
       stagedFileUrl = null;
 
+      // Reset staged metadata fields
+      document.getElementById('meta-staged-file').textContent = '-';
+      document.getElementById('meta-staged-size').textContent = '-';
+      document.getElementById('meta-staged-format').textContent = '-';
+      document.getElementById('meta-staged-bitrate').textContent = '-';
+      document.getElementById('meta-staged-time').textContent = '-';
+
+      if (waveSurferStaged) {
+        try {
+          waveSurferStaged.empty();
+        } catch (e) {
+          console.warn("waveSurferStaged.empty() failed:", e);
+        }
+      }
+
       // Update basic headers
       const filename = track.relPath.split('/').pop();
-      document.getElementById('meta-title').textContent = filename;
-      document.getElementById('meta-artist-album').textContent = track.status === 'downloaded' 
-        ? `Deezer ID: ${track.deezerId}` 
-        : `Track Unresolved`;
+      const hasShazamMeta = ledgerFile && ledgerFile.artist && ledgerFile.title && ledgerFile.artist !== 'Unknown Artist' && ledgerFile.title !== 'Unknown Title';
+      if (hasShazamMeta && track.status !== 'downloaded') {
+        document.getElementById('meta-title').textContent = ledgerFile.title;
+        let statusText = 'Identified, not on Deezer';
+        if (track.status === 'download_failed') {
+          statusText = `Download failed — Deezer ID: ${track.deezerId || 'Unknown'}`;
+        }
+        document.getElementById('meta-artist-album').textContent = `${ledgerFile.artist} (${statusText})`;
+      } else {
+        document.getElementById('meta-title').textContent = filename;
+        document.getElementById('meta-artist-album').textContent = track.status === 'downloaded' 
+          ? `Deezer ID: ${track.deezerId}` 
+          : `Track Unresolved`;
+      }
       document.getElementById('meta-path').textContent = track.relPath;
 
       // Pre-fill manual Deezer ID input
@@ -3064,6 +3128,15 @@
         }
         document.getElementById('staged-unresolved-text').textContent = failureReason;
 
+        const subtextEl = document.getElementById('staged-unresolved-subtext');
+        if (subtextEl) {
+          if (hasShazamMeta) {
+            subtextEl.textContent = `Press Enter to copy original file to output and write Shazam metadata ("${ledgerFile.artist} - ${ledgerFile.title}"), or Backspace to skip metadata updates.`;
+          } else {
+            subtextEl.textContent = `Press Backspace to skip (original file is still copied to output as-is)`;
+          }
+        }
+
         setFocus('original');
       }
     }
@@ -3124,8 +3197,9 @@
     function approveCurrent() {
       const track = reviewQueue[currentIndex];
       const ledgerFile = ledger.files[track.relPath];
+      const hasShazamMeta = ledgerFile && ledgerFile.artist && ledgerFile.title && ledgerFile.artist !== 'Unknown Artist' && ledgerFile.title !== 'Unknown Title';
       
-      if (track.status === 'downloaded') {
+      if (track.status === 'downloaded' || (track.status !== 'downloaded' && hasShazamMeta)) {
         ledgerFile.decision = 'approved';
       } else {
         ledgerFile.decision = 'skipped';
@@ -3247,7 +3321,9 @@
           break;
         case 'Enter':
           e.preventDefault();
-          if (track.status === 'downloaded') {
+          const ledgerFile = ledger.files[track.relPath];
+          const hasShazamMeta = ledgerFile && ledgerFile.artist && ledgerFile.title && ledgerFile.artist !== 'Unknown Artist' && ledgerFile.title !== 'Unknown Title';
+          if (track.status === 'downloaded' || hasShazamMeta) {
             approveCurrent();
           }
           break;

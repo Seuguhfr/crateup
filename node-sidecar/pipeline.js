@@ -226,13 +226,25 @@ async function runPipeline(rootPath, outputFormat, fileList = null) {
       }
       
       // Step D: Successful download update
-      const cleanArtist = sanitizeFilenamePart(matchedArtist || 'Unknown Artist');
-      const cleanTitle = sanitizeFilenamePart(matchedTitle || 'Unknown Title');
-      let combined = `${cleanArtist} - ${cleanTitle}`;
+      let combined = '';
+      const hasArtist = matchedArtist && matchedArtist !== 'Unknown Artist';
+      const hasTitle = matchedTitle && matchedTitle !== 'Unknown Title';
+
+      if (hasArtist || hasTitle) {
+        const cleanArtist = sanitizeFilenamePart(matchedArtist || 'Unknown Artist');
+        const cleanTitle = sanitizeFilenamePart(matchedTitle || 'Unknown Title');
+        combined = `${cleanArtist} - ${cleanTitle}`;
+      } else {
+        combined = path.basename(relPath, path.extname(relPath));
+      }
+
       if (combined.length > 150) {
         combined = combined.substring(0, 150);
       }
       combined = combined.trim().replace(/^\.+|\.+$/g, '').trim();
+      if (!combined) {
+        combined = path.basename(relPath, path.extname(relPath));
+      }
       const finalFilename = `${combined}.${outputFormat}`;
       
       const stagedDir = path.dirname(stagedAbsPath);
