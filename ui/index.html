@@ -149,30 +149,30 @@
     }
 
     #reset-session-btn {
-      background-color: var(--paper);
-      color: var(--espresso);
-      border: 0.5px solid var(--border-color);
-      font-weight: 600;
+      background-color: var(--paper) !important;
+      color: var(--espresso) !important;
+      border: 0.5px solid var(--border-color) !important;
+      font-weight: 700 !important;
     }
 
     #reset-session-btn:hover {
-      background-color: var(--paper-hover);
-      color: var(--espresso);
-      border-color: var(--accent);
+      background-color: var(--paper-2) !important;
+      color: var(--espresso) !important;
+      border-color: var(--accent) !important;
     }
 
     #shortcuts-toggle-btn {
-      background-color: transparent;
-      border: 0.5px solid var(--border-color);
-      color: var(--paper);
-      border-radius: 20px; /* Outlined pill style */
-      font-weight: 500;
+      background-color: transparent !important;
+      border: 1px solid var(--border-color) !important;
+      color: var(--paper-3) !important;
+      border-radius: 20px !important; /* Outlined pill style */
+      font-weight: 500 !important;
     }
 
     #shortcuts-toggle-btn:hover {
-      background-color: var(--paper);
-      color: var(--espresso);
-      border-color: var(--border-color);
+      background-color: var(--paper) !important;
+      color: var(--espresso) !important;
+      border-color: var(--border-color) !important;
     }
 
     .picker-btn input[type="file"] {
@@ -239,6 +239,7 @@
       width: 100% !important;
       max-width: none !important;
       margin: 0 !important;
+      box-sizing: border-box;
     }
 
     .track-info-primary h2 {
@@ -302,8 +303,8 @@
 
     /* Highlight Active Focus Deck */
     .deck.focused.original-deck {
-      border-color: var(--sand);
-      box-shadow: 0 0 0 1.5px var(--sand);
+      border-color: var(--espresso);
+      box-shadow: 0 0 0 1.5px var(--espresso);
     }
 
     .deck.focused.staged-deck {
@@ -319,24 +320,41 @@
     }
 
     /* Deck typography matching */
+    .original-deck,
+    .original-deck span,
+    .original-deck div,
+    .original-deck p,
     .original-deck .deck-label,
     .original-deck .deck-time,
-    .original-deck #original-format {
-      color: var(--tan) !important;
+    .original-deck #original-format,
+    .original-deck .waveform-loader,
+    .original-deck .deck-play-btn {
+      color: var(--espresso) !important;
     }
     .original-deck .deck-play-btn {
-      border-color: var(--sand);
-      color: var(--mocha);
+      border-color: var(--espresso) !important;
+    }
+    .original-deck .deck-play-btn:hover {
+      background-color: var(--paper-3) !important;
+      color: var(--espresso) !important;
+      border-color: var(--espresso) !important;
     }
 
     .staged-deck .deck-label,
     .staged-deck .deck-time,
-    .staged-deck #staged-format {
+    .staged-deck #staged-format,
+    .staged-deck .waveform-loader,
+    .staged-deck #staged-unresolved-text {
       color: var(--accent) !important;
     }
     .staged-deck .deck-play-btn {
-      border-color: var(--accent);
-      color: var(--accent);
+      border-color: var(--accent) !important;
+      color: var(--accent) !important;
+    }
+    .staged-deck .deck-play-btn:hover {
+      border-color: var(--accent) !important;
+      color: var(--accent-d) !important;
+      background-color: var(--paper-3) !important;
     }
 
     .deck-label {
@@ -361,14 +379,21 @@
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background-color: var(--sand);
       transition: var(--transition);
     }
 
+    .original-deck .focus-dot {
+      background-color: var(--espresso);
+    }
+
+    .staged-deck .focus-dot {
+      background-color: var(--accent);
+    }
+
     .deck.focused.original-deck .focus-dot {
-      background-color: var(--sand);
+      background-color: var(--espresso);
       transform: scale(1.3);
-      box-shadow: 0 0 8px var(--sand);
+      box-shadow: 0 0 8px var(--espresso);
     }
 
     .deck.focused.staged-deck .focus-dot {
@@ -728,13 +753,19 @@
       background-color: transparent;
       border: 0.5px solid var(--sand);
       color: var(--mocha);
-      padding: 6px 14px;
+      padding: 0;
       border-radius: 4px;
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       transition: var(--transition);
+      width: 90px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
     }
     
     .original-deck .deck-play-btn:hover {
@@ -747,28 +778,27 @@
       background-color: var(--paper-3);
     }
 
-    .metadata-comparison-grid {
+    #metadata-row.metadata-comparison-grid {
+      display: grid !important;
+      grid-template-columns: 1fr auto 1fr !important; /* Center column hugs text, left/right split the rest */
+      gap: 6px 24px !important; /* Tight vertical gap, comfortable horizontal gap */
+      width: 100% !important;
+      max-width: none !important;
+      align-items: center !important;
       background-color: var(--paper-3);
       border: 0.5px solid var(--border-color);
       border-radius: 7px;
-      padding: 8px 12px;
-      display: grid;
-      grid-template-columns: repeat(7, minmax(0, 1fr));
-      gap: 4px 8px;
-      align-items: center;
+      padding: 6px 8px;
       font-size: 11px;
       font-family: 'JetBrains Mono', monospace;
-      max-width: 480px;
-      width: 100%;
       margin: 0 auto;
     }
 
     .meta-col-left {
-      grid-column: span 3;
       text-align: right;
       color: var(--espresso);
       font-weight: 500;
-      padding-right: 12px;
+      padding-right: 4px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -776,16 +806,15 @@
     }
 
     .meta-col-center {
-      grid-column: span 1;
       text-align: center;
-      color: var(--tan);
       font-weight: 600;
+      color: var(--tan);
       font-family: 'JetBrains Mono', monospace;
       font-size: 10px;
       text-transform: uppercase;
       opacity: 0.7;
       background-color: transparent;
-      padding: 2px 8px;
+      padding: 2px 2px;
       border-radius: 4px;
       border: none;
     }
@@ -795,11 +824,10 @@
     }
 
     .meta-col-right {
-      grid-column: span 3;
       text-align: left;
       color: var(--espresso);
       font-weight: 500;
-      padding-left: 12px;
+      padding-left: 4px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1079,16 +1107,16 @@
 
     /* Shortcuts Modal Custom overrides */
     #shortcuts-modal-backdrop .modal {
-      max-width: 650px;
-      padding: 40px;
+      max-width: 650px !important;
+      padding: 40px !important;
     }
     #shortcuts-modal-backdrop .help-grid {
-      font-size: 13px;
-      gap: 12px 20px;
+      font-size: 15px !important;
+      gap: 14px 24px !important;
     }
     #shortcuts-modal-backdrop kbd {
-      font-size: 12px;
-      padding: 4px 8px;
+      font-size: 13px !important;
+      padding: 4px 10px !important;
     }
   </style>
 </head>
@@ -1103,7 +1131,7 @@
       
       <div style="display: flex; gap: 12px; align-items: center;">
         <button class="picker-btn hidden" id="shortcuts-toggle-btn" tabindex="-1">
-          <span>⌨ Shortcuts</span>
+          <span>⌥ Shortcuts</span>
         </button>
         <button class="picker-btn hidden" id="reset-session-btn" tabindex="-1">
           <span>↺ Reset Session</span>
@@ -1163,7 +1191,7 @@
           <div style="display: flex; gap: 20px; align-items: flex-end; margin-top: 20px;">
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 12px; color: var(--text-muted);">Output Format</label>
-              <select id="pipeline-format-select" class="mono" style="background-color: var(--bg-darker); border: 0.5px solid var(--border-color); color: var(--text-main); padding: 0 12px; border-radius: 4px; font-size: 12px; height: 35px; box-sizing: border-box; outline: none; cursor: pointer; width: 180px;">
+              <select id="pipeline-format-select" class="mono" style="background-color: var(--bg-darker); border: 0.5px solid var(--border-color); color: var(--text-main); padding: 0 12px; border-radius: 4px; font-size: 12px; height: 35px; box-sizing: border-box; outline: none; cursor: pointer; width: 240px;">
                 <option value="mp3">MP3 320 kbps</option>
                 <option value="flac" selected>FLAC (Lossless)</option>
                 <option value="aiff">AIFF (Lossless)</option>
@@ -1412,7 +1440,7 @@
   <div class="modal-backdrop" id="shortcuts-modal-backdrop">
     <div class="modal" style="box-sizing: border-box;">
       <div class="modal-title">
-        <span>⌨</span> Keyboard Shortcuts
+        <span>⌥</span> Keyboard Shortcuts
       </div>
       <div class="modal-body" style="box-sizing: border-box;">
         <div class="help-grid">
@@ -1425,9 +1453,9 @@
           <div><kbd class="mono">←</kbd> / <kbd class="mono">→</kbd></div>
           <div>Seek -10s / +10s (focused player)</div>
           <div><kbd class="mono">Enter</kbd></div>
-          <div><strong style="color: var(--green);">Approve Upgrade</strong> (Accepts replacement & advances)</div>
+          <div><strong style="color: var(--green);">Approve Upgrade</strong> (Accepts replacement &amp; advances)</div>
           <div><kbd class="mono">Backspace</kbd></div>
-          <div><strong style="color: var(--red);">Keep Original</strong> (Skips replacement & advances)</div>
+          <div><strong style="color: var(--red);">Keep Original</strong> (Skips replacement &amp; advances)</div>
         </div>
       </div>
       <button class="modal-btn" id="shortcuts-modal-close" style="width: 100%;">Close</button>
@@ -2680,7 +2708,7 @@
       // Original Waveform
       waveSurferOriginal = WaveSurfer.create({
         container: '#original-waveform',
-        waveColor: '#c8b89a',
+        waveColor: '#8b6a45',
         progressColor: '#1A0F05',
         cursorColor: '#1A0F05',
         height: 120,
@@ -2691,7 +2719,7 @@
       // Staged Waveform
       waveSurferStaged = WaveSurfer.create({
         container: '#staged-waveform',
-        waveColor: '#c8b89a',
+        waveColor: '#8b6a45',
         progressColor: '#b5410e',
         cursorColor: '#b5410e',
         height: 120,
