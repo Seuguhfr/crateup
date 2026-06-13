@@ -1,0 +1,8 @@
+{
+  "name": "node-sidecar",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "devDependencies": {
+    "jest": "^30.4.2"
+  }
+}

@@ -1,0 +1,4 @@
+shazamio
+deemix
+pytest
+pytest-asyncio

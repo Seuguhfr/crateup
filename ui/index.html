@@ -1,0 +1,3297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' tauri: https://tauri.localhost ipc:; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: tauri: https://tauri.localhost; media-src 'self' asset: tauri: https://tauri.localhost blob:; connect-src 'self' asset: tauri: https://tauri.localhost ipc: ws: http://localhost:*;">
+  <title>CrateUp — Review Queue</title>
+  <!-- Local Fonts -->
+  <style>
+    @font-face {
+      font-family: 'JetBrains Mono';
+      font-style: normal;
+      font-weight: 400 700;
+      font-display: swap;
+      src: url('./fonts/jetbrainsmono-latin.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Outfit';
+      font-style: normal;
+      font-weight: 400 700;
+      font-display: swap;
+      src: url('./fonts/outfit-latin.woff2') format('woff2');
+    }
+  </style>
+  
+  <!-- Local WaveSurfer.js -->
+  <script src="./wavesurfer.js"></script>
+
+  <style>
+    :root {
+      --bg-darker: #0d0d0f;
+      --bg-dark: #141417;
+      --bg-card: #1d1d22;
+      --border-color: #2b2b33;
+      --text-main: #e4e4e7;
+      --text-muted: #8b8b9a;
+      
+      /* DJ Neon Color System */
+      --cyan: #00f0ff;
+      --orange: #ff9f00;
+      --green: #39ff14;
+      --red: #ff3838;
+      
+      --cyan-glow: rgba(0, 240, 255, 0.15);
+      --orange-glow: rgba(255, 159, 0, 0.15);
+      --green-glow: rgba(57, 255, 20, 0.15);
+      --card-radius: 12px;
+      --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-darker);
+      color: var(--text-main);
+      font-family: 'Outfit', sans-serif;
+      overflow-x: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Monospace Utility */
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Header Design */
+    header {
+      background-color: var(--bg-dark);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 70px;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-logo {
+      width: 28px !important;
+      height: 28px !important;
+      border-radius: 6px !important;
+      flex-shrink: 0 !important;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      background: linear-gradient(to right, #fff, var(--text-muted));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .picker-btn {
+      position: relative;
+      background: linear-gradient(135deg, #2b2b33 0%, #1e1e24 100%);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: var(--transition);
+      overflow: hidden;
+    }
+
+    .picker-btn:hover {
+      border-color: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan-glow);
+    }
+
+    .picker-btn input[type="file"] {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    /* Main Layout Grid */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      overflow: hidden;
+    }
+
+    /* Left panel: Deck workspace */
+    .workspace {
+      padding: 24px;
+      padding-top: 8px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Load state placeholder */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .empty-icon {
+      font-size: 48px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 0.8; }
+      100% { opacity: 0.4; }
+    }
+
+    /* Active Track Header Info */
+    .track-meta-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .track-info-primary h2 {
+      font-size: 22px;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .track-info-primary p {
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-downloaded {
+      background-color: rgba(0, 240, 255, 0.1);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+    }
+
+    .badge-unidentified {
+      background-color: rgba(255, 56, 56, 0.1);
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+
+    .badge-not-on-deezer {
+      background-color: rgba(255, 159, 0, 0.1);
+      border: 1px solid var(--orange);
+      color: var(--orange);
+    }
+
+    /* Waveform Deck Containers */
+    .decks-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .deck {
+      background-color: var(--bg-card);
+      border: 2px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 16px;
+      position: relative;
+      transition: var(--transition);
+    }
+
+    /* Highlight Active Focus Deck */
+    .deck.focused.original-deck {
+      border-color: var(--orange);
+      box-shadow: 0 0 15px var(--orange-glow);
+    }
+
+    .deck.focused.staged-deck {
+      border-color: var(--cyan);
+      box-shadow: 0 0 15px var(--cyan-glow);
+    }
+
+    .deck-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .deck-label-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .focus-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: transparent;
+      transition: var(--transition);
+    }
+
+    .deck.focused.original-deck .focus-dot {
+      background-color: var(--orange);
+      box-shadow: 0 0 8px var(--orange);
+    }
+
+    .deck.focused.staged-deck .focus-dot {
+      background-color: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+    }
+
+    .waveform-display {
+      background-color: var(--bg-darker);
+      border-radius: 6px;
+      padding: 8px;
+      min-height: 120px;
+      position: relative;
+    }
+
+    .waveform-loader {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .deck-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+    }
+
+    .deck-time {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* Deck Info Overlay Card for Unresolved Items */
+    .unresolved-card {
+      background-color: var(--bg-card);
+      border: 1px dashed var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 40px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    /* Right Sidebar Queue list */
+    .sidebar {
+      background-color: var(--bg-dark);
+      border-left: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      padding: 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .sidebar-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .sidebar-header p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .queue-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .queue-item {
+      padding: 10px 14px;
+      border-radius: 6px;
+      background-color: rgba(255, 255, 255, 0.02);
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      transition: var(--transition);
+    }
+
+    .queue-item:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .queue-item.active {
+      background-color: rgba(0, 240, 255, 0.05);
+      border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .queue-item-text {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .queue-item-title {
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .queue-item-status {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .queue-item-decision {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .decision-approved {
+      background-color: rgba(57, 255, 20, 0.1);
+      color: var(--green);
+    }
+
+    .decision-skipped {
+      background-color: rgba(255, 56, 56, 0.1);
+      color: var(--red);
+    }
+
+    .decision-pending {
+      color: var(--text-muted);
+    }
+
+    /* Keyboard Help Card */
+    .help-panel {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 16px;
+      margin-top: auto;
+    }
+
+    .help-panel-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .help-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .kbd {
+      background-color: var(--bg-darker);
+      border: 1px solid var(--border-color);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      text-align: center;
+      min-width: 50px;
+      display: inline-block;
+    }
+
+    /* Commit Actions Footer */
+    .commit-section {
+      padding: 20px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .apply-btn {
+      background: linear-gradient(135deg, var(--green) 0%, #29b50e 100%);
+      border: none;
+      color: #000;
+      padding: 14px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: var(--transition);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .apply-btn:hover {
+      box-shadow: 0 0 15px var(--green-glow);
+      transform: translateY(-1px);
+    }
+
+    .apply-btn:disabled {
+      background: #2b2b33;
+      color: var(--text-muted);
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    /* Modal Styling */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.85);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: var(--transition);
+    }
+
+    .modal-backdrop.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      width: 90%;
+      max-width: 500px;
+      padding: 28px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      transform: scale(0.95);
+      transition: var(--transition);
+    }
+
+    .modal-backdrop.show .modal {
+      transform: scale(1);
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .modal-title-warning {
+      color: var(--orange);
+    }
+
+    .modal-body {
+      color: var(--text-muted);
+      font-size: 15px;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+
+    .modal-btn {
+      background-color: var(--cyan);
+      border: none;
+      color: #000;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: var(--transition);
+    }
+
+    .modal-btn:hover {
+      box-shadow: 0 0 10px var(--cyan-glow);
+    }
+
+    /* Ledger Output Modal specific */
+    .textarea-container {
+      margin-top: 12px;
+    }
+    
+    .ledger-output {
+      width: 100%;
+      height: 250px;
+      background-color: var(--bg-darker);
+      border: 1px solid var(--border-color);
+      color: var(--cyan);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 12px;
+      resize: none;
+    }
+
+    .picker-btn {
+      display: inline-flex !important;
+      user-select: none;
+    }
+
+    .deck-play-btn {
+      background-color: var(--bg-darker);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    
+    .original-deck .deck-play-btn:hover {
+      border-color: var(--orange);
+      color: var(--orange);
+    }
+    
+    .staged-deck .deck-play-btn:hover {
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
+    .metadata-comparison-grid {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 14px 20px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 10px 24px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .meta-col-left {
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .meta-col-center {
+      text-align: center;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      background-color: var(--bg-darker);
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .meta-col-right {
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .meta-original-text {
+      color: #F59E0B;
+    }
+
+    .meta-staged-text {
+      color: #06B6D4;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* Apply button glow styling */
+    .apply-btn.highlighted {
+      box-shadow: 0 0 20px var(--green) !important;
+      animation: pulse-glow 2s infinite;
+      border: 1px solid var(--green) !important;
+    }
+    @keyframes pulse-glow {
+      0% { box-shadow: 0 0 8px rgba(57, 255, 20, 0.4); }
+      50% { box-shadow: 0 0 25px rgba(57, 255, 20, 0.8); }
+      100% { box-shadow: 0 0 8px rgba(57, 255, 20, 0.4); }
+    }
+
+    /* Playlist Tree Styles */
+    .tree-node-header {
+      transition: var(--transition);
+    }
+    .tree-node-header:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+    .tree-node-header.selected-playlist {
+      background-color: rgba(0, 240, 255, 0.1) !important;
+      color: var(--cyan) !important;
+      border: 1px solid rgba(0, 240, 255, 0.3);
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-left: 6px;
+    }
+    .status-ready {
+      background-color: rgba(0, 240, 255, 0.1);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+    }
+    .status-unidentified {
+      background-color: rgba(139, 139, 154, 0.1);
+      border: 1px solid var(--text-muted);
+      color: var(--text-muted);
+    }
+    .status-not-on-deezer {
+      background-color: rgba(255, 159, 0, 0.1);
+      border: 1px solid var(--orange);
+      color: var(--orange);
+    }
+    .status-download-failed {
+      background-color: rgba(255, 56, 56, 0.1);
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+
+    /* Home Screen Container */
+    .home-screen-container {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      min-height: calc(100vh - 70px - 48px); /* Account for header and padding */
+      width: 100%;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    .home-hero {
+      margin-top: auto;
+      margin-bottom: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      width: 100%;
+      max-width: 900px;
+    }
+
+    .home-tagline {
+      font-size: 18px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    .mode-cards-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      width: 100%;
+    }
+
+    .import-btn {
+      width: 100%;
+      max-width: 500px;
+      height: 80px;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      color: var(--text-main);
+      font-family: 'Outfit', sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      transition: var(--transition);
+      letter-spacing: 0.2px;
+    }
+    .import-btn:hover {
+      border-color: var(--cyan);
+      box-shadow: 0 0 16px var(--cyan-glow);
+      transform: translateY(-1px);
+    }
+    .import-btn .btn-icon {
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    /* ARL Section styling */
+    .arl-section {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      margin-top: auto;
+      margin-bottom: 24px;
+      background-color: transparent;
+      padding: 0;
+      border: none;
+      box-sizing: border-box;
+    }
+
+    .arl-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #666;
+      text-align: center;
+    }
+
+    .arl-input-group {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .arl-input-wrapper {
+      position: relative;
+      width: 100%;
+      max-width: 320px;
+    }
+
+    .arl-input-wrapper input {
+      width: 100%;
+      height: 32px;
+      background-color: var(--bg-darker);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 32px 6px 10px;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      outline: none;
+      transition: var(--transition);
+      box-sizing: border-box;
+    }
+
+    .arl-input-wrapper input:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan-glow);
+    }
+
+    .arl-toggle-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 0;
+      line-height: 1;
+    }
+
+    .arl-toggle-btn:hover {
+      color: var(--text-main);
+    }
+
+    .arl-save-btn {
+      background-color: var(--cyan);
+      border: none;
+      color: #000;
+      padding: 0 12px;
+      height: 32px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 11px;
+      cursor: pointer;
+      transition: var(--transition);
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .arl-save-btn:hover {
+      box-shadow: 0 0 10px var(--cyan-glow);
+    }
+
+    .arl-help {
+      font-size: 10px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      text-align: center;
+      max-width: 400px;
+    }
+
+    .arl-status-msg {
+      font-size: 11px;
+      color: var(--green);
+      font-weight: 600;
+      margin-top: 2px;
+      text-align: center;
+    }
+
+    .arl-warning-msg {
+      font-size: 11px;
+      color: var(--red);
+      font-weight: 600;
+      margin-top: 2px;
+      border: 1px solid rgba(255, 56, 56, 0.2);
+      background-color: rgba(255, 56, 56, 0.05);
+      padding: 6px 12px;
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .home-footer-badge {
+      font-size: 11px;
+      color: var(--text-muted);
+      align-self: flex-end;
+    }
+
+    main.sidebar-hidden {
+      grid-template-columns: 1fr;
+    }
+  </style>
+</head>
+<body>  <!-- Header -->
+  <header>
+    <div class="logo-container">
+      <img src="./icon.png" alt="CrateUp" class="header-logo" style="width: 28px; height: 28px; border-radius: 6px;" />
+      <h1>CrateUp <span class="mono" style="font-size: 12px; color: var(--cyan); border: 1px solid rgba(0,240,255,0.3); padding: 2px 6px; border-radius: 4px; margin-left: 6px;">Ver. 2.0</span></h1>
+    </div>
+    
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <button class="picker-btn hidden" id="reset-session-btn" tabindex="-1" style="border-color: rgba(255, 56, 56, 0.4); color: var(--red);">
+        <span>↺ Reset Session</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Workspace & Sidebar -->
+  <main class="sidebar-hidden">
+    <!-- Left Workspace (Waveforms & Controls) -->
+    <div class="workspace" id="workspace-area">
+      <!-- Home Screen -->
+      <div id="home-screen" class="home-screen-container">
+        <div class="home-hero">
+          <div class="mode-cards-container">
+            <div class="import-btn" id="folder-mode-card">
+              <span class="btn-icon">📁</span>
+              <span>Import from Folder</span>
+              <span id="folder-mode-btn" style="display: none;"></span>
+            </div>
+            <div class="import-btn" id="rekordbox-mode-card">
+              <span class="btn-icon">🎛</span>
+              <span>Import from Rekordbox XML</span>
+              <span id="rekordbox-mode-btn" style="display: none;"></span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- ARL Section -->
+        <div class="arl-section">
+          <label for="arl-input" class="arl-label">Deezer ARL Token</label>
+          <div class="arl-input-group">
+            <div class="arl-input-wrapper">
+              <input type="password" id="arl-input" placeholder="Paste your Deezer ARL here..." />
+              <button type="button" id="arl-toggle-btn" class="arl-toggle-btn" title="Toggle visibility">👁</button>
+            </div>
+            <button type="button" id="arl-save-btn" class="arl-save-btn">Save</button>
+          </div>
+          <p class="arl-help">Required for downloading. Find yours at deezer.com → DevTools → Cookies → arl</p>
+          <div id="arl-status-msg" class="arl-status-msg hidden">✓ Saved</div>
+          <div id="arl-warning-msg" class="arl-warning-msg hidden">Please enter your Deezer ARL first</div>
+        </div>
+        
+        <div class="home-footer-badge">
+          v2.0 · Personal use only
+        </div>
+      </div>
+
+
+
+      <!-- Run Pipeline Panel -->
+      <div class="pipeline-panel hidden" id="pipeline-panel" style="height: 100%; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box;">
+        <div class="pipeline-header" style="background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; box-sizing: border-box;">
+          <h3 style="margin: 0;">Run Pipeline</h3>
+          <p style="color: var(--text-muted); font-size: 14px; margin: 6px 0 0;">No progress ledger found in this directory. Set up and start a new scan and download pipeline.</p>
+          
+          <div style="display: flex; gap: 20px; align-items: center; margin-top: 20px;">
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 12px; color: var(--text-muted);">Output Format</label>
+              <select id="pipeline-format-select" class="mono" style="background-color: var(--bg-darker); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 12px; border-radius: 4px; font-size: 12px;">
+                <option value="mp3">MP3 320 kbps</option>
+                <option value="flac" selected>FLAC (Lossless)</option>
+                <option value="aiff">AIFF (Lossless)</option>
+                <option value="wav">WAV (Lossless)</option>
+              </select>
+            </div>
+            <button class="apply-btn" id="start-pipeline-btn" style="margin-top: 18px; padding: 10px 20px; font-size: 12px; height: 35px; box-sizing: border-box;">
+              <span>Start Scan & Download</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Progress Indicator -->
+        <div id="pipeline-progress-section" class="hidden" style="display: flex; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; flex-direction: column; gap: 10px; box-sizing: border-box;">
+          <div style="display: flex; justify-content: space-between; font-size: 13px;">
+            <span class="mono" id="pipeline-progress-text">Processing: 0 / 0 files</span>
+            <span class="mono" id="pipeline-progress-percent">0%</span>
+          </div>
+          <div style="background-color: var(--bg-darker); border: 1px solid var(--border-color); height: 4px; border-radius: 2px; overflow: hidden;">
+            <div id="pipeline-progress-bar" style="width: 0%; height: 100%; background-color: var(--cyan); transition: width 0.3s ease;"></div>
+          </div>
+        </div>
+
+        <!-- Live Log Terminal -->
+        <div style="flex: 1; min-height: 200px; background-color: #0b0b0f; border: 1px solid var(--border-color); border-radius: var(--card-radius); display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box;">
+          <div style="background-color: #121218; padding: 10px 16px; border-bottom: 1px solid var(--border-color); font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;">
+            <span class="mono">PIPELINE LOG TERMINAL</span>
+            <button id="clear-logs-btn" style="background: none; border: none; color: var(--text-muted); font-size: 11px; cursor: pointer;">Clear Logs</button>
+          </div>
+          <div id="pipeline-log-panel" style="flex: 1; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a9b1d6; overflow-y: auto; line-height: 1.5; white-space: pre-wrap; box-sizing: border-box;">
+            [Ready to start pipeline...]
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Deck Workspace (rendered dynamically once folder is picked) -->
+      <div id="deck-workspace" class="hidden" style="display: flex; flex-direction: column; gap: 20px; padding-top: 16px;">
+        
+        <!-- Track Header -->
+        <div class="track-meta-card">
+          <div class="track-info-primary">
+            <h2 id="meta-title">Song Title</h2>
+            <p id="meta-artist-album">Artist — Album</p>
+            <p id="meta-path" class="mono" style="font-size: 11px; margin-top: 6px; color: var(--text-muted);"></p>
+            <div id="manual-deezer-container" style="display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-muted);">
+              <span>Deezer ID:</span>
+              <input type="text" id="manual-deezer-id-input" class="mono" placeholder="Paste Deezer ID" style="background-color: var(--bg-darker); border: 1px solid var(--border-color); color: var(--text-main); padding: 4px 8px; border-radius: 4px; font-size: 11px; width: 150px; outline: none; transition: var(--transition);" />
+              <button id="refetch-deezer-id-btn" class="picker-btn" style="padding: 4px 10px; font-size: 10px; height: auto; display: inline-flex; border-color: var(--cyan); color: var(--cyan);">
+                <span>↺ Re-fetch</span>
+              </button>
+              <button id="identify-track-btn" class="picker-btn" style="padding: 4px 10px; font-size: 10px; height: auto; display: inline-flex; border-color: var(--cyan); color: var(--cyan); margin-left: 2px;">
+                <span>🔍 Identify</span>
+              </button>
+              <span id="refetch-status-feedback" style="font-size: 11px; font-weight: 600; transition: opacity 0.5s ease; opacity: 1;"></span>
+            </div>
+          </div>
+          <div>
+            <span class="badge" id="meta-status-badge">status</span>
+          </div>
+        </div>
+
+        <!-- Decks or Warning Block -->
+        <div id="deck-workspace-content">
+          <!-- Waveform Players -->
+          <div class="decks-container hidden" id="players-container">
+            <!-- Deck 1: Original File (Top) -->
+            <div class="deck original-deck" id="deck-original">
+              <div class="deck-label">
+                <span class="deck-label-left">
+                  <span class="focus-dot"></span>
+                  Original Low-Quality Audio (Top Deck)
+                </span>
+                <span id="original-format" class="mono">MP3</span>
+              </div>
+              <div class="waveform-display" id="original-waveform-wrapper">
+                <div class="waveform-loader" id="original-loader">Loading Original Audio...</div>
+                <div id="original-waveform"></div>
+              </div>
+              <div class="deck-controls">
+                <button class="deck-play-btn" id="play-btn-original" tabindex="-1">▶ PLAY</button>
+                <span class="deck-time mono" id="original-time">00:00 / 00:00</span>
+              </div>
+            </div>
+
+            <!-- Metadata Comparison Row -->
+            <div class="metadata-comparison-grid hidden" id="metadata-row">
+              <!-- Row 1: File -->
+              <div class="meta-col-left meta-original-text mono" id="meta-orig-file"></div>
+              <div class="meta-col-center">[file]</div>
+              <div class="meta-col-right meta-staged-text mono" id="meta-staged-file"></div>
+
+              <!-- Row 2: Size -->
+              <div class="meta-col-left meta-original-text mono" id="meta-orig-size"></div>
+              <div class="meta-col-center">[size]</div>
+              <div class="meta-col-right meta-staged-text mono" id="meta-staged-size"></div>
+
+              <!-- Row 3: Format -->
+              <div class="meta-col-left meta-original-text mono" id="meta-orig-format"></div>
+              <div class="meta-col-center">[fmt]</div>
+              <div class="meta-col-right meta-staged-text mono" id="meta-staged-format"></div>
+
+              <!-- Row 3.5: Bitrate -->
+              <div class="meta-col-left meta-original-text mono" id="meta-orig-bitrate"></div>
+              <div class="meta-col-center">[kbps]</div>
+              <div class="meta-col-right meta-staged-text mono" id="meta-staged-bitrate"></div>
+
+              <!-- Row 4: Time -->
+              <div class="meta-col-left meta-original-text mono" id="meta-orig-time"></div>
+              <div class="meta-col-center">[time]</div>
+              <div class="meta-col-right meta-staged-text mono" id="meta-staged-time"></div>
+            </div>
+
+            <!-- Deck 2: Staged Upgrade (Bottom) -->
+            <div class="deck staged-deck" id="deck-staged">
+              <div class="deck-label">
+                <span class="deck-label-left">
+                  <span class="focus-dot"></span>
+                  Staged High-Quality Audio (Bottom Deck)
+                </span>
+                <span id="staged-format" class="mono">FLAC</span>
+              </div>
+              <div class="waveform-display" id="staged-waveform-wrapper">
+                <div class="waveform-loader" id="staged-loader">Loading Upgrade Audio...</div>
+                <div id="staged-waveform"></div>
+                <div id="staged-unresolved-placeholder" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px; box-sizing: border-box;">
+                  <span style="font-size: 24px;">⚠️</span>
+                  <span id="staged-unresolved-text" style="font-weight: 500; color: var(--orange);">No upgrade available</span>
+                </div>
+              </div>
+              <div class="deck-controls">
+                <button class="deck-play-btn" id="play-btn-staged" tabindex="-1">▶ PLAY</button>
+                <span class="deck-time mono" id="staged-time">00:00 / 00:00</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Unresolved Placeholder Badges -->
+          <div class="unresolved-card hidden" id="unresolved-placeholder">
+            <span style="font-size: 40px;" id="unresolved-emoji">⚠️</span>
+            <h3 id="unresolved-title">Track Unresolved</h3>
+            <p id="unresolved-description" style="color: var(--text-muted); max-width: 400px; font-size: 14px;">This track failed to match or was absent on Deezer during Phase 1. No replacement audio is available.</p>
+            <p style="font-size: 13px; color: var(--orange);" class="mono">Press [Enter] or [Backspace] to Keep Original</p>
+          </div>
+        </div>
+        
+        <!-- Keyboard Help -->
+        <div class="help-panel">
+          <div class="help-panel-title">Deck Controls Keyboard Shortcuts</div>
+          <div class="help-grid">
+            <div><kbd class="mono">Space</kbd></div>
+            <div>Toggle play / pause (focused player)</div>
+            <div><kbd class="mono">↑</kbd></div>
+            <div>Focus Top Deck (Original)</div>
+            <div><kbd class="mono">↓</kbd></div>
+            <div>Focus Bottom Deck (Staged Upgrade)</div>
+            <div><kbd class="mono">←</kbd> / <kbd class="mono">→</kbd></div>
+            <div>Seek -10s / +10s (focused player)</div>
+            <div><kbd class="mono">Enter</kbd></div>
+            <div><strong style="color: var(--green);">Approve Upgrade</strong> (Accepts replacement & advances)</div>
+            <div><kbd class="mono">Backspace</kbd></div>
+            <div><strong style="color: var(--red);">Keep Original</strong> (Skips replacement & advances)</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Right Sidebar (Queue List) -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h3 id="queue-count">Review Queue</h3>
+        <p id="queue-status">No files loaded</p>
+      </div>
+
+      <!-- Completion Banner -->
+      <div id="completion-banner" class="hidden" style="background-color: rgba(57, 255, 20, 0.1); border: 1px solid var(--green); padding: 12px 16px; margin: 10px; border-radius: 6px; font-size: 13px; color: var(--green); line-height: 1.4; font-weight: 500;">
+        All X tracks reviewed — Y approved, Z skipped. Ready to apply changes.
+      </div>
+
+      <div class="queue-list" id="queue-list-container">
+        <!-- Rendered Dynamically -->
+      </div>
+
+      <div class="commit-section">
+        <button class="apply-btn" id="apply-btn" disabled>
+          <span>Apply All Changes</span>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal 1: WAV Warning -->
+  <div class="modal-backdrop" id="wav-warning-backdrop">
+    <div class="modal">
+      <div class="modal-title modal-title-warning">
+        <span>⚠️</span> WAV Tagging Warning
+      </div>
+      <div class="modal-body">
+        Warning: WAV files do not reliably support custom ID3 tags. Genre, rating, and comment fields may be dropped by your playback software. Consider using FLAC for lossless quality with full tag support.
+      </div>
+      <button class="modal-btn" id="wav-warning-close">Understood</button>
+    </div>
+  </div>
+
+  <!-- Modal 2: Commit Results -->
+  <div class="modal-backdrop" id="commit-results-backdrop">
+    <div class="modal" style="max-width: 550px; box-sizing: border-box;">
+      <div class="modal-title" id="commit-modal-title" style="color: var(--green);">
+        <span>✓</span> Upgrades Applied
+      </div>
+      <div class="modal-body" id="commit-modal-body">
+        <!-- Will be filled dynamically -->
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px; box-sizing: border-box;">
+        <!-- Rekordbox section -->
+        <div id="rekordbox-upgrade-section" style="border: 1px dashed var(--border-color); border-radius: 6px; padding: 16px; background-color: var(--bg-darker); display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;">
+          <div style="font-weight: 500; font-size: 13px; color: var(--text-main);">Preserve Rekordbox Metadata (Optional)</div>
+          <p style="color: var(--text-muted); font-size: 12px; margin: 0; line-height: 1.4;">Select your exported Rekordbox XML collection to automatically rewrite file paths while preserving loops, cues, and grid markers.</p>
+          <button class="picker-btn" id="rekordbox-select-btn" style="align-self: flex-start; margin-top: 4px; padding: 6px 12px; font-size: 11px;">
+            <span>📂 Select & Upgrade Rekordbox XML</span>
+          </button>
+          <div id="rekordbox-result-text" class="mono" style="font-size: 11px; display: none; color: var(--cyan); margin-top: 4px; line-height: 1.4;"></div>
+        </div>
+
+        <button class="modal-btn" id="commit-modal-close" style="width: 100%;">Close & Finish Session</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Rekordbox Playlist Selector -->
+  <div class="modal-backdrop" id="playlist-selector-backdrop">
+    <div class="modal" style="max-width: 600px; width: 90%; display: flex; flex-direction: column; max-height: 85vh; box-sizing: border-box;">
+      <div class="modal-title">
+        <span>🎛</span> Select Playlist to Upgrade
+      </div>
+      <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; gap: 12px; overflow: hidden; margin-bottom: 16px; min-height: 0; box-sizing: border-box;">
+        <p style="color: var(--text-muted); font-size: 13px; margin: 0; text-align: left;">Browse your Rekordbox playlists/folders and select one or choose Select All.</p>
+        
+        <!-- Select All Option -->
+        <div id="select-all-option-container" class="tree-node-header" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 6px; cursor: pointer; user-select: none; border: 1px solid var(--border-color); margin-top: 4px; background-color: rgba(255, 255, 255, 0.02); box-sizing: border-box;">
+          <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--text-main);">
+            <span>✨</span> Select All Playlists (Entire Collection)
+          </span>
+          <span class="mono" id="select-all-track-count" style="font-size: 12px; color: var(--text-muted);">(0)</span>
+        </div>
+
+        <!-- Playlist Tree Container -->
+        <div id="playlist-tree-container" style="flex: 1; min-height: 0; max-height: 450px; overflow-y: auto !important; -webkit-overflow-scrolling: touch; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; padding: 16px; box-sizing: border-box;">
+          <!-- Populated Dynamically -->
+        </div>
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: auto; box-sizing: border-box;">
+        <button class="picker-btn" id="playlist-selector-cancel" style="padding: 10px 20px;">Cancel</button>
+        <button class="apply-btn" id="process-playlist-btn" disabled style="padding: 10px 20px; font-size: 13px;">
+          <span>Upgrade Selected (0 tracks)</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logic Script -->
+  <script>
+    let ledger = null;
+    let reviewQueue = []; // Array of { relPath, status, originalFile, stagedFile }
+    let currentIndex = -1;
+    let currentFocus = 'staged'; // 'original' or 'staged'
+    let waveSurferOriginal = null;
+    let waveSurferStaged = null;
+    let originalFileUrl = null;
+    let stagedFileUrl = null;
+    let libraryRootPath = null;
+    let libraryOutputPath = null;
+    let progressLedgerPath = null;
+    let selectedPlaylistName = null;
+    let selectedNodeType = null;
+    let loadedXmlPath = null;
+    let explicitFileList = null;
+    let isSessionDirActive = false;
+    let refetchFeedbackTimeout = null;
+
+    const readyState = {
+      original: { ready: false, decode: false },
+      staged: { ready: false, decode: false }
+    };
+
+    let isOriginalProgrammatic = false;
+    let isStagedProgrammatic = false;
+
+    function showSidebar(show) {
+      const sidebar = document.querySelector('.sidebar');
+      const main = document.querySelector('main');
+      if (show) {
+        sidebar.classList.remove('hidden');
+        main.classList.remove('sidebar-hidden');
+      } else {
+        sidebar.classList.add('hidden');
+        main.classList.add('sidebar-hidden');
+      }
+    }
+
+    function showView(viewName) {
+      document.getElementById('home-screen').classList.add('hidden');
+      document.getElementById('pipeline-panel').classList.add('hidden');
+      document.getElementById('deck-workspace').classList.add('hidden');
+      
+      if (viewName === 'home') {
+        document.getElementById('home-screen').classList.remove('hidden');
+        showSidebar(false);
+      } else if (viewName === 'pipeline') {
+        document.getElementById('pipeline-panel').classList.remove('hidden');
+        showSidebar(false);
+      } else if (viewName === 'review') {
+        document.getElementById('deck-workspace').classList.remove('hidden');
+        showSidebar(true);
+      }
+    }
+
+    function isUsable(playerType) {
+      return readyState[playerType].ready && readyState[playerType].decode;
+    }
+
+    function checkUsable(playerType) {
+      if (readyState[playerType].ready && readyState[playerType].decode) {
+        // Enable play button and hide loader
+        if (playerType === 'original') {
+          document.getElementById('play-btn-original').removeAttribute('disabled');
+          document.getElementById('original-loader').classList.add('hidden');
+          document.getElementById('original-waveform').style.pointerEvents = 'auto';
+        } else {
+          const track = reviewQueue[currentIndex];
+          if (track && track.status === 'downloaded') {
+            document.getElementById('play-btn-staged').removeAttribute('disabled');
+            document.getElementById('staged-loader').classList.add('hidden');
+            document.getElementById('staged-waveform').style.pointerEvents = 'auto';
+          }
+        }
+
+        // When both players are ready/decoded (or just the active ones), call setTime(0) on both
+        const track = reviewQueue[currentIndex];
+        if (track) {
+          const needsBoth = track.status === 'downloaded';
+          const origReady = readyState.original.ready && readyState.original.decode;
+          const stagedReady = readyState.staged.ready && readyState.staged.decode;
+          if ((needsBoth && origReady && stagedReady) || (!needsBoth && origReady)) {
+            if (waveSurferOriginal) {
+              try {
+                isOriginalProgrammatic = true;
+                waveSurferOriginal.setTime(0);
+              } catch (e) {
+                console.warn("waveSurferOriginal.setTime(0) failed:", e);
+              }
+            }
+            if (needsBoth && waveSurferStaged) {
+              try {
+                isStagedProgrammatic = true;
+                waveSurferStaged.setTime(0);
+              } catch (e) {
+                console.warn("waveSurferStaged.setTime(0) failed:", e);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // UI Selectors
+    const deckWorkspace = document.getElementById('deck-workspace');
+    const queueListContainer = document.getElementById('queue-list-container');
+    const queueCount = document.getElementById('queue-count');
+    const queueStatus = document.getElementById('queue-status');
+    const applyBtn = document.getElementById('apply-btn');
+
+    // Modal Selectors
+    const wavWarningBackdrop = document.getElementById('wav-warning-backdrop');
+    const wavWarningClose = document.getElementById('wav-warning-close');
+
+    // Simple logging helper
+    // Simple logging helper
+    function log(msg) {
+      console.log(msg);
+    }
+
+    // Append log line helper for pipeline terminal with 12px margin between lines
+    function appendLogLine(text) {
+      const logPanel = document.getElementById('pipeline-log-panel');
+      if (!logPanel) return;
+
+      const trimmed = logPanel.textContent.trim();
+      if (trimmed === '[Ready to start pipeline...]' || trimmed === '[Initializing pipeline...]' || trimmed.startsWith('[Previous session detected.')) {
+        logPanel.innerHTML = '';
+      }
+
+      const lineDiv = document.createElement('div');
+      lineDiv.style.marginBottom = '12px';
+      lineDiv.style.lineHeight = '1.5';
+      lineDiv.style.whiteSpace = 'pre-wrap';
+      lineDiv.textContent = text.replace(/\n$/, '');
+      logPanel.appendChild(lineDiv);
+      logPanel.scrollTop = logPanel.scrollHeight;
+    }
+
+    function showRefetchFeedback(text, color, tooltip = "") {
+      const feedback = document.getElementById('refetch-status-feedback');
+      if (!feedback) return;
+      feedback.textContent = text;
+      feedback.style.color = color;
+      feedback.title = tooltip;
+      feedback.style.opacity = '1';
+      
+      if (refetchFeedbackTimeout) clearTimeout(refetchFeedbackTimeout);
+      refetchFeedbackTimeout = setTimeout(() => {
+        feedback.style.opacity = '0';
+      }, 4000);
+    }
+
+    // Helper: join paths safely
+    function joinPath(base, rel) {
+      if (!base) return rel;
+      const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      const cleanRel = rel.startsWith('/') ? rel : '/' + rel;
+      return cleanBase + cleanRel;
+    }
+
+    // Close WAV Warning Modal
+    wavWarningClose.addEventListener('click', () => {
+      wavWarningBackdrop.classList.remove('show');
+    });
+
+    // Waveform container click listeners to transfer focus
+    document.getElementById('deck-original').addEventListener('click', () => {
+      setFocus('original');
+    });
+    document.getElementById('deck-staged').addEventListener('click', () => {
+      setFocus('staged');
+    });
+
+    // Play/Pause button click listeners to transfer focus & play
+    document.getElementById('play-btn-original').addEventListener('click', (e) => {
+      e.stopPropagation();
+      setFocus('original');
+      togglePlayPause();
+    });
+    document.getElementById('play-btn-staged').addEventListener('click', (e) => {
+      e.stopPropagation();
+      setFocus('staged');
+      togglePlayPause();
+    });
+
+    // Clear logs button
+    document.getElementById('clear-logs-btn').addEventListener('click', () => {
+      document.getElementById('pipeline-log-panel').textContent = '';
+    });
+
+    // Wire up Manual Deezer ID Refetch
+    document.getElementById('refetch-deezer-id-btn').addEventListener('click', async () => {
+      // Clear any existing feedback
+      const feedbackEl = document.getElementById('refetch-status-feedback');
+      if (feedbackEl) {
+        feedbackEl.textContent = '';
+        feedbackEl.title = '';
+        feedbackEl.style.opacity = '0';
+      }
+      if (refetchFeedbackTimeout) {
+        clearTimeout(refetchFeedbackTimeout);
+        refetchFeedbackTimeout = null;
+      }
+
+      const inputVal = document.getElementById('manual-deezer-id-input').value.trim();
+      if (!/^\d+$/.test(inputVal)) {
+        alert("Please enter a valid numeric Deezer ID.");
+        return;
+      }
+      
+      const targetId = parseInt(inputVal, 10);
+      const track = reviewQueue[currentIndex];
+      const btn = document.getElementById('refetch-deezer-id-btn');
+      const btnSpan = btn.querySelector('span');
+      
+      const originalText = btnSpan.textContent;
+      btnSpan.textContent = "Fetching...";
+      btn.setAttribute('disabled', 'true');
+      
+      try {
+        // Fetch metadata from Deezer API
+        let artist = "Unknown Artist";
+        let title = "Unknown Title";
+        try {
+          const res = await fetch(`https://api.deezer.com/track/${targetId}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (!data.error) {
+              artist = data.artist?.name || "Unknown Artist";
+              title = data.title || "Unknown Title";
+            }
+          }
+        } catch (fetchErr) {
+          console.warn("Failed to fetch metadata from Deezer API, using defaults:", fetchErr);
+        }
+
+        const format = ledger.output_format || 'flac';
+        
+        // Invoke download_track_by_id
+        const resultStr = await window.__TAURI__.core.invoke('download_track_by_id', {
+          rootPath: libraryRootPath,
+          outputFormat: format,
+          relativePath: track.relPath,
+          deezerId: targetId,
+          artist: artist,
+          title: title
+        });
+        
+        const result = JSON.parse(resultStr);
+        
+        // Update local ledger memory
+        ledger.files[track.relPath].status = 'downloaded';
+        ledger.files[track.relPath].deezer_id = targetId;
+        ledger.files[track.relPath].staged_path = result.staged_path;
+        ledger.files[track.relPath].proxy_path = result.proxy_path;
+        ledger.files[track.relPath].staged_bitrate = result.staged_bitrate;
+        ledger.files[track.relPath].artist = artist;
+        ledger.files[track.relPath].title = title;
+        ledger.files[track.relPath].decision = 'pending';
+        
+        // Update review queue item
+        track.status = 'downloaded';
+        track.deezerId = targetId;
+        track.proxyPath = result.proxy_path;
+        
+        // Reload track UI
+        await loadTrack(currentIndex);
+        renderQueueList();
+        updateQueueHeader();
+
+        // Show success feedback
+        showRefetchFeedback("✓ Downloaded", "var(--green)");
+      } catch (err) {
+        console.error("Manual fetch/download failed:", err);
+        showRefetchFeedback("✗ Error", "var(--red)", err.message || String(err));
+      } finally {
+        btnSpan.textContent = originalText;
+        btn.removeAttribute('disabled');
+      }
+    });
+
+    // Wire up Manual Identify Track
+    document.getElementById('identify-track-btn').addEventListener('click', async () => {
+      // Clear any existing feedback
+      const feedbackEl = document.getElementById('refetch-status-feedback');
+      if (feedbackEl) {
+        feedbackEl.textContent = '';
+        feedbackEl.title = '';
+        feedbackEl.style.opacity = '0';
+      }
+      if (refetchFeedbackTimeout) {
+        clearTimeout(refetchFeedbackTimeout);
+        refetchFeedbackTimeout = null;
+      }
+
+      const track = reviewQueue[currentIndex];
+      const btn = document.getElementById('identify-track-btn');
+      const btnSpan = btn.querySelector('span');
+      
+      const originalText = btnSpan.textContent;
+      btnSpan.textContent = "Identifying...";
+      btn.setAttribute('disabled', 'true');
+      
+      try {
+        const resultStr = await window.__TAURI__.core.invoke('identify_track', {
+          rootPath: libraryRootPath,
+          relativePath: track.relPath
+        });
+        
+        const result = JSON.parse(resultStr);
+        if (result && result.deezer_id) {
+          document.getElementById('manual-deezer-id-input').value = result.deezer_id;
+          showRefetchFeedback("✓ Found", "var(--green)");
+        } else {
+          showRefetchFeedback("✗ Not found", "var(--red)");
+        }
+      } catch (err) {
+        console.error("Manual identification failed:", err);
+        showRefetchFeedback("✗ Not found", "var(--red)", err.message || String(err));
+      } finally {
+        btnSpan.textContent = originalText;
+        btn.removeAttribute('disabled');
+      }
+    });
+
+    // -------------------------------------------------------------
+    // ARL Input & Configuration
+    // -------------------------------------------------------------
+    async function initARL() {
+      if (window.__TAURI__) {
+        try {
+          const savedArl = await window.__TAURI__.core.invoke('get_arl');
+          if (savedArl) {
+            document.getElementById('arl-input').value = savedArl;
+          }
+        } catch (err) {
+          console.error("Failed to load saved ARL:", err);
+        }
+      }
+    }
+
+    // Toggle ARL password visibility masking
+    document.getElementById('arl-toggle-btn').addEventListener('click', () => {
+      const arlInput = document.getElementById('arl-input');
+      const toggleBtn = document.getElementById('arl-toggle-btn');
+      if (arlInput.type === 'password') {
+        arlInput.type = 'text';
+        toggleBtn.textContent = '🙈';
+      } else {
+        arlInput.type = 'password';
+        toggleBtn.textContent = '👁';
+      }
+    });
+
+    // Save ARL
+    document.getElementById('arl-save-btn').addEventListener('click', async () => {
+      const arl = document.getElementById('arl-input').value.trim();
+      if (window.__TAURI__) {
+        try {
+          await window.__TAURI__.core.invoke('save_arl', { arl });
+          
+          // Show green confirmation badge
+          const statusMsg = document.getElementById('arl-status-msg');
+          statusMsg.classList.remove('hidden');
+          setTimeout(() => {
+            statusMsg.classList.add('hidden');
+          }, 2000);
+
+          // Hide warning if visible
+          document.getElementById('arl-warning-msg').classList.add('hidden');
+        } catch (err) {
+          alert("Failed to save ARL: " + err);
+        }
+      }
+    });
+
+    function checkArlFilled() {
+      const arl = document.getElementById('arl-input').value.trim();
+      if (!arl) {
+        const warning = document.getElementById('arl-warning-msg');
+        warning.classList.remove('hidden');
+        
+        // Focus and scroll to ARL input
+        const arlInput = document.getElementById('arl-input');
+        arlInput.focus();
+        arlInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return false;
+      }
+      document.getElementById('arl-warning-msg').classList.add('hidden');
+      return true;
+    }
+
+    // -------------------------------------------------------------
+    // Mode Flow Handlers
+    // -------------------------------------------------------------
+    document.getElementById('folder-mode-card').addEventListener('click', (e) => {
+      if (e.target.tagName === 'BUTTON') return;
+      if (!checkArlFilled()) return;
+      selectFolderFlow();
+    });
+    document.getElementById('folder-mode-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!checkArlFilled()) return;
+      selectFolderFlow();
+    });
+    
+    document.getElementById('rekordbox-mode-card').addEventListener('click', (e) => {
+      if (e.target.tagName === 'BUTTON') return;
+      if (!checkArlFilled()) return;
+      loadXmlFlow();
+    });
+    document.getElementById('rekordbox-mode-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!checkArlFilled()) return;
+      loadXmlFlow();
+    });
+
+    // Cancel Rekordbox Playlist Selector Modal
+    document.getElementById('playlist-selector-cancel').addEventListener('click', () => {
+      document.getElementById('playlist-selector-backdrop').classList.remove('show');
+    });
+
+    // Handle Folder Selection via Dialog
+    async function selectFolderFlow() {
+      if (!window.__TAURI__) {
+        alert("Tauri API is not available in this environment.");
+        return;
+      }
+      
+      const selectedDir = await window.__TAURI__.core.invoke('select_directory').catch(err => {
+        console.error("select_directory failed:", err);
+        return null;
+      });
+      if (!selectedDir) return;
+
+      // Reset Rekordbox variables
+      loadedXmlPath = null;
+      selectedPlaylistName = null;
+      selectedNodeType = null;
+      explicitFileList = null;
+
+      libraryRootPath = selectedDir;
+      const isDevMode = window.location.port !== '';
+      const currentLedgerName = isDevMode ? '.crateup-progress-dev.json' : '.crateup-progress.json';
+      progressLedgerPath = joinPath(libraryRootPath, currentLedgerName);
+
+      log("Selected folder: " + libraryRootPath);
+
+      // Show reset session button
+      document.getElementById('reset-session-btn').classList.remove('hidden');
+
+      // Update session info header labels
+      isSessionDirActive = false;
+      const titleLabel = document.getElementById('session-title-label');
+      if (titleLabel) titleLabel.textContent = `📁 ${selectedDir.split(/[/\\]/).pop()}`;
+      const pathLabel = document.getElementById('session-path-label');
+      if (pathLabel) pathLabel.textContent = libraryRootPath;
+      const infoContainer = document.getElementById('session-info');
+      if (infoContainer) infoContainer.classList.remove('hidden');
+
+      // Check if ledger exists
+      const exists = await window.__TAURI__.core.invoke('check_file_exists', { path: progressLedgerPath }).catch(err => {
+        console.error("check_file_exists failed:", err);
+        return false;
+      });
+
+      if (exists) {
+        log("Ledger file found. Loading directly...");
+        try {
+          const content = await window.__TAURI__.core.invoke('read_ledger_file', { ledgerPath: progressLedgerPath });
+          ledger = JSON.parse(content);
+          
+          // Count files for crash recovery
+          const filesObj = ledger.files || {};
+          let total = 0;
+          let pending = 0;
+          for (const relPath in filesObj) {
+            total++;
+            if (filesObj[relPath].status === 'pending') {
+              pending++;
+            }
+          }
+          const processed = total - pending;
+
+          if (pending > 0 && processed > 0) {
+            log("Previous session detected. Showing resume prompt.");
+            showView('pipeline');
+            
+            // Set resume text
+            const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+            descParagraph.textContent = `Previous session detected. Resuming from track ${processed + 1} of ${total}.`;
+            descParagraph.style.color = '#F59E0B'; // Amber warning color
+
+            // Pre-select format and disable select
+            const formatSelect = document.getElementById('pipeline-format-select');
+            formatSelect.value = ledger.output_format || 'flac';
+            formatSelect.disabled = true;
+
+            // Log terminal message
+            document.getElementById('pipeline-progress-section').classList.add('hidden');
+            document.getElementById('pipeline-log-panel').textContent = `[Previous session detected. Resuming from track ${processed + 1} of ${total}. Click "Start Scan & Download" to resume.]\n`;
+          } else if (pending > 0 && processed === 0) {
+            // Re-initialize/start pipeline
+            showView('pipeline');
+            
+            const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+            descParagraph.textContent = `No progress ledger found in this directory. Set up and start a new scan and download pipeline.`;
+            descParagraph.style.color = 'var(--text-muted)';
+            
+            const formatSelect = document.getElementById('pipeline-format-select');
+            formatSelect.disabled = false;
+            
+            document.getElementById('pipeline-progress-section').classList.add('hidden');
+            document.getElementById('pipeline-log-panel').textContent = '[Ready to start pipeline...]';
+          } else {
+            // All files resolved, go straight to review UI
+            showView('pipeline');
+            const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+            if (descParagraph) {
+              descParagraph.textContent = `Session complete. Loading ${total} tracks for review...`;
+              descParagraph.style.color = 'var(--cyan)';
+            }
+            setTimeout(() => processLedger(), 50);
+          }
+        } catch (err) {
+          console.error("Failed to read/parse progress ledger:", err);
+          alert("Failed to read progress ledger: " + err);
+        }
+      } else {
+        log("No ledger file found. Showing pipeline panel.");
+        showView('pipeline');
+        
+        const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+        descParagraph.textContent = `No progress ledger found in this directory. Set up and start a new scan and download pipeline.`;
+        descParagraph.style.color = 'var(--text-muted)';
+        
+        const formatSelect = document.getElementById('pipeline-format-select');
+        formatSelect.disabled = false;
+        
+        document.getElementById('pipeline-progress-section').classList.add('hidden');
+        document.getElementById('pipeline-log-panel').textContent = '[Ready to start pipeline...]';
+      }
+    }
+
+    // Handle Rekordbox XML Selection
+    async function loadXmlFlow() {
+      if (!window.__TAURI__) {
+        alert("Tauri API is not available.");
+        return;
+      }
+      
+      const selectedXml = await window.__TAURI__.core.invoke('select_xml_file').catch(err => {
+        console.error("select_xml_file failed:", err);
+        return null;
+      });
+      
+      if (!selectedXml) return;
+      
+      loadedXmlPath = selectedXml;
+      selectedPlaylistName = null;
+      explicitFileList = null;
+      
+      // Clear selection state
+      document.getElementById('process-playlist-btn').setAttribute('disabled', 'true');
+      document.getElementById('process-playlist-btn').querySelector('span').textContent = 'Upgrade Selected (0 tracks)';
+      
+      // Deselect Select All
+      document.getElementById('select-all-option-container').classList.remove('selected-playlist');
+      
+      const backdrop = document.getElementById('playlist-selector-backdrop');
+      backdrop.classList.add('show');
+      
+      const container = document.getElementById('playlist-tree-container');
+      container.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">Loading playlists...</div>';
+      
+      try {
+        const treeJson = await window.__TAURI__.core.invoke('parse_playlists', { xmlPath: loadedXmlPath });
+        const tree = JSON.parse(treeJson);
+        if (!tree || tree.length === 0) {
+          container.innerHTML = '<div style="color: var(--red); font-size: 14px;">No playlists found in XML.</div>';
+        } else {
+          renderPlaylistTree(tree, container);
+          
+          // Count total tracks for Select All
+          const totalTracks = sumTracks(tree);
+          document.getElementById('select-all-track-count').textContent = `(${totalTracks})`;
+          
+          // Wire up Select All click
+          const selectAllContainer = document.getElementById('select-all-option-container');
+          selectAllContainer.onclick = (e) => {
+            e.stopPropagation();
+            
+            // Un-select tree items
+            const activeNodes = container.querySelectorAll('.tree-node-header.selected-playlist');
+            activeNodes.forEach(an => {
+              an.classList.remove('selected-playlist');
+              const cs = an.querySelector('.mono');
+              if (cs) cs.style.color = 'var(--text-muted)';
+            });
+            
+            selectAllContainer.classList.add('selected-playlist');
+            
+            selectedPlaylistName = 'ROOT'; // "ROOT" folder node maps to entire collection
+            selectedNodeType = 'folder';
+            
+            const confirmBtn = document.getElementById('process-playlist-btn');
+            confirmBtn.removeAttribute('disabled');
+            confirmBtn.querySelector('span').textContent = `Upgrade Selected (${totalTracks} tracks)`;
+          };
+        }
+      } catch (err) {
+        console.error("Failed to parse playlists:", err);
+        container.innerHTML = `<div style="color: var(--red); font-size: 14px;">Error parsing playlists: ${err}</div>`;
+      }
+    }
+
+    // Renders the Rekordbox XML playlist tree as a collapsible list
+    function renderPlaylistTree(tree, container) {
+      container.innerHTML = '';
+      
+      function buildTreeHtml(nodes, depth = 0) {
+        const ul = document.createElement('ul');
+        ul.style.listStyleType = 'none';
+        ul.style.paddingLeft = depth === 0 ? '0' : '16px';
+        ul.style.margin = '0';
+        
+        nodes.forEach(node => {
+          const li = document.createElement('li');
+          li.style.margin = '4px 0';
+          
+          // Header / Content line for the node
+          const header = document.createElement('div');
+          header.className = 'tree-node-header';
+          header.style.display = 'flex';
+          header.style.alignItems = 'center';
+          header.style.justifyContent = 'space-between';
+          header.style.padding = '6px 8px';
+          header.style.borderRadius = '4px';
+          header.style.cursor = 'pointer';
+          header.style.border = '1px solid transparent';
+          
+          // Left side: Toggle arrow + Icon + Name
+          const leftArea = document.createElement('div');
+          leftArea.style.display = 'flex';
+          leftArea.style.alignItems = 'center';
+          leftArea.style.gap = '6px';
+          leftArea.style.fontSize = '13px';
+          leftArea.style.color = 'var(--text-main)';
+          
+          let toggleBtn = null;
+          if (node.type === 'folder' && node.children && node.children.length > 0) {
+            toggleBtn = document.createElement('span');
+            toggleBtn.textContent = '▶'; // Collapsed by default
+            toggleBtn.style.cursor = 'pointer';
+            toggleBtn.style.fontSize = '10px';
+            toggleBtn.style.width = '12px';
+            toggleBtn.style.display = 'inline-block';
+            toggleBtn.style.color = 'var(--text-muted)';
+            toggleBtn.style.transition = 'transform 0.2s ease';
+            leftArea.appendChild(toggleBtn);
+          } else {
+            // Spacer for alignment if no toggle
+            const spacer = document.createElement('span');
+            spacer.style.width = '12px';
+            spacer.style.display = 'inline-block';
+            leftArea.appendChild(spacer);
+          }
+          
+          const icon = document.createElement('span');
+          icon.textContent = node.type === 'folder' ? '📁' : '🗒';
+          icon.style.fontSize = '14px';
+          leftArea.appendChild(icon);
+          
+          const nameSpan = document.createElement('span');
+          nameSpan.textContent = node.name;
+          nameSpan.style.fontWeight = '500';
+          leftArea.appendChild(nameSpan);
+          
+          header.appendChild(leftArea);
+          
+          // Right side: Track count
+          const countSpan = document.createElement('span');
+          countSpan.className = 'mono';
+          countSpan.style.fontSize = '11px';
+          countSpan.style.color = 'var(--text-muted)';
+          const trackCount = node.type === 'folder' ? (node.totalTracks || 0) : (node.entryCount || 0);
+          countSpan.textContent = `(${trackCount})`;
+          header.appendChild(countSpan);
+          
+          li.appendChild(header);
+          
+          // Children container (for folders)
+          let childrenContainer = null;
+          if (node.type === 'folder' && node.children && node.children.length > 0) {
+            childrenContainer = buildTreeHtml(node.children, depth + 1);
+            childrenContainer.style.display = 'none'; // Collapsed by default
+            li.appendChild(childrenContainer);
+            
+            // Toggle click handler
+            if (toggleBtn) {
+              toggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Don't trigger header selection click
+                const isCollapsed = childrenContainer.style.display === 'none';
+                if (isCollapsed) {
+                  childrenContainer.style.display = 'block';
+                  toggleBtn.textContent = '▼';
+                } else {
+                  childrenContainer.style.display = 'none';
+                  toggleBtn.textContent = '▶';
+                }
+              });
+            }
+          }
+          
+          // Header select click handler
+          header.addEventListener('click', (e) => {
+            e.stopPropagation();
+            
+            // Un-select all other items
+            const activeNodes = container.querySelectorAll('.tree-node-header.selected-playlist');
+            activeNodes.forEach(an => {
+              an.classList.remove('selected-playlist');
+            });
+            document.getElementById('select-all-option-container').classList.remove('selected-playlist');
+            
+            // Select this item
+            header.classList.add('selected-playlist');
+            
+            selectedPlaylistName = node.name;
+            selectedNodeType = node.type;
+            
+            const confirmBtn = document.getElementById('process-playlist-btn');
+            confirmBtn.removeAttribute('disabled');
+            confirmBtn.querySelector('span').textContent = `Upgrade Selected (${trackCount} tracks)`;
+          });
+          
+          ul.appendChild(li);
+        });
+        
+        return ul;
+      }
+      
+      const treeHtml = buildTreeHtml(tree);
+      container.appendChild(treeHtml);
+    }
+
+    function sumTracks(nodes) {
+      let total = 0;
+      nodes.forEach(node => {
+        if (node.type === 'playlist') {
+          total += node.entryCount || 0;
+        } else if (node.type === 'folder') {
+          total += node.totalTracks || 0;
+        }
+      });
+      return total;
+    }
+
+    // Helper: find longest common ancestor directory of multiple file paths
+    function findLongestCommonAncestor(paths) {
+      if (!paths || paths.length === 0) return '';
+      if (paths.length === 1) {
+        const parts = paths[0].split('/');
+        parts.pop(); // Remove filename
+        return parts.join('/') || '/';
+      }
+      
+      const pathParts = paths.map(p => p.split('/'));
+      const minLength = Math.min(...pathParts.map(parts => parts.length));
+      
+      let commonParts = [];
+      for (let i = 0; i < minLength; i++) {
+        const currentPart = pathParts[0][i];
+        const isCommon = pathParts.every(parts => parts[i] === currentPart);
+        if (isCommon) {
+          commonParts.push(currentPart);
+        } else {
+          break;
+        }
+      }
+      
+      let commonPath = commonParts.join('/');
+      if (paths[0].startsWith('/') && !commonPath.startsWith('/')) {
+        commonPath = '/' + commonPath;
+      }
+      return commonPath || '/';
+    }
+
+    // Handle "Process This Playlist" Button Click
+    document.getElementById('process-playlist-btn').addEventListener('click', async () => {
+      if (!selectedPlaylistName || !loadedXmlPath) return;
+      
+      // Hide modal first
+      document.getElementById('playlist-selector-backdrop').classList.remove('show');
+      
+      const invokeCommand = selectedNodeType === 'folder' ? 'get_folder_tracks' : 'get_playlist_tracks';
+      const invokeParams = selectedNodeType === 'folder' 
+        ? { xmlPath: loadedXmlPath, folderName: selectedPlaylistName }
+        : { xmlPath: loadedXmlPath, playlistName: selectedPlaylistName };
+      
+      const paths = await window.__TAURI__.core.invoke(invokeCommand, invokeParams).catch(err => {
+        console.error(`${invokeCommand} failed:`, err);
+        alert(`Failed to get tracks: ` + err);
+        return null;
+      });
+      
+      if (!paths || paths.length === 0) {
+        alert("No tracks found in the selected item.");
+        return;
+      }
+      
+      const rootPath = findLongestCommonAncestor(paths);
+      if (!rootPath) {
+        alert("Failed to determine common root path for the tracks.");
+        return;
+      }
+
+      let rootPathToUse = rootPath;
+      isSessionDirActive = true;
+      if (window.__TAURI__) {
+        try {
+          const appDataDir = await window.__TAURI__.core.invoke('get_app_data_dir');
+          const sanitizedName = selectedPlaylistName.replace(/[^a-zA-Z0-9_\-]/g, '_');
+          const now = new Date();
+          const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_` +
+                            `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+          const sessionDir = `${appDataDir}/sessions/${sanitizedName}_${timestamp}`;
+          rootPathToUse = sessionDir;
+        } catch (err) {
+          console.error("Failed to get app data directory, falling back to common ancestor:", err);
+          isSessionDirActive = false;
+        }
+      } else {
+        isSessionDirActive = false;
+      }
+      
+      libraryRootPath = rootPathToUse;
+      const isDevMode = window.location.port !== '';
+      const currentLedgerName = isDevMode ? '.crateup-progress-dev.json' : '.crateup-progress.json';
+      progressLedgerPath = joinPath(libraryRootPath, currentLedgerName);
+      explicitFileList = paths;
+      
+      // Update reset session visibility
+      document.getElementById('reset-session-btn').classList.remove('hidden');
+
+      // Update session info header labels
+      const prefix = selectedNodeType === 'folder' ? '📁' : '🎛';
+      const titleLabel = document.getElementById('session-title-label');
+      if (titleLabel) titleLabel.textContent = `${prefix} ${selectedPlaylistName}`;
+      const pathLabel = document.getElementById('session-path-label');
+      if (pathLabel) pathLabel.textContent = libraryRootPath;
+      const infoContainer = document.getElementById('session-info');
+      if (infoContainer) infoContainer.classList.remove('hidden');
+      
+      const exists = await window.__TAURI__.core.invoke('check_file_exists', { path: progressLedgerPath }).catch(err => {
+        console.error("check_file_exists failed:", err);
+        return false;
+      });
+      
+      if (exists) {
+        log("Ledger file found for playlist. Loading directly...");
+        try {
+          const content = await window.__TAURI__.core.invoke('read_ledger_file', { ledgerPath: progressLedgerPath });
+          ledger = JSON.parse(content);
+          
+          const filesObj = ledger.files || {};
+          let total = 0;
+          let pending = 0;
+          for (const relPath in filesObj) {
+            total++;
+            if (filesObj[relPath].status === 'pending') {
+              pending++;
+            }
+          }
+          const processed = total - pending;
+          
+          if (pending > 0 && processed > 0) {
+            log("Previous session detected. Showing resume prompt.");
+            showView('pipeline');
+            
+            const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+            descParagraph.textContent = `Previous session detected. Resuming from track ${processed + 1} of ${total}.`;
+            descParagraph.style.color = '#F59E0B';
+            
+            const formatSelect = document.getElementById('pipeline-format-select');
+            formatSelect.value = ledger.output_format || 'flac';
+            formatSelect.disabled = true;
+            
+            document.getElementById('pipeline-progress-section').classList.add('hidden');
+            document.getElementById('pipeline-log-panel').textContent = `[Previous session detected. Resuming from track ${processed + 1} of ${total}. Click "Start Scan & Download" to resume.]\n`;
+          } else if (pending > 0 && processed === 0) {
+            showView('pipeline');
+            
+            const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+            descParagraph.textContent = `Start scan and download pipeline for this playlist.`;
+            descParagraph.style.color = 'var(--text-muted)';
+            
+            const formatSelect = document.getElementById('pipeline-format-select');
+            formatSelect.disabled = false;
+            
+            document.getElementById('pipeline-progress-section').classList.add('hidden');
+            document.getElementById('pipeline-log-panel').textContent = '[Ready to start pipeline...]';
+          } else {
+            showView('pipeline');
+            const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+            if (descParagraph) {
+              descParagraph.textContent = `Session complete. Loading ${total} tracks for review...`;
+              descParagraph.style.color = 'var(--cyan)';
+            }
+            setTimeout(() => processLedger(), 50);
+          }
+        } catch (err) {
+          console.error("Failed to read/parse progress ledger:", err);
+          alert("Failed to read progress ledger: " + err);
+        }
+      } else {
+        log("No ledger file found for playlist. Showing pipeline panel.");
+        showView('pipeline');
+        
+        const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+        descParagraph.textContent = `Start scan and download pipeline for this playlist.`;
+        descParagraph.style.color = 'var(--text-muted)';
+        
+        const formatSelect = document.getElementById('pipeline-format-select');
+        formatSelect.disabled = false;
+        
+        document.getElementById('pipeline-progress-section').classList.add('hidden');
+        document.getElementById('pipeline-log-panel').textContent = '[Ready to start pipeline...]';
+      }
+    });
+
+    // Pipeline Listeners
+    let logUnlisten = null;
+    let doneUnlisten = null;
+
+    async function listenToPipeline() {
+      if (!window.__TAURI__) return;
+      
+      if (logUnlisten) logUnlisten();
+      if (doneUnlisten) doneUnlisten();
+
+      let totalFiles = 0;
+      let processedFiles = 0;
+
+      console.log("Registering pipeline-log and pipeline-done event listeners...");
+
+      logUnlisten = await window.__TAURI__.event.listen('pipeline-log', (event) => {
+        console.log("pipeline-log event received:", event);
+        const line = event.payload.line;
+        appendLogLine(line);
+
+        // Parse totals from logs
+        const totalMatch = line.match(/Found (\d+) pending files out of (\d+) total files/);
+        if (totalMatch) {
+          totalFiles = parseInt(totalMatch[2], 10);
+          processedFiles = totalFiles - parseInt(totalMatch[1], 10);
+          updatePipelineProgress(processedFiles, totalFiles);
+        }
+
+        // Parse individual file completions
+        if (line.includes('Successfully staged replacement') || 
+            line.includes('Fingerprinting failed') || 
+            line.includes('Track identified but not found on Deezer') ||
+            line.includes('Marking as not_on_deezer')) {
+          processedFiles++;
+          updatePipelineProgress(processedFiles, totalFiles);
+        }
+      });
+
+      doneUnlisten = await window.__TAURI__.event.listen('pipeline-done', async (event) => {
+        console.log("pipeline-done event received:", event);
+        const exitCode = event.payload;
+        console.log(`Pipeline process exited with code ${exitCode}. Starting ledger read.`);
+
+        // Re-enable header reset and pipeline start buttons
+        document.getElementById('reset-session-btn').removeAttribute('disabled');
+        document.getElementById('start-pipeline-btn').removeAttribute('disabled');
+
+        if (exitCode === 0) {
+          try {
+            console.log("Reading ledger file from path:", progressLedgerPath);
+            const content = await window.__TAURI__.core.invoke('read_ledger_file', { ledgerPath: progressLedgerPath });
+            ledger = JSON.parse(content);
+            console.log("Successfully parsed ledger, calling processLedger()");
+            processLedger();
+          } catch (err) {
+            console.error("Error loading ledger after pipeline completion:", err);
+            alert("Pipeline finished but failed to read ledger: " + err);
+          }
+        } else {
+          alert("Pipeline run failed. Please check the terminal logs.");
+        }
+      });
+    }
+
+    function updatePipelineProgress(processed, total) {
+      if (total === 0) return;
+      document.getElementById('pipeline-progress-section').classList.remove('hidden');
+      const percent = Math.min(100, Math.round((processed / total) * 100));
+      document.getElementById('pipeline-progress-text').textContent = `Processing: ${processed} / ${total} files`;
+      document.getElementById('pipeline-progress-percent').textContent = `${percent}%`;
+      document.getElementById('pipeline-progress-bar').style.width = `${percent}%`;
+    }
+
+    // Trigger scan & download pipeline
+    document.getElementById('start-pipeline-btn').addEventListener('click', async () => {
+      if (!window.__TAURI__) {
+        alert("Tauri API is not available.");
+        return;
+      }
+
+      const formatSelect = document.getElementById('pipeline-format-select');
+      const selectedFormat = formatSelect.value;
+
+      log("Starting pipeline with root path: " + libraryRootPath + " and format: " + selectedFormat);
+      document.getElementById('pipeline-log-panel').textContent = '[Initializing pipeline...]\n';
+
+      // Disable header reset and pipeline start buttons during pipeline run
+      document.getElementById('reset-session-btn').setAttribute('disabled', 'true');
+      document.getElementById('start-pipeline-btn').setAttribute('disabled', 'true');
+
+      await listenToPipeline();
+
+      await window.__TAURI__.core.invoke('start_pipeline', {
+        rootPath: libraryRootPath,
+        outputFormat: selectedFormat,
+        fileList: explicitFileList
+      }).catch(err => {
+        console.error("Failed to start pipeline:", err);
+        alert("Failed to start pipeline: " + err);
+        // Re-enable on failure to start
+        document.getElementById('reset-session-btn').removeAttribute('disabled');
+        document.getElementById('start-pipeline-btn').removeAttribute('disabled');
+      });
+
+      document.getElementById('pipeline-progress-section').classList.remove('hidden');
+      document.getElementById('pipeline-progress-text').textContent = "Processing: scanning directory...";
+      document.getElementById('pipeline-progress-percent').textContent = "0%";
+      document.getElementById('pipeline-progress-bar').style.width = "0%";
+    });
+
+    // Process Ledger and Populate Queue
+    function processLedger() {
+      console.log("processLedger() started. Ledger status:", ledger ? "loaded" : "null");
+      if (!ledger) {
+        console.error("processLedger called but ledger is null or undefined.");
+        return;
+      }
+
+      try {
+        reviewQueue = [];
+        const filesObj = ledger.files || {};
+        
+        console.log(`Scanning ledger files. Total entries in ledger: ${Object.keys(filesObj).length}`);
+        
+        for (const relPath in filesObj) {
+          const fileData = filesObj[relPath];
+          const status = fileData.status;
+          const hasDecision = fileData.decision && fileData.decision !== 'pending';
+          
+          // Collect ALL files that have status "downloaded" OR files that already have a "decision" field.
+          // Also collect files with status "unidentified" or "not_on_deezer" or "download_failed"
+          // Skip tracks that are already committed/skipped and have no active review
+          if (status !== 'committed' && status !== 'skipped' && 
+              (['downloaded', 'unidentified', 'not_on_deezer', 'download_failed'].includes(status) || hasDecision)) {
+            reviewQueue.push({
+              relPath,
+              status,
+              deezerId: fileData.deezer_id,
+              proxyPath: fileData.proxy_path
+            });
+          }
+        }
+
+        console.log(`Filtered reviewQueue populated. Total tracks for review: ${reviewQueue.length}`);
+
+        if (reviewQueue.length === 0) {
+          console.warn("No files found with reviewable statuses.");
+          
+          // Show error message on the pipeline panel
+          const descParagraph = document.querySelector('#pipeline-panel .pipeline-header p');
+          if (descParagraph) {
+            descParagraph.textContent = "No tracks could be downloaded. Check the logs above.";
+            descParagraph.style.color = 'var(--red)';
+          }
+          
+          // Hide progress section
+          document.getElementById('pipeline-progress-section').classList.add('hidden');
+          return;
+        }
+
+        showView('review');
+
+        // Check WAV warning
+        if (ledger.output_format === 'wav') {
+          if (!sessionStorage.getItem('wav_warning_shown')) {
+            wavWarningBackdrop.classList.add('show');
+            sessionStorage.setItem('wav_warning_shown', 'true');
+          }
+        }
+
+        // Initialize decisions inside ledger.files
+        reviewQueue.forEach(item => {
+          const ledgerFile = ledger.files[item.relPath];
+          if (!ledgerFile.decision) {
+            ledgerFile.decision = 'pending';
+          }
+        });
+
+        // Find first undecided track
+        const firstUndecided = reviewQueue.findIndex(item => ledger.files[item.relPath].decision === 'pending');
+        if (firstUndecided !== -1) {
+          currentIndex = firstUndecided;
+        } else {
+          currentIndex = 0; // fallback if all are already reviewed
+        }
+        
+        console.log(`Setting current track index to: ${currentIndex}`);
+
+        renderQueueList();
+        initWaveSurfers();
+        loadTrack(currentIndex);
+        updateQueueHeader();
+        
+      } catch (err) {
+        console.error("Error in processLedger:", err);
+        alert("Error loading tracks for review: " + err);
+      }
+    }
+
+    // Render Queue Sidebar
+    function renderQueueList() {
+      queueListContainer.innerHTML = '';
+      
+      reviewQueue.forEach((item, index) => {
+        const ledgerFile = ledger.files[item.relPath];
+        const decision = ledgerFile.decision || 'pending';
+        
+        const div = document.createElement('div');
+        div.className = `queue-item ${index === currentIndex ? 'active' : ''}`;
+        div.setAttribute('data-index', index);
+        
+        const titleText = item.relPath.split('/').pop();
+        
+        let badgeClass = 'decision-pending';
+        let badgeText = 'pending';
+        if (decision === 'approved') {
+          badgeClass = 'decision-approved';
+          badgeText = '✓ Approved';
+        } else if (decision === 'skipped') {
+          badgeClass = 'decision-skipped';
+          badgeText = '✗ Skipped';
+        }
+
+        let statusBadgeHtml = '';
+        if (item.status === 'downloaded') {
+          statusBadgeHtml = `<span class="status-badge status-ready">Ready</span>`;
+        } else if (item.status === 'unidentified') {
+          statusBadgeHtml = `<span class="status-badge status-unidentified">Unidentified</span>`;
+        } else if (item.status === 'not_on_deezer') {
+          statusBadgeHtml = `<span class="status-badge status-not-on-deezer">Not On Deezer</span>`;
+        } else if (item.status === 'download_failed') {
+          statusBadgeHtml = `<span class="status-badge status-download-failed">Download Failed</span>`;
+        }
+
+        div.innerHTML = `
+          <div class="queue-item-meta" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
+            <span class="queue-item-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 500;">${titleText}</span>
+            <div style="display: flex; align-items: center; margin-top: 4px;">
+              ${statusBadgeHtml}
+            </div>
+          </div>
+          <span class="queue-item-decision ${badgeClass}">${badgeText}</span>
+        `;
+        
+        div.addEventListener('click', () => {
+          if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
+          if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
+          loadTrack(index);
+        });
+        
+        queueListContainer.appendChild(div);
+      });
+    }
+
+    // Update Queue Header progress count
+    function updateQueueHeader() {
+      const totalCount = reviewQueue.length;
+      const pendingCount = reviewQueue.filter(item => ledger.files[item.relPath].decision === 'pending').length;
+      const approvedCount = reviewQueue.filter(item => ledger.files[item.relPath].decision === 'approved').length;
+      const skippedCount = reviewQueue.filter(item => ledger.files[item.relPath].decision === 'skipped').length;
+      const reviewedCount = totalCount - pendingCount;
+      
+      queueCount.textContent = `Review Queue (${totalCount})`;
+      queueStatus.textContent = `${reviewedCount} of ${totalCount} reviewed`;
+      queueStatus.style.color = 'var(--text-muted)';
+      
+      const banner = document.getElementById('completion-banner');
+      const applyBtn = document.getElementById('apply-btn');
+
+      if (pendingCount === 0) {
+        banner.textContent = `All ${totalCount} tracks reviewed — ${approvedCount} approved, ${skippedCount} skipped. Ready to apply changes.`;
+        banner.classList.remove('hidden');
+        
+        applyBtn.removeAttribute('disabled');
+        applyBtn.classList.add('highlighted');
+      } else {
+        banner.classList.add('hidden');
+        
+        applyBtn.setAttribute('disabled', 'true');
+        applyBtn.classList.remove('highlighted');
+      }
+    }
+
+    function initWaveSurfers() {
+      if (waveSurferOriginal) waveSurferOriginal.destroy();
+      if (waveSurferStaged) waveSurferStaged.destroy();
+
+      // Original Waveform
+      waveSurferOriginal = WaveSurfer.create({
+        container: '#original-waveform',
+        waveColor: '#4b3c2a',
+        progressColor: '#ff9f00',
+        cursorColor: '#ff9f00',
+        height: 120,
+        responsive: true,
+        backend: 'MediaElement'
+      });
+
+      // Staged Waveform
+      waveSurferStaged = WaveSurfer.create({
+        container: '#staged-waveform',
+        waveColor: '#1a3c42',
+        progressColor: '#00f0ff',
+        cursorColor: '#00f0ff',
+        height: 120,
+        responsive: true,
+        backend: 'MediaElement'
+      });
+
+      // Determine if WaveSurfer supports decode event
+      const hasDecode = typeof WaveSurfer !== 'undefined' && WaveSurfer.VERSION && WaveSurfer.VERSION.startsWith('7');
+
+      // Update timing readouts
+      waveSurferOriginal.on('timeupdate', (time) => {
+        document.getElementById('original-time').textContent = formatTime(time) + ' / ' + formatTime(waveSurferOriginal.getDuration());
+      });
+      waveSurferOriginal.on('ready', () => {
+        console.log("WS duration:", waveSurferOriginal.getDuration());
+        console.log("Audio element duration:", waveSurferOriginal.getMediaElement() ? waveSurferOriginal.getMediaElement().duration : null);
+        console.log("Backend:", waveSurferOriginal.options ? waveSurferOriginal.options.backend : null);
+        console.log("File passed to load:", originalFileUrl);
+
+        readyState.original.ready = true;
+        const dur = waveSurferOriginal.getDuration();
+        document.getElementById('original-time').textContent = '00:00 / ' + formatTime(dur);
+        document.getElementById('meta-orig-time').textContent = formatTime(dur);
+        
+        if (!hasDecode) {
+          readyState.original.decode = true;
+          setTimeout(() => {
+            checkUsable('original');
+          }, 150);
+        } else {
+          checkUsable('original');
+        }
+      });
+      if (hasDecode) {
+        waveSurferOriginal.on('decode', () => {
+          readyState.original.decode = true;
+          checkUsable('original');
+        });
+      }
+      waveSurferOriginal.on('play', () => {
+        document.getElementById('play-btn-original').textContent = '⏸ PAUSE';
+      });
+      waveSurferOriginal.on('pause', () => {
+        document.getElementById('play-btn-original').textContent = '▶ PLAY';
+      });
+
+      waveSurferStaged.on('timeupdate', (time) => {
+        document.getElementById('staged-time').textContent = formatTime(time) + ' / ' + formatTime(waveSurferStaged.getDuration());
+      });
+      waveSurferStaged.on('ready', () => {
+        console.log("WS duration:", waveSurferStaged.getDuration());
+        console.log("Audio element duration:", waveSurferStaged.getMediaElement() ? waveSurferStaged.getMediaElement().duration : null);
+        console.log("Backend:", waveSurferStaged.options ? waveSurferStaged.options.backend : null);
+        console.log("File passed to load:", stagedFileUrl);
+
+        readyState.staged.ready = true;
+        const dur = waveSurferStaged.getDuration();
+        document.getElementById('staged-time').textContent = '00:00 / ' + formatTime(dur);
+        document.getElementById('meta-staged-time').textContent = formatTime(dur);
+        
+        if (!hasDecode) {
+          readyState.staged.decode = true;
+          setTimeout(() => {
+            checkUsable('staged');
+          }, 150);
+        } else {
+          checkUsable('staged');
+        }
+      });
+      if (hasDecode) {
+        waveSurferStaged.on('decode', () => {
+          readyState.staged.decode = true;
+          checkUsable('staged');
+        });
+      }
+      waveSurferStaged.on('play', () => {
+        document.getElementById('play-btn-staged').textContent = '⏸ PAUSE';
+      });
+      waveSurferStaged.on('pause', () => {
+        document.getElementById('play-btn-staged').textContent = '▶ PLAY';
+      });
+      waveSurferStaged.on('error', (err) => {
+        console.error("Staged WaveSurfer error:", err);
+      });
+
+      waveSurferOriginal.on('seek', (fraction) => {
+        if (isOriginalProgrammatic) {
+          isOriginalProgrammatic = false;
+          return;
+        }
+        const media = waveSurferOriginal.getMediaElement();
+        if (media) {
+          const targetTime = fraction * media.duration;
+          isOriginalProgrammatic = true;
+          waveSurferOriginal.setTime(targetTime);
+        }
+      });
+
+      waveSurferStaged.on('seek', (fraction) => {
+        if (isStagedProgrammatic) {
+          isStagedProgrammatic = false;
+          return;
+        }
+        const media = waveSurferStaged.getMediaElement();
+        if (media) {
+          const targetTime = fraction * media.duration;
+          isStagedProgrammatic = true;
+          waveSurferStaged.setTime(targetTime);
+        }
+      });
+    }
+
+    // Helper: format time in MM:SS
+    function formatTime(seconds) {
+      if (isNaN(seconds) || seconds === Infinity) return '00:00';
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = Math.floor(seconds % 60);
+      return (
+        (minutes < 10 ? '0' : '') + minutes + ':' + (remainingSeconds < 10 ? '0' : '') + remainingSeconds
+      );
+    }
+
+    // Load Track Data
+    async function loadTrack(index) {
+      if (index < 0 || index >= reviewQueue.length) return;
+      
+      currentIndex = index;
+      const track = reviewQueue[index];
+      const ledgerFile = ledger.files[track.relPath];
+      
+      // Update UI active styling in queue sidebar list
+      const items = queueListContainer.querySelectorAll('.queue-item');
+      items.forEach((item, idx) => {
+        if (idx === index) {
+          item.classList.add('active');
+          item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        } else {
+          item.classList.remove('active');
+        }
+      });
+
+      originalFileUrl = null;
+      stagedFileUrl = null;
+
+      // Update basic headers
+      const filename = track.relPath.split('/').pop();
+      document.getElementById('meta-title').textContent = filename;
+      document.getElementById('meta-artist-album').textContent = track.status === 'downloaded' 
+        ? `Deezer ID: ${track.deezerId}` 
+        : `Track Unresolved`;
+      document.getElementById('meta-path').textContent = track.relPath;
+
+      // Pre-fill manual Deezer ID input
+      document.getElementById('manual-deezer-id-input').value = track.deezerId || '';
+
+      // Badge update
+      const badge = document.getElementById('meta-status-badge');
+      badge.className = 'badge';
+      if (track.status === 'downloaded') {
+        badge.classList.add('badge-downloaded');
+        badge.textContent = 'Upgrade Ready';
+      } else if (track.status === 'unidentified') {
+        badge.classList.add('badge-unidentified');
+        badge.textContent = 'Unidentified';
+      } else if (track.status === 'not_on_deezer') {
+        badge.classList.add('badge-not-on-deezer');
+        badge.textContent = 'Not On Deezer';
+      } else if (track.status === 'download_failed') {
+        badge.classList.add('badge-unidentified');
+        badge.textContent = 'Download Failed';
+      }
+
+      const playersContainer = document.getElementById('players-container');
+      const unresolvedPlaceholder = document.getElementById('unresolved-placeholder');
+
+      // Unresolved placeholder card at workspace level is hidden because we show players for all tracks
+      unresolvedPlaceholder.classList.add('hidden');
+      playersContainer.classList.remove('hidden');
+
+      // Reset playhead & time display counters instantly, reset readyState flags
+      readyState.original.ready = false;
+      readyState.original.decode = false;
+      readyState.staged.ready = false;
+      readyState.staged.decode = false;
+
+      // Disable play buttons
+      document.getElementById('play-btn-original').setAttribute('disabled', 'true');
+      document.getElementById('play-btn-staged').setAttribute('disabled', 'true');
+
+      // Disable pointer events on waveform containers
+      document.getElementById('original-waveform').style.pointerEvents = 'none';
+      document.getElementById('staged-waveform').style.pointerEvents = 'none';
+
+      document.getElementById('original-time').textContent = '00:00';
+      document.getElementById('staged-time').textContent = '00:00';
+
+      // Load Original File
+      document.getElementById('original-loader').classList.remove('hidden');
+      document.getElementById('original-loader').textContent = 'Loading Original Audio...';
+      document.getElementById('original-format').textContent = track.relPath.split('.').pop().toUpperCase();
+      
+      const originalAbsPath = (ledgerFile && ledgerFile.original_abs_path)
+        ? ledgerFile.original_abs_path
+        : joinPath(libraryRootPath, track.relPath);
+      console.log("[WAVESURFER_DIAG] Original file path before convertFileSrc:", originalAbsPath);
+      if (window.__TAURI__) {
+        try {
+          originalFileUrl = window.__TAURI__.core.convertFileSrc(originalAbsPath);
+          console.log("[WAVESURFER_DIAG] Original file URL after convertFileSrc:", originalFileUrl);
+          waveSurferOriginal.load(originalFileUrl);
+        } catch (err) {
+          console.error("Failed to convert original file path to URL:", err);
+          document.getElementById('original-loader').textContent = 'Error loading original audio: ' + err;
+        }
+      } else {
+        console.warn("[WAVESURFER_DIAG] window.__TAURI__ is not defined, skipping convertFileSrc for original file");
+      }
+      
+      document.getElementById('meta-orig-file').textContent = filename;
+      document.getElementById('meta-orig-format').textContent = filename.split('.').pop().toUpperCase();
+      document.getElementById('meta-orig-time').textContent = 'Loading...';
+      
+      if (window.__TAURI__) {
+        window.__TAURI__.core.invoke('get_file_size', { path: originalAbsPath }).then(size => {
+          if (size !== null) {
+            document.getElementById('meta-orig-size').textContent = (size / (1024 * 1024)).toFixed(2) + ' MB';
+          } else {
+            document.getElementById('meta-orig-size').textContent = '-';
+          }
+        }).catch((err) => {
+          console.error("Failed to get original file size:", err);
+          document.getElementById('meta-orig-size').textContent = '-';
+        });
+      }
+
+      // Display original bitrate
+      const origExt = track.relPath.split('.').pop().toLowerCase();
+      const origBitrate = ledgerFile.original_bitrate;
+      if (origExt === 'flac') {
+        document.getElementById('meta-orig-bitrate').textContent = 'lossless';
+      } else if (origBitrate) {
+        document.getElementById('meta-orig-bitrate').textContent = origBitrate + ' kbps';
+      } else {
+        document.getElementById('meta-orig-bitrate').textContent = '-';
+      }
+
+      // Load/configure bottom staged deck
+      if (track.status === 'downloaded') {
+        document.getElementById('staged-unresolved-placeholder').classList.add('hidden');
+        document.getElementById('staged-waveform').classList.remove('hidden');
+        document.getElementById('play-btn-staged').removeAttribute('disabled');
+        document.getElementById('metadata-row').classList.remove('hidden');
+
+        // Load Staged
+        document.getElementById('staged-loader').classList.remove('hidden');
+        document.getElementById('staged-loader').textContent = 'Loading Upgrade Audio...';
+        
+        const stagedRelPath = ledgerFile.proxy_path || ledgerFile.staged_path;
+        let stagedAbsPath = stagedRelPath;
+        if (stagedRelPath && !stagedRelPath.startsWith('/') && !stagedRelPath.includes(':')) {
+          stagedAbsPath = libraryRootPath + '/' + stagedRelPath;
+        }
+        console.log("[WAVESURFER_DIAG] Staged file path:", stagedAbsPath);
+        
+        if (window.__TAURI__) {
+          if (stagedRelPath) {
+            try {
+              console.log("[WAVESURFER_DIAG] Staged file absolute path:", stagedAbsPath);
+
+              // Keep the file existence check (console log only)
+              const exists = await window.__TAURI__.core.invoke(
+                'check_file_exists', { path: stagedAbsPath }
+              );
+              console.log("[WAVESURFER_DIAG] Staged file on disk:", exists);
+
+              stagedFileUrl = window.__TAURI__.core.convertFileSrc(stagedAbsPath);
+              console.log("[WAVESURFER_DIAG] Staged file URL after convertFileSrc:", stagedFileUrl);
+              console.log("[TEMPORARY_DIAG] final asset URL:", stagedFileUrl);
+              waveSurferStaged.load(stagedFileUrl);
+            } catch (err) {
+              console.error("Failed to convert staged file path to URL:", err);
+              document.getElementById('staged-loader').textContent = 'Error loading upgrade audio: ' + err;
+            }
+          } else {
+            console.error("[WAVESURFER_DIAG_ERROR] stagedRelPath is null or undefined");
+            document.getElementById('staged-loader').textContent = 'Error: Staged path not found in ledger';
+          }
+        } else {
+          console.warn("[WAVESURFER_DIAG] window.__TAURI__ is not defined, skipping convertFileSrc for staged file");
+        }
+
+        const stagedBasename = ledgerFile.staged_path.split('/').pop();
+        const stagedExt = stagedBasename.split('.').pop().toUpperCase();
+        document.getElementById('staged-format').textContent = stagedExt;
+        
+        document.getElementById('meta-staged-file').textContent = stagedBasename;
+        document.getElementById('meta-staged-format').textContent = stagedExt;
+        document.getElementById('meta-staged-time').textContent = 'Loading...';
+        
+        if (window.__TAURI__) {
+          window.__TAURI__.core.invoke('get_file_size', { path: stagedAbsPath }).then(bytes => {
+            if (bytes !== null) {
+              document.getElementById('meta-staged-size').textContent = (bytes / 1000000).toFixed(2) + ' MB';
+            } else {
+              document.getElementById('meta-staged-size').textContent = '-';
+            }
+          }).catch((err) => {
+            console.error("Failed to get staged file size:", err);
+            document.getElementById('meta-staged-size').textContent = '-';
+          });
+        }
+
+        const stagedExtLower = stagedExt.toLowerCase();
+        const stagedBitrate = ledgerFile.staged_bitrate;
+        if (stagedExtLower === 'flac') {
+          document.getElementById('meta-staged-bitrate').textContent = 'lossless';
+        } else if (stagedBitrate) {
+          document.getElementById('meta-staged-bitrate').textContent = stagedBitrate + ' kbps';
+        } else {
+          document.getElementById('meta-staged-bitrate').textContent = '-';
+        }
+
+        setFocus('staged');
+      } else {
+        // Unmatched/failed track:
+        document.getElementById('staged-unresolved-placeholder').classList.remove('hidden');
+        document.getElementById('staged-waveform').classList.add('hidden');
+        document.getElementById('staged-loader').classList.add('hidden');
+        document.getElementById('play-btn-staged').setAttribute('disabled', 'true');
+        document.getElementById('metadata-row').classList.add('hidden');
+        document.getElementById('staged-format').textContent = '-';
+        document.getElementById('staged-time').textContent = '--:--';
+
+        let failureReason = "No upgrade available";
+        if (track.status === 'unidentified') {
+          failureReason = "Shazam could not identify this track";
+        } else if (track.status === 'not_on_deezer') {
+          failureReason = "Track identified but not available on Deezer";
+        } else if (track.status === 'download_failed') {
+          failureReason = `Download failed — Deezer ID: ${track.deezerId || 'Unknown'}`;
+        }
+        document.getElementById('staged-unresolved-text').textContent = failureReason;
+
+        setFocus('original');
+      }
+    }
+
+    // Toggle Focus Model between Original and Staged
+    function setFocus(deck) {
+      currentFocus = deck;
+      const originalDeck = document.getElementById('deck-original');
+      const stagedDeck = document.getElementById('deck-staged');
+
+      if (deck === 'original') {
+        originalDeck.classList.add('focused');
+        stagedDeck.classList.remove('focused');
+      } else {
+        stagedDeck.classList.add('focused');
+        originalDeck.classList.remove('focused');
+      }
+    }
+
+    // Player controls
+    function togglePlayPause() {
+      const activeWS = currentFocus === 'original' ? waveSurferOriginal : waveSurferStaged;
+      if (activeWS) {
+        activeWS.isPlaying() ? activeWS.pause() : activeWS.play();
+      }
+    }
+
+    function seekFocused(seconds) {
+      if (!isUsable(currentFocus)) return;
+      const activeWS = currentFocus === 'original' ? waveSurferOriginal : waveSurferStaged;
+      if (activeWS) {
+        const currentTime = activeWS.getCurrentTime();
+        const media = activeWS.getMediaElement();
+        const duration = media ? media.duration : activeWS.getDuration();
+        const newTime = Math.max(0, Math.min(duration, currentTime + seconds));
+        
+        if (currentFocus === 'original') {
+          isOriginalProgrammatic = true;
+        } else {
+          isStagedProgrammatic = true;
+        }
+        activeWS.setTime(newTime);
+      }
+    }
+
+    async function saveDecision(relPath, decision) {
+      if (!window.__TAURI__) return;
+      await window.__TAURI__.core.invoke('save_ledger_decision', {
+        ledgerPath: progressLedgerPath,
+        relativePath: relPath,
+        decision: decision
+      }).catch(err => {
+        console.error("Failed to save ledger decision:", err);
+      });
+    }
+
+    // Actions
+    function approveCurrent() {
+      const track = reviewQueue[currentIndex];
+      const ledgerFile = ledger.files[track.relPath];
+      
+      if (track.status === 'downloaded') {
+        ledgerFile.decision = 'approved';
+      } else {
+        ledgerFile.decision = 'skipped';
+      }
+      saveDecision(track.relPath, ledgerFile.decision);
+
+      // Pause playback
+      if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
+      if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
+
+      renderQueueList();
+      updateQueueHeader();
+
+      if (currentIndex < reviewQueue.length - 1) {
+        loadTrack(currentIndex + 1);
+      } else {
+        const decisions = reviewQueue.map(item => ledger.files[item.relPath].decision);
+        if (!decisions.includes('pending')) {
+          log("All tracks reviewed!");
+        }
+      }
+    }
+
+    function skipCurrent() {
+      const track = reviewQueue[currentIndex];
+      const ledgerFile = ledger.files[track.relPath];
+      
+      ledgerFile.decision = 'skipped';
+      saveDecision(track.relPath, 'skipped');
+
+      // Pause playback
+      if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
+      if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
+
+      renderQueueList();
+      updateQueueHeader();
+
+      if (currentIndex < reviewQueue.length - 1) {
+        loadTrack(currentIndex + 1);
+      } else {
+        const decisions = reviewQueue.map(item => ledger.files[item.relPath].decision);
+        if (!decisions.includes('pending')) {
+          log("All tracks reviewed!");
+        }
+      }
+    }
+
+    // Keyboard bindings handler
+    window.addEventListener('keydown', (e) => {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+      }
+
+      if (currentIndex === -1) return;
+      if (wavWarningBackdrop.classList.contains('show')) return;
+      if (document.getElementById('commit-results-backdrop').classList.contains('show')) return;
+
+      const track = reviewQueue[currentIndex];
+
+      switch (e.key) {
+        case ' ':
+          e.preventDefault();
+          if (track.status === 'downloaded') {
+            togglePlayPause();
+          } else {
+            if (waveSurferOriginal) {
+              waveSurferOriginal.isPlaying() ? waveSurferOriginal.pause() : waveSurferOriginal.play();
+            }
+          }
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          if (track.status === 'downloaded') {
+            setFocus('original');
+          }
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          if (track.status === 'downloaded') {
+            setFocus('staged');
+          }
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (track.status === 'downloaded') {
+            seekFocused(-10);
+          } else {
+            if (waveSurferOriginal) {
+              if (!isUsable('original')) return;
+              const currentTime = waveSurferOriginal.getCurrentTime();
+              const media = waveSurferOriginal.getMediaElement();
+              const duration = media ? media.duration : waveSurferOriginal.getDuration();
+              const newTime = Math.max(0, Math.min(duration, currentTime - 10));
+              isOriginalProgrammatic = true;
+              waveSurferOriginal.setTime(newTime);
+            }
+          }
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          if (track.status === 'downloaded') {
+            seekFocused(10);
+          } else {
+            if (waveSurferOriginal) {
+              if (!isUsable('original')) return;
+              const currentTime = waveSurferOriginal.getCurrentTime();
+              const media = waveSurferOriginal.getMediaElement();
+              const duration = media ? media.duration : waveSurferOriginal.getDuration();
+              const newTime = Math.max(0, Math.min(duration, currentTime + 10));
+              isOriginalProgrammatic = true;
+              waveSurferOriginal.setTime(newTime);
+            }
+          }
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (track.status === 'downloaded') {
+            approveCurrent();
+          }
+          break;
+        case 'Backspace':
+          e.preventDefault();
+          skipCurrent();
+          break;
+      }
+    });
+
+    // Apply Changes: Commit changes via Rust tauri command
+    applyBtn.addEventListener('click', async () => {
+      if (!window.__TAURI__) return;
+
+      // Calculate default suggestion
+      let defaultSuggestion = null;
+      if (libraryRootPath) {
+        const parts = libraryRootPath.split(/[/\\]/);
+        const folderName = parts.pop() || parts.pop();
+        const parentPath = parts.join('/');
+        if (folderName && parentPath) {
+          defaultSuggestion = `${parentPath}/${folderName}-upgraded`;
+        }
+      }
+
+      // Show folder picker to choose output folder for upgraded files
+      const chosenOutputDir = await window.__TAURI__.core.invoke('select_output_directory', {
+        defaultDir: defaultSuggestion
+      }).catch(err => {
+        console.error("select_output_directory failed:", err);
+        return null;
+      });
+
+      if (!chosenOutputDir) {
+        log("No output directory chosen. Aborting commit.");
+        return;
+      }
+
+      libraryOutputPath = chosenOutputDir;
+      log("Selected output folder: " + libraryOutputPath);
+
+      const modal = document.getElementById('commit-results-backdrop');
+      const title = document.getElementById('commit-modal-title');
+      const body = document.getElementById('commit-modal-body');
+      const closeBtn = document.getElementById('commit-modal-close');
+      const rekordboxSection = document.getElementById('rekordbox-upgrade-section');
+      const rekordboxResult = document.getElementById('rekordbox-result-text');
+      
+      title.innerHTML = '<span>⚙</span> Committing Upgrades';
+      title.style.color = 'var(--cyan)';
+      body.innerHTML = `
+        <div style="text-align: center; padding: 20px; box-sizing: border-box;">
+          <div style="width: 40px; height: 40px; border: 3px solid rgba(0,240,255,0.1); border-top-color: var(--cyan); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px;"></div>
+          <p style="margin: 0; font-size: 14px;">Applying high-quality replacements to your library files. Please do not close the app.</p>
+        </div>
+      `;
+      closeBtn.classList.add('hidden');
+      rekordboxSection.classList.add('hidden');
+      rekordboxResult.classList.add('hidden');
+      
+      modal.classList.add('show');
+      
+      const decisionsMap = {};
+      reviewQueue.forEach(item => {
+        decisionsMap[item.relPath] = ledger.files[item.relPath].decision || 'skipped';
+      });
+      
+      try {
+        const result = await window.__TAURI__.core.invoke('commit_changes', {
+          ledgerPath: progressLedgerPath,
+          decisions: decisionsMap,
+          outputPath: libraryOutputPath
+        });
+        
+        title.innerHTML = '<span>✓</span> Upgrades Applied';
+        title.style.color = 'var(--green)';
+        
+        let bodyHtml = `
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; margin-bottom: 20px; box-sizing: border-box;">
+            <div style="background-color: var(--bg-darker); padding: 12px; border-radius: 6px; border: 1px solid var(--border-color); box-sizing: border-box;">
+              <div style="font-size: 20px; font-weight: bold; color: var(--green);">${result.committed}</div>
+              <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-top: 4px; font-family: 'JetBrains Mono', monospace;">Committed</div>
+            </div>
+            <div style="background-color: var(--bg-darker); padding: 12px; border-radius: 6px; border: 1px solid var(--border-color); box-sizing: border-box;">
+              <div style="font-size: 20px; font-weight: bold; color: var(--text-muted);">${result.skipped}</div>
+              <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-top: 4px; font-family: 'JetBrains Mono', monospace;">Skipped</div>
+            </div>
+            <div style="background-color: var(--bg-darker); padding: 12px; border-radius: 6px; border: 1px solid var(--border-color); box-sizing: border-box;">
+              <div style="font-size: 20px; font-weight: bold; color: var(--red);">${result.failed.length}</div>
+              <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-top: 4px; font-family: 'JetBrains Mono', monospace;">Failed</div>
+            </div>
+          </div>
+        `;
+        
+        if (result.failed.length > 0) {
+          bodyHtml += `
+            <div style="max-height: 120px; overflow-y: auto; text-align: left; padding: 12px; background-color: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; font-size: 11px; color: var(--red); font-family: 'JetBrains Mono', monospace; margin-bottom: 20px; box-sizing: border-box;">
+              <strong>Commit Failures:</strong>
+              <ul style="margin: 6px 0 0; padding-left: 16px;">
+                ${result.failed.map(f => `<li>${f}</li>`).join('')}
+              </ul>
+            </div>
+          `;
+        }
+        
+        body.innerHTML = bodyHtml;
+        closeBtn.classList.remove('hidden');
+        rekordboxSection.classList.remove('hidden');
+        
+      } catch (err) {
+        console.error("commit_changes failed:", err);
+        title.innerHTML = '<span>❌</span> Commit Failed';
+        title.style.color = 'var(--red)';
+        body.innerHTML = `
+          <div style="padding: 12px; background-color: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; font-size: 12px; color: var(--red); font-family: 'JetBrains Mono', monospace; box-sizing: border-box;">
+            Error during commit: ${err}
+          </div>
+        `;
+        closeBtn.classList.remove('hidden');
+      }
+    });
+ 
+    // Optional Rekordbox XML upgrade button
+    document.getElementById('rekordbox-select-btn').addEventListener('click', async () => {
+      const selectBtn = document.getElementById('rekordbox-select-btn');
+      const resultText = document.getElementById('rekordbox-result-text');
+      
+      selectBtn.disabled = true;
+      selectBtn.querySelector('span').textContent = '📂 Selecting XML...';
+      
+      if (!window.__TAURI__) return;
+      
+      const xmlPath = await window.__TAURI__.core.invoke('select_xml_file').catch(err => {
+        console.error("select_xml_file failed:", err);
+        return null;
+      });
+      if (!xmlPath) {
+        selectBtn.disabled = false;
+        selectBtn.querySelector('span').textContent = '📂 Select & Upgrade Rekordbox XML';
+        return;
+      }
+      
+      selectBtn.querySelector('span').textContent = '⚙ Upgrading XML...';
+      resultText.classList.remove('hidden');
+      resultText.textContent = 'Upgrading Rekordbox XML collection...';
+      
+      try {
+        const result = await window.__TAURI__.core.invoke('update_rekordbox', {
+          xmlPath,
+          ledgerPath: progressLedgerPath,
+          rootPath: libraryRootPath,
+          outputPath: libraryOutputPath
+        });
+        
+        selectBtn.querySelector('span').textContent = '✓ XML Upgraded';
+        selectBtn.style.borderColor = 'var(--green)';
+        selectBtn.style.color = 'var(--green)';
+        
+        resultText.innerHTML = `
+          Upgrade complete!<br>
+          - Matched: ${result.matched} tracks<br>
+          - Unmatched: ${result.unmatched} tracks<br>
+          - Rewritten: ${result.rewritten} nodes
+        `;
+      } catch (err) {
+        console.error("update_rekordbox failed:", err);
+        selectBtn.disabled = false;
+        selectBtn.querySelector('span').textContent = '❌ Upgrade Failed';
+        selectBtn.style.borderColor = 'var(--red)';
+        selectBtn.style.color = 'var(--red)';
+        resultText.textContent = 'Error: ' + err;
+      }
+    });
+
+    // Close commit results and reload app state
+    document.getElementById('commit-modal-close').addEventListener('click', () => {
+      document.getElementById('commit-results-backdrop').classList.remove('show');
+      window.location.reload();
+    });
+
+    // Helper to reset the session UI state back to initial empty state
+    async function resetSessionUI() {
+      // Reset variables
+      ledger = null;
+      reviewQueue = [];
+      currentIndex = -1;
+      selectedPlaylistName = null;
+      selectedNodeType = null;
+      loadedXmlPath = null;
+      explicitFileList = null;
+      libraryRootPath = null;
+      progressLedgerPath = null;
+      isSessionDirActive = false;
+      
+      // Update header
+      document.getElementById('reset-session-btn').classList.add('hidden');
+      
+      // Hide session info
+      const infoContainer = document.getElementById('session-info');
+      if (infoContainer) infoContainer.classList.add('hidden');
+      const titleLabel = document.getElementById('session-title-label');
+      if (titleLabel) titleLabel.textContent = '';
+      const pathLabel = document.getElementById('session-path-label');
+      if (pathLabel) pathLabel.textContent = '';
+      
+      // Update main UI panels
+      showView('home');
+      
+      // Clear queue list and completion banner
+      queueListContainer.innerHTML = '';
+      queueCount.textContent = "Review Queue";
+      queueStatus.textContent = "No files loaded";
+      document.getElementById('completion-banner').classList.add('hidden');
+      document.getElementById('apply-btn').setAttribute('disabled', 'true');
+      document.getElementById('apply-btn').classList.remove('highlighted');
+      
+      // Reset waveform players if initialized
+      if (waveSurferOriginal) {
+        try { waveSurferOriginal.destroy(); } catch (e) {}
+        waveSurferOriginal = null;
+      }
+      if (waveSurferStaged) {
+        try { waveSurferStaged.destroy(); } catch (e) {}
+        waveSurferStaged = null;
+      }
+
+      // Pre-fill ARL again
+      await initARL();
+    }
+
+    // Reset Session Click Event Handler
+    document.getElementById('reset-session-btn').addEventListener('click', async () => {
+      if (!libraryRootPath) return;
+      
+      const title = "Reset Session";
+      const message = "This will delete all staged files and progress data for the current session. Your original files will not be affected. Continue?";
+      
+      let confirmed = false;
+      if (window.__TAURI__) {
+        confirmed = await window.__TAURI__.core.invoke('show_confirm_dialog', { title, message }).catch(err => {
+          console.error("show_confirm_dialog failed, falling back to confirm():", err);
+          return confirm(message);
+        });
+      } else {
+        confirmed = confirm(message);
+      }
+      
+      if (!confirmed) return;
+      
+      if (window.__TAURI__) {
+        try {
+          await window.__TAURI__.core.invoke('reset_session', { rootPath: libraryRootPath, isSessionDir: isSessionDirActive });
+          await resetSessionUI();
+        } catch (err) {
+          alert("Failed to reset session: " + err);
+        }
+      } else {
+        await resetSessionUI();
+      }
+    });
+
+    // Initialize pipeline listeners and ARL on startup
+    listenToPipeline();
+    initARL();
+    showView('home');
+  </script>
+</body>
+</html>
