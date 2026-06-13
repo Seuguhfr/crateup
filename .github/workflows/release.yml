@@ -1,0 +1,37 @@
+name: "Publish Standalone Release"
+
+on:
+  push:
+    tags:
+      - 'v*' # This automated assembly line fires up whenever you push a version tag like v2.0.0
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository Source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Stable Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Project Dependencies
+        run: npm install
+
+      - name: Build and Publish Release Artifacts
+        uses: tauri-apps/tauri-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "CrateUp Production Release ${{ github.ref_name }}"
+          releaseBody: "Automated macOS distribution bundles generated securely by GitHub cloud runners."
+          releaseDraft: true
+          prerelease: false
