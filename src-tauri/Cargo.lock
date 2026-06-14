@@ -3610,7 +3610,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-app"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "rfd",
  "serde",

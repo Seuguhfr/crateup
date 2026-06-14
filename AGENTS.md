@@ -88,6 +88,7 @@ All messages are newline-delimited JSON on stdio.
 - Every module must have a corresponding test file in `tests/`
 - Tests use: Jest (Node), pytest (Python)
 - Log format: `[YYYY-MM-DD HH:MM:SS] [MODULE] message`
+- Never run Git/GitHub commands (add, commit, checkout, merge, tag, push, etc.) without the user's explicit approval.
 
 ## Current build status
 <!-- Update this section at the end of every session -->
