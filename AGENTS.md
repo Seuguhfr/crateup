@@ -264,7 +264,7 @@ Implemented manual approval for unresolved tracks that have Shazam metadata:
 - Added a `#staged-unresolved-subtext` element inside the unresolved bottom deck placeholder to display the action instruction:
   - If Shazam metadata is present: `Press Enter to copy original file to output and write Shazam metadata ("Artist - Title"), or Backspace to skip metadata updates.`
   - If Shazam metadata is absent: `Press Backspace to skip (original file is still copied to output as-is)`
-- Added a `keydown` handler on the `#manual-deezer-id-input` field so that pressing `Enter` inside it automatically unfocuses (blurs) the input field and triggers the "Refetch" action by programmatically clicking `#refetch-deezer-id-btn`.
+- Added a `keydown` handler on the `#manual-deezer-id-input` field so that pressing `Enter` inside it automatically unfocuses (blurs) the input field, stops keydown event propagation (preventing window-level shortcut triggers like auto-approval), and triggers the "Refetch" action by programmatically clicking `#refetch-deezer-id-btn`.
 - Verified that all Node/JS Jest test suites and Python pytest test suites run and pass cleanly, and the Tauri Rust backend compiles successfully.
 
 

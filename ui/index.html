@@ -1773,6 +1773,7 @@
     document.getElementById('manual-deezer-id-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
+        e.stopPropagation();
         e.target.blur();
         document.getElementById('refetch-deezer-id-btn').click();
       }
