@@ -107,6 +107,18 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Fixed WebAudio loading and WebKit blob fetch issues:
+- Patched [ui/wavesurfer.js](file:///Users/hugues/Code/crateup/ui/wavesurfer.js) to fix the WebAudio player (class `E`) so that it doesn't fetch the blob URL a second time. Instead, it accepts the pre-fetched `Blob` from WaveSurfer, reads its arrayBuffer directly, and decodes it, preventing the 403/network block in WebKit/WKWebView.
+- Reused the decoded player buffer (`this.media.buffer`) in `loadAudio` of WaveSurfer, completely eliminating double-decoding overhead.
+- Added proactive `AudioContext` resumption inside the `play()` method in [ui/wavesurfer.js](file:///Users/hugues/Code/crateup/ui/wavesurfer.js) to resolve suspended state audio playback blockages under Safari/WebKit autoplay restrictions. Fixed a JS syntax error in the play method where `yield` was used inside a logical AND expression (`a && yield b`), which is invalid under WebKit because of operator precedence. We converted this expression to a clean `if` block, allowing the script to parse and initialize correctly.
+- Reset the player's internal buffer (`this.buffer = null`) at the start of `setSrc` in [ui/wavesurfer.js](file:///Users/hugues/Code/crateup/ui/wavesurfer.js) so that the previous track's waveform does not linger or get reused when switching to the next track.
+- Fixed a layout spacing bug in the keyboard shortcuts modal grid (`.help-grid`) where inline spaces next to `<strong>` tags collapsed inside WebKit flex containers. Resolved it by vertically aligning items at the grid level and restoring default block layout for individual cells.
+- Modified standard Arrow Left / Right key seek intervals from 10 seconds to 5 seconds, and added Command / Control modifier combinations to allow high-speed seeks of 20 seconds. Updated the Keyboard Shortcuts help modal UI to display the new options.
+- Configured the player focus to default to the Original (Top) Deck on track load rather than the Staged Upgrade (Bottom) Deck, ensuring a consistent starting deck for review.
+- Verified that both the original library tracks and downloaded upgrades load, render, play, and seek in perfect sample-accurate synchronization.
+- Confirmed all Jest and pytest automated test suites pass successfully.
+
+## Previous session - Log event streaming and UI features
 Fixed pipeline log event streaming between Rust Tauri backend and HTML/JS frontend:
 - Replaced `.unwrap()` calls in `start_pipeline` in `src-tauri/src/lib.rs` with robust error handling and debug logging to stderr.
 - Added explicit validation checks using `.exists()` for resolved pipeline paths (`pipeline_js` and `node_sidecar_dir`) in Rust before attempting to spawn the sidecar.

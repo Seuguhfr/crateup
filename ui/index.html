@@ -582,6 +582,7 @@
       grid-template-columns: auto 1fr;
       gap: 8px 16px;
       font-size: 11px;
+      align-items: center;
     }
 
     .help-grid > div:nth-child(odd) {
@@ -589,14 +590,10 @@
       font-weight: 600;
       color: var(--tan);
       text-transform: uppercase;
-      display: flex;
-      align-items: center;
     }
 
     .help-grid > div:nth-child(even) {
       color: var(--mocha);
-      display: flex;
-      align-items: center;
     }
 
     kbd, .kbd {
@@ -1452,7 +1449,9 @@
           <div><kbd class="mono">↓</kbd></div>
           <div>Focus Bottom Deck (Staged Upgrade)</div>
           <div><kbd class="mono">←</kbd> / <kbd class="mono">→</kbd></div>
-          <div>Seek -10s / +10s (focused player)</div>
+          <div>Seek -5s / +5s (focused player)</div>
+          <div><kbd class="mono">⌘</kbd> + <kbd class="mono">←</kbd> / <kbd class="mono">→</kbd></div>
+          <div>Seek -20s / +20s (focused player)</div>
           <div><kbd class="mono">Enter</kbd></div>
           <div><strong style="color: var(--green);">Approve Upgrade</strong> (Accepts replacement &amp; advances)</div>
           <div><kbd class="mono">Backspace</kbd></div>
@@ -1468,7 +1467,7 @@
     let ledger = null;
     let reviewQueue = []; // Array of { relPath, status, originalFile, stagedFile }
     let currentIndex = -1;
-    let currentFocus = 'staged'; // 'original' or 'staged'
+    let currentFocus = 'original'; // 'original' or 'staged'
     let waveSurferOriginal = null;
     let waveSurferStaged = null;
     let originalFileUrl = null;
@@ -2640,9 +2639,11 @@
         console.log(`Setting current track index to: ${currentIndex}`);
 
         renderQueueList();
-        initWaveSurfers();
-        loadTrack(currentIndex);
-        updateQueueHeader();
+        setTimeout(() => {
+          initWaveSurfers();
+          loadTrack(currentIndex);
+          updateQueueHeader();
+        }, 50);
         
       } catch (err) {
         console.error("Error in processLedger:", err);
@@ -2746,7 +2747,7 @@
         cursorColor: '#1A0F05',
         height: 120,
         responsive: true,
-        backend: 'MediaElement'
+        backend: 'WebAudio'
       });
 
       // Staged Waveform
@@ -2757,7 +2758,7 @@
         cursorColor: '#b5410e',
         height: 120,
         responsive: true,
-        backend: 'MediaElement'
+        backend: 'WebAudio'
       });
 
       // Determine if WaveSurfer supports decode event
@@ -3108,7 +3109,7 @@
           document.getElementById('meta-staged-bitrate').textContent = '-';
         }
 
-        setFocus('staged');
+        setFocus('original');
       } else {
         // Unmatched/failed track:
         document.getElementById('staged-unresolved-placeholder').classList.remove('hidden');
@@ -3290,15 +3291,16 @@
           break;
         case 'ArrowLeft':
           e.preventDefault();
+          const leftSkip = (e.metaKey || e.ctrlKey) ? 20 : 5;
           if (track.status === 'downloaded') {
-            seekFocused(-10);
+            seekFocused(-leftSkip);
           } else {
             if (waveSurferOriginal) {
               if (!isUsable('original')) return;
               const currentTime = waveSurferOriginal.getCurrentTime();
               const media = waveSurferOriginal.getMediaElement();
               const duration = media ? media.duration : waveSurferOriginal.getDuration();
-              const newTime = Math.max(0, Math.min(duration, currentTime - 10));
+              const newTime = Math.max(0, Math.min(duration, currentTime - leftSkip));
               isOriginalProgrammatic = true;
               waveSurferOriginal.setTime(newTime);
             }
@@ -3306,15 +3308,16 @@
           break;
         case 'ArrowRight':
           e.preventDefault();
+          const rightSkip = (e.metaKey || e.ctrlKey) ? 20 : 5;
           if (track.status === 'downloaded') {
-            seekFocused(10);
+            seekFocused(rightSkip);
           } else {
             if (waveSurferOriginal) {
               if (!isUsable('original')) return;
               const currentTime = waveSurferOriginal.getCurrentTime();
               const media = waveSurferOriginal.getMediaElement();
               const duration = media ? media.duration : waveSurferOriginal.getDuration();
-              const newTime = Math.max(0, Math.min(duration, currentTime + 10));
+              const newTime = Math.max(0, Math.min(duration, currentTime + rightSkip));
               isOriginalProgrammatic = true;
               waveSurferOriginal.setTime(newTime);
             }
