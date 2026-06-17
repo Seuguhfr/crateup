@@ -26,7 +26,7 @@ function setupBinaries() {
     
     let activeBinDir = fs.existsSync(prodBinDir) ? prodBinDir : devBinDir;
 
-    const binaries = ['ffmpeg', 'ffprobe'];
+    const binaries = ['ffmpeg', 'ffprobe', 'fpcalc'];
     for (const bin of binaries) {
       const targetLinkPath = path.join(binDir, bin);
       const sourceFilePath = path.join(activeBinDir, `${bin}${suffix}`);

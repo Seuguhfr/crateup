@@ -25,7 +25,7 @@ function setupBinaries() {
     
     let activeBinDir = fs.existsSync(prodBinDir) ? prodBinDir : devBinDir;
 
-    const binaries = ['ffmpeg', 'ffprobe'];
+    const binaries = ['ffmpeg', 'ffprobe', 'fpcalc'];
     for (const bin of binaries) {
       const targetLinkPath = path.join(binDir, bin);
       const sourceFilePath = path.join(activeBinDir, `${bin}${suffix}`);
@@ -64,6 +64,7 @@ setupBinaries();
 
 const { initLedger, getBitrate } = require('./scanner');
 const PythonBridge = require('./rpc');
+const { compareAudioFiles } = require('./similarity');
 
 function sanitizeFilenamePart(part) {
   if (!part) return '';
@@ -155,6 +156,28 @@ async function runPipeline(rootPath, outputFormat, fileList = null) {
     const pendingFiles = files.filter(f => ledger.files[f].status === 'pending');
     
     log(`Found ${pendingFiles.length} pending files out of ${files.length} total files.`);
+    
+    // Calculate similarity for any previously downloaded files that are missing similarity info
+    const downloadedFiles = files.filter(f => ledger.files[f].status === 'downloaded' && ledger.files[f].similarity_score === undefined);
+    if (downloadedFiles.length > 0) {
+      log(`Found ${downloadedFiles.length} downloaded tracks missing similarity data. Calculating...`);
+      for (const relPath of downloadedFiles) {
+        const absPath = path.join(rootPath, relPath);
+        const finalAbsoluteStaged = ledger.files[relPath].staged_path;
+        const stagedAbsPath = path.resolve(rootPath, finalAbsoluteStaged);
+        try {
+          const compResult = compareAudioFiles(absPath, stagedAbsPath);
+          ledger.files[relPath].audio_bit_identical = compResult.bitIdentical;
+          ledger.files[relPath].similarity_score = compResult.similarity;
+          log(`Previously downloaded similarity: ${(compResult.similarity * 100).toFixed(1)}% (Bit-Identical: ${compResult.bitIdentical})`);
+        } catch (simErr) {
+          log(`Failed previously downloaded similarity check: ${simErr.message}`);
+          ledger.files[relPath].audio_bit_identical = false;
+          ledger.files[relPath].similarity_score = 0.0;
+        }
+      }
+      saveLedger(rootPath, ledger);
+    }
     
     for (const relPath of pendingFiles) {
       const absPath = path.join(rootPath, relPath);
@@ -268,6 +291,20 @@ async function runPipeline(rootPath, outputFormat, fileList = null) {
         ledger.files[relPath].proxy_path = absoluteProxy;
       } else {
         ledger.files[relPath].proxy_path = null;
+      }
+      
+      // Calculate audio similarity
+      try {
+        const compareTarget = fs.existsSync(finalAbsPath) ? finalAbsPath : stagedAbsPath;
+        log(`Calculating similarity between original and replacement for ${relPath}...`);
+        const compResult = compareAudioFiles(absPath, compareTarget);
+        ledger.files[relPath].audio_bit_identical = compResult.bitIdentical;
+        ledger.files[relPath].similarity_score = compResult.similarity;
+        log(`Similarity: ${(compResult.similarity * 100).toFixed(1)}% (Bit-Identical: ${compResult.bitIdentical})`);
+      } catch (simErr) {
+        log(`Similarity check failed: ${simErr.message}`);
+        ledger.files[relPath].audio_bit_identical = false;
+        ledger.files[relPath].similarity_score = 0.0;
       }
       
       saveLedger(rootPath, ledger);

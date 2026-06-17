@@ -21,6 +21,13 @@
       font-display: swap;
       src: url('./fonts/outfit-latin.woff2') format('woff2');
     }
+    @font-face {
+      font-family: 'Playfair Display';
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url('./fonts/playfair-display.ttf') format('truetype');
+    }
   </style>
   
   <!-- Local WaveSurfer.js -->
@@ -60,6 +67,7 @@
       --green-glow: rgba(139, 48, 8, 0.15);
       --card-radius: 12px;
       --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      --paper-dark: var(--paper-3);
     }
 
     * {
@@ -189,7 +197,7 @@
     main {
       flex: 1;
       display: grid;
-      grid-template-columns: 1fr 340px;
+      grid-template-columns: 1fr auto 480px;
       overflow: hidden;
     }
 
@@ -475,11 +483,12 @@
 
     .queue-list {
       flex: 1;
-      overflow-y: auto;
+      overflow: hidden;
       padding: 10px;
       display: flex;
       flex-direction: column;
       gap: 6px;
+      min-height: 0; /* allow flex children to shrink below content size */
     }
 
     .queue-item {
@@ -552,7 +561,7 @@
     }
 
     .decision-skipped {
-      color: var(--mocha);
+      color: #7a8a9a; /* muted slate — clearly "dismissed" */
     }
 
     .decision-pending {
@@ -1115,6 +1124,500 @@
       font-size: 13px !important;
       padding: 4px 10px !important;
     }
+
+    /* Home Navigation Button */
+    #home-nav-btn {
+      background: none;
+      border: 0.5px solid var(--border-color);
+      color: var(--gold);
+      border-radius: 6px;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      transition: var(--transition);
+      outline: none;
+      padding: 0;
+      margin-left: 12px;
+    }
+    #home-nav-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* App Launcher Hub */
+    .launcher-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+      width: 100%;
+      max-width: 900px;
+      margin: auto;
+      box-sizing: border-box;
+    }
+    
+    .launcher-card {
+      background-color: var(--paper-2);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      text-align: center;
+      min-height: 320px;
+      box-shadow: 0 4px 20px rgba(26, 15, 5, 0.05);
+      transition: var(--transition);
+    }
+    
+    .launcher-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 8px 30px rgba(181, 65, 14, 0.08);
+    }
+    
+    .launcher-card h2 {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--espresso);
+      margin-bottom: 16px;
+      font-family: 'Playfair Display', Georgia, serif;
+    }
+    
+    .launcher-card p {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--espresso);
+      opacity: 0.8;
+      margin-bottom: 32px;
+      flex-grow: 1;
+    }
+    
+    .launcher-card-btn {
+      background-color: var(--gold);
+      color: var(--espresso);
+      border: none;
+      border-radius: 6px;
+      padding: 12px 36px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    
+    .launcher-card-btn:hover {
+      filter: brightness(1.1);
+    }
+
+    /* Library Cleaner / Rebuilder Panel Styles */
+    .rebuilder-drop-zone {
+      border: 2px dashed var(--border-color);
+      border-radius: var(--card-radius);
+      background-color: var(--paper-2);
+      padding: 60px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      cursor: pointer;
+      transition: var(--transition);
+      box-shadow: 0 4px 15px rgba(26, 15, 5, 0.02);
+    }
+    
+    .rebuilder-drop-zone:hover, .rebuilder-drop-zone.dragover {
+      border-color: var(--accent);
+      background-color: var(--paper-3);
+      box-shadow: 0 4px 20px rgba(181, 65, 14, 0.05);
+    }
+    
+    /* Custom Checkbox Styling */
+    .rebuilder-checkbox-label {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--espresso);
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+    
+    .rebuilder-checkbox-label input[type="checkbox"] {
+      display: none;
+    }
+
+    /* Library Cleaner Progress Overlay Styling (Step 2.3) */
+    .rebuilder-progress-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 999;
+      background-color: rgba(26, 15, 5, 0.7); /* Dark espresso semi-transparent tint */
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: var(--transition);
+    }
+
+    .rebuilder-progress-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .rebuilder-progress-box {
+      background-color: var(--paper-2);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 32px;
+      width: 90%;
+      max-width: 600px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      box-sizing: border-box;
+      text-align: center;
+    }
+
+    .rebuilder-progress-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--espresso);
+      margin-bottom: 4px;
+    }
+
+    .rebuilder-progress-percent {
+      font-family: 'Outfit', sans-serif;
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .rebuilder-progress-bar-track {
+      width: 100%;
+      height: 8px;
+      background-color: var(--paper-dark);
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+
+    .rebuilder-progress-bar-fill {
+      width: 0%;
+      height: 100%;
+      background-color: var(--accent);
+      border-radius: 4px;
+      transition: width 0.15s ease-out;
+    }
+
+    .rebuilder-progress-subtext {
+      font-size: 13px;
+      color: var(--mocha);
+      font-weight: 500;
+      margin-bottom: 8px;
+      word-break: break-all;
+    }
+
+    .rebuilder-cancel-btn {
+      background-color: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--mocha);
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: var(--transition);
+      outline: none;
+    }
+
+    .rebuilder-cancel-btn:hover {
+      background-color: var(--espresso);
+      color: var(--gold);
+      border-color: var(--espresso);
+    }
+
+
+    
+    .rebuilder-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+      width: 100%;
+      align-items: stretch;
+      box-sizing: border-box;
+    }
+    
+    .rebuilder-settings-column {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      background-color: var(--paper-2);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    
+    .rebuilder-setting-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .rebuilder-setting-group label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--espresso);
+      opacity: 0.8;
+    }
+    
+    .rebuilder-setting-group select {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-color: var(--paper-3); /* Match container palette */
+      border: 1px solid var(--espresso);
+      color: var(--espresso);
+      padding: 14px 20px;
+      border-radius: 6px;
+      width: 100%;
+      cursor: pointer;
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      transition: var(--transition);
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231A0F05' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: right 20px center;
+      background-size: 16px;
+      padding-right: 48px; /* Extra padding to avoid text overlapping the arrow */
+    }
+    
+    .rebuilder-setting-group select:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 8px rgba(181, 65, 14, 0.1);
+    }
+    
+    .rebuilder-action-column {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 24px;
+      box-sizing: border-box;
+    }
+    
+    .rebuilder-dest-subframe {
+      background-color: var(--paper-2);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 24px;
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    
+    .rebuilder-dest-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--espresso);
+      opacity: 0.8;
+    }
+
+    #rebuilder-dest-path-display {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--tan);
+      word-break: break-all;
+      line-height: 1.5;
+    }
+    
+    #rebuilder-consolidate-btn {
+      background-color: var(--paper-3);
+      color: var(--tan);
+      border: 1px solid var(--border-color);
+      cursor: not-allowed;
+      opacity: 0.6;
+      width: 100%;
+      height: 50px;
+      border-radius: 6px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      transition: var(--transition);
+    }
+    
+    #rebuilder-consolidate-btn:not(:disabled) {
+      background-color: var(--accent);
+      color: var(--paper);
+      border: none;
+      cursor: pointer;
+      opacity: 1;
+      box-shadow: 0 4px 15px rgba(181, 65, 14, 0.2);
+    }
+    
+    #rebuilder-consolidate-btn:not(:disabled):hover {
+      background-color: var(--accent-d);
+      transform: translateY(-1px);
+    }
+    
+    /* Accordion styles */
+    .category-accordion {
+      margin-bottom: 4px;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--roast);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0; /* collapsed accordions don't shrink */
+      min-height: 0;
+    }
+
+    .category-accordion.expanded {
+      flex: 1;
+      flex-shrink: 1;
+    }
+    
+    .category-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background-color: var(--roast);
+      cursor: pointer;
+      user-select: none;
+      transition: var(--transition);
+    }
+    
+    .category-header:hover {
+      background-color: #3b240d; /* slightly lighter than roast */
+    }
+    
+    .category-title-area {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gold);
+      min-width: 0;
+    }
+    
+    .category-caret {
+      font-size: 10px;
+      transition: transform 0.2s ease;
+      color: var(--sand);
+    }
+    
+    .category-caret.collapsed {
+      transform: rotate(-90deg);
+    }
+    
+    .category-count {
+      font-size: 11px;
+      color: var(--tan);
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+    }
+    
+    .category-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    
+    .batch-action-btn {
+      background: transparent;
+      border: 0.5px solid var(--border-color);
+      color: var(--paper-3);
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+      transition: var(--transition);
+      opacity: 0.8;
+    }
+    
+    .batch-action-btn:hover {
+      background-color: var(--mocha);
+      color: var(--gold);
+      opacity: 1;
+    }
+    
+    .batch-action-btn.approve-all:hover {
+      border-color: var(--accent);
+      color: var(--gold);
+    }
+    
+    .category-items-container {
+      display: flex;
+      flex-direction: column;
+      padding: 0 8px;
+      background-color: rgba(26, 15, 5, 0.5); /* translucent espresso */
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    
+    .category-items-container.collapsed {
+      display: none;
+    }
+    
+    /* Similarity Badges */
+    .similarity-badge {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px !important;
+      font-weight: 700 !important;
+      text-transform: uppercase;
+      padding: 1px 4px;
+      border-radius: 3px;
+      line-height: 1.2;
+    }
+    
+    /* Sidebar Resizer Styles */
+    .sidebar-resizer {
+      width: 4px;
+      cursor: col-resize;
+      background-color: transparent;
+      border-left: 1px solid var(--roast);
+      transition: background-color 0.2s;
+      z-index: 10;
+      position: relative;
+    }
+    
+    .sidebar-resizer:hover, .sidebar-resizer.dragging {
+      background-color: var(--accent);
+    }
   </style>
 </head>
 <body>
@@ -1124,6 +1627,7 @@
       <div class="logo-container">
         <img src="./icon.png" alt="CrateUp" class="header-logo" style="width: 28px; height: 28px; border-radius: 6px;" />
         <h1>CrateUp <span class="mono" style="font-size: 10px; color: var(--mocha); border: 0.5px solid var(--roast); padding: 2px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.1em;">Ver. 2.1.3</span></h1>
+        <button id="home-nav-btn" class="hidden" title="Go to Launcher Dashboard">⌂</button>
       </div>
       
       <div style="display: flex; gap: 12px; align-items: center;">
@@ -1140,8 +1644,31 @@
   <main class="sidebar-hidden">
     <!-- Left Workspace (Waveforms & Controls) -->
     <div class="workspace" id="workspace-area">
-      <!-- Home Screen -->
+      <!-- Home Screen (App Launcher Hub) -->
       <div id="home-screen" class="home-screen-container">
+        <div class="launcher-grid">
+          <!-- Card 1: Quality Upgrader -->
+          <div class="launcher-card">
+            <div>
+              <h2>Quality upgrader</h2>
+              <p>Scans your playlists, checks the audio quality, and replaces low-quality tracks with high-quality files from Deezer.</p>
+            </div>
+            <button id="open-upgrader-btn" class="launcher-card-btn">OPEN</button>
+          </div>
+          
+          <!-- Card 2: Library Cleaner -->
+          <div class="launcher-card">
+            <div>
+              <h2>Library cleaner</h2>
+              <p>Combines scattered music folders into a single folder, removes duplicates, and updates your library XML file.</p>
+            </div>
+            <button id="open-cleaner-btn" class="launcher-card-btn">OPEN</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quality Upgrader Landing Panel (Import Options + ARL) -->
+      <div id="upgrader-landing-panel" class="home-screen-container hidden">
         <div class="home-hero">
           <div class="mode-cards-container">
             <div class="import-btn" id="folder-mode-card">
@@ -1171,10 +1698,130 @@
           <div id="arl-status-msg" class="arl-status-msg hidden">✓ Saved</div>
           <div id="arl-warning-msg" class="arl-warning-msg hidden">Please enter your Deezer ARL first</div>
         </div>
+      </div>
+
+      <!-- Library Cleaner Panel -->
+      <div id="rebuilder-panel" class="hidden" style="display: flex; flex-direction: column; gap: 24px; padding: 32px; box-sizing: border-box; width: 100%; height: 100%; overflow-y: auto;">
         
-        <div class="home-footer-badge">
-          v2.1.3 · Personal use only
+        <!-- Top Section: Drag-and-drop zone -->
+        <div id="rebuilder-xml-drop-zone" class="rebuilder-drop-zone">
+          <span id="rebuilder-xml-zone-text" style="font-size: 18px; font-weight: 600; color: var(--espresso); pointer-events: none;">📂 Drag & Drop Collection XML here, or Click to browse system drive</span>
+          <div id="rebuilder-xml-status-container" class="hidden" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
+            <label class="rebuilder-checkbox-label">
+              <input type="checkbox" id="rebuilder-xml-checkbox" checked />
+              <span id="rebuilder-xml-checkbox-text">collection.xml loaded (1420 tracks)</span>
+            </label>
+          </div>
         </div>
+
+        <!-- Bottom Section: Balanced Two-Column Split Grid -->
+        <div class="rebuilder-grid">
+          
+          <!-- Left Column: Settings Stack -->
+          <div class="rebuilder-settings-column">
+            
+            <div class="rebuilder-setting-group">
+              <label>File Operation Mode</label>
+              <select id="rebuilder-op-mode">
+                <option value="copy">Safe Clone (Copy)</option>
+                <option value="move">Hard Relocate (Move)</option>
+                <option value="hardlink">Space-Saving Link (Hardlink)</option>
+              </select>
+            </div>
+
+            <div class="rebuilder-setting-group">
+              <label>Target Folder Architecture</label>
+              <select id="rebuilder-folder-arch">
+                <option value="consolidated">Single Consolidated Directory</option>
+                <option value="key">Organized by Key Matrix</option>
+                <option value="bpm">Organized by BPM Range</option>
+                <option value="year">Organized by Release Year</option>
+              </select>
+            </div>
+
+            <div class="rebuilder-setting-group">
+              <label>Deduplication Scan Depth</label>
+              <select id="rebuilder-dedup-depth">
+                <option value="strict">Tier 1: Strict (Exact Byte Checksums Only)</option>
+                <option value="standard">Tier 2: Standard (Same Artist, Title, & Track Length)</option>
+                <option value="fuzzy">Tier 3: Fuzzy Smart Scan (Flag Close Variation Matches)</option>
+              </select>
+            </div>
+
+            <div class="rebuilder-setting-group">
+              <label>Physical File Renaming Rules</label>
+              <select id="rebuilder-rename-rules">
+                <option value="preserve">Preserve Native Filenames</option>
+                <option value="clean">Clean Metadata Format (Artist - Title)</option>
+                <option value="performance">Performance Metric Prepend (BPM - Key - Artist - Title)</option>
+              </select>
+            </div>
+
+          </div>
+
+          <!-- Right Column: Destination & Action Hub -->
+          <div class="rebuilder-action-column">
+            
+            <div class="rebuilder-destination-container" style="display: flex; flex-direction: column; gap: 12px;">
+              <span class="rebuilder-dest-label">Target Destination Folder</span>
+              <div class="rebuilder-dest-subframe" style="display: flex; flex-direction: column; justify-content: flex-start; gap: 16px;">
+                <button id="rebuilder-select-dest-btn" class="launcher-card-btn" style="width: auto; padding: 10px 20px; font-size: 13px;">Select Destination...</button>
+                <div id="rebuilder-dest-path-display">No folder selected (Required)</div>
+              </div>
+            </div>
+
+            <button id="rebuilder-consolidate-btn" disabled>CONSOLIDATE LIBRARY</button>
+
+          </div>
+        </div>
+
+        <!-- Post-Flight Summary Screen (Step 2.8) -->
+        <div id="rebuilder-summary-screen" style="display: none; flex-direction: column; gap: 24px; width: 100%; box-sizing: border-box;">
+          <h2 style="font-family: 'Playfair Display', serif; font-size: 28px; color: var(--espresso); margin: 0; text-align: center;">Library Consolidation Complete</h2>
+          
+          <!-- Metrics Row -->
+          <div class="rebuilder-summary-metrics" style="display: flex; gap: 16px; justify-content: center; width: 100%;">
+            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+              <div style="font-size: 32px; color: #2e7d32; margin-bottom: 8px;">✓</div>
+              <div id="rebuilder-summary-healthy" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 tracks successfully cloned</div>
+            </div>
+            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+              <div style="font-size: 32px; color: var(--accent); margin-bottom: 8px;">⧉</div>
+              <div id="rebuilder-summary-duplicates" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 duplicate tracks found</div>
+            </div>
+            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+              <div style="font-size: 32px; color: #c62828; margin-bottom: 8px;">⚠</div>
+              <div id="rebuilder-summary-missing" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 missing tracks skipped</div>
+            </div>
+          </div>
+
+          <!-- Missing Tracks Scrollable Log -->
+          <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 576px; margin: 0 auto; box-sizing: border-box;">
+            <label style="font-size: 12px; font-weight: 700; color: var(--espresso); text-transform: uppercase; letter-spacing: 1px;">Skipped Missing Tracks Log</label>
+            <div id="rebuilder-summary-log" style="max-height: 200px; overflow-y: auto; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--espresso); line-height: 1.5; white-space: pre-wrap; box-sizing: border-box; width: 100%;">None</div>
+          </div>
+
+          <!-- Action Button Footer -->
+          <div style="display: flex; gap: 16px; justify-content: center; margin-top: 16px;">
+            <button id="rebuilder-open-folder-btn" class="launcher-card-btn" style="width: auto; padding: 12px 24px; font-size: 14px;">Open Output Folder</button>
+            <button id="rebuilder-back-btn" class="launcher-card-btn" style="width: auto; padding: 12px 24px; font-size: 14px; background-color: transparent; border: 1px solid var(--espresso); color: var(--espresso);">Back to Launcher</button>
+          </div>
+        </div>
+
+        <!-- Progress Overlay for Cleaner (Step 2.3) -->
+        <div id="rebuilder-progress-overlay" class="rebuilder-progress-overlay">
+          <div class="rebuilder-progress-box">
+            <h4 class="rebuilder-progress-title">Consolidating Library</h4>
+            <div id="rebuilder-progress-percent" class="rebuilder-progress-percent">0%</div>
+            <div id="rebuilder-progress-counter" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--espresso); font-weight: 600; margin-bottom: 4px;">0 / 0 tracks</div>
+            <div class="rebuilder-progress-bar-track">
+              <div id="rebuilder-progress-fill" class="rebuilder-progress-bar-fill"></div>
+            </div>
+            <div id="rebuilder-progress-status" class="rebuilder-progress-subtext">Preparing processing streams...</div>
+            <button type="button" id="rebuilder-cancel-btn" class="rebuilder-cancel-btn">CANCEL CONSOLIDATION</button>
+          </div>
+        </div>
+
       </div>
 
 
@@ -1245,8 +1892,9 @@
               <span id="refetch-status-feedback" style="font-size: 11px; font-weight: 600; transition: opacity 0.5s ease; opacity: 1;"></span>
             </div>
           </div>
-          <div>
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
             <span class="badge" id="meta-status-badge">status</span>
+            <span id="meta-match-score" class="mono" style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 3px; display: none;"></span>
           </div>
         </div>
 
@@ -1339,6 +1987,9 @@
 
       </div>
     </div>
+
+    <!-- Sidebar Resizer -->
+    <div class="sidebar-resizer hidden" id="sidebar-resizer"></div>
 
     <!-- Right Sidebar (Queue List) -->
     <div class="sidebar">
@@ -1466,6 +2117,13 @@
   <script>
     let ledger = null;
     let reviewQueue = []; // Array of { relPath, status, originalFile, stagedFile }
+    let expandedCategories = {
+      identical: false,
+      almost_identical: false,
+      close_enough: false,
+      potential_mismatch: false,
+      unresolved: false
+    };
     let currentIndex = -1;
     let currentFocus = 'original'; // 'original' or 'staged'
     let waveSurferOriginal = null;
@@ -1478,9 +2136,15 @@
     let selectedPlaylistName = null;
     let selectedNodeType = null;
     let loadedXmlPath = null;
+    let selectedXmlPath = null;
+    let selectedDestinationPath = null;
     let explicitFileList = null;
     let isSessionDirActive = false;
     let refetchFeedbackTimeout = null;
+    let rebuilderTrackCount = 0;
+    let rebuilderSimInterval = null;
+    let isRebuilderOverlayActive = false;
+    let rebuilderScanResult = null;
 
     const readyState = {
       original: { ready: false, decode: false },
@@ -1490,22 +2154,31 @@
     let isOriginalProgrammatic = false;
     let isStagedProgrammatic = false;
 
+    let lastSidebarWidth = 480; // default width
+
     function showSidebar(show) {
       const sidebar = document.querySelector('.sidebar');
+      const resizer = document.getElementById('sidebar-resizer');
       const main = document.querySelector('main');
       if (show) {
         sidebar.classList.remove('hidden');
+        if (resizer) resizer.classList.remove('hidden');
         main.classList.remove('sidebar-hidden');
+        main.style.gridTemplateColumns = `1fr auto ${lastSidebarWidth}px`;
       } else {
         sidebar.classList.add('hidden');
+        if (resizer) resizer.classList.add('hidden');
         main.classList.add('sidebar-hidden');
+        main.style.gridTemplateColumns = '';
       }
     }
 
     function showView(viewName) {
       document.getElementById('home-screen').classList.add('hidden');
+      document.getElementById('upgrader-landing-panel').classList.add('hidden');
       document.getElementById('pipeline-panel').classList.add('hidden');
       document.getElementById('deck-workspace').classList.add('hidden');
+      document.getElementById('rebuilder-panel').classList.add('hidden');
       
       // Enforce Page Isolation for Shortcuts button
       const shortcutsBtn = document.getElementById('shortcuts-toggle-btn');
@@ -1514,9 +2187,20 @@
       } else {
         shortcutsBtn.classList.add('hidden');
       }
+
+      // Enforce visibility of Home Navigation button
+      const homeNavBtn = document.getElementById('home-nav-btn');
+      if (viewName === 'home') {
+        homeNavBtn.classList.add('hidden');
+      } else {
+        homeNavBtn.classList.remove('hidden');
+      }
       
       if (viewName === 'home') {
         document.getElementById('home-screen').classList.remove('hidden');
+        showSidebar(false);
+      } else if (viewName === 'upgrader') {
+        document.getElementById('upgrader-landing-panel').classList.remove('hidden');
         showSidebar(false);
       } else if (viewName === 'pipeline') {
         document.getElementById('pipeline-panel').classList.remove('hidden');
@@ -1524,6 +2208,9 @@
       } else if (viewName === 'review') {
         document.getElementById('deck-workspace').classList.remove('hidden');
         showSidebar(true);
+      } else if (viewName === 'rebuilder') {
+        document.getElementById('rebuilder-panel').classList.remove('hidden');
+        showSidebar(false);
       }
     }
 
@@ -1705,6 +2392,16 @@
       const originalText = btnSpan.textContent;
       btnSpan.textContent = "Fetching...";
       btn.setAttribute('disabled', 'true');
+      // Save stale similarity data before clearing so we can restore it on failure
+      const prevSimilarityScore = ledger.files[track.relPath].similarity_score;
+      const prevBitIdentical = ledger.files[track.relPath].audio_bit_identical;
+
+      // Clear stale similarity data immediately so the track moves to
+      // 'unresolved' while the new download is in-progress (edge case: old
+      // category badge would be misleading during a long download).
+      ledger.files[track.relPath].similarity_score = undefined;
+      ledger.files[track.relPath].audio_bit_identical = undefined;
+      renderQueueList();
       
       try {
         // Fetch metadata from Deezer API
@@ -1725,7 +2422,7 @@
 
         const format = ledger.output_format || 'flac';
         
-        // Invoke download_track_by_id
+        // Invoke download_track_by_id (this also runs similarity in refetch.js)
         const resultStr = await window.__TAURI__.core.invoke('download_track_by_id', {
           rootPath: libraryRootPath,
           outputFormat: format,
@@ -1737,7 +2434,7 @@
         
         const result = JSON.parse(resultStr);
         
-        // Update local ledger memory
+        // Update local ledger memory (including fresh similarity data)
         ledger.files[track.relPath].status = 'downloaded';
         ledger.files[track.relPath].deezer_id = targetId;
         ledger.files[track.relPath].staged_path = result.staged_path;
@@ -1746,21 +2443,37 @@
         ledger.files[track.relPath].artist = result.artist || artist;
         ledger.files[track.relPath].title = result.title || title;
         ledger.files[track.relPath].decision = 'pending';
+        // Similarity data returned by refetch.js (may be 0/false if computation failed)
+        ledger.files[track.relPath].similarity_score = (typeof result.similarity_score === 'number') ? result.similarity_score : undefined;
+        ledger.files[track.relPath].audio_bit_identical = (typeof result.audio_bit_identical === 'boolean') ? result.audio_bit_identical : false;
         
         // Update review queue item
         track.status = 'downloaded';
         track.deezerId = targetId;
         track.proxyPath = result.proxy_path;
+
+        // Expand the track's new category so it's visible after re-categorization,
+        // but leave other categories as the user left them (single-expand: close all first).
+        const newCategory = getItemCategory(track);
+        Object.keys(expandedCategories).forEach(k => expandedCategories[k] = false);
+        expandedCategories[newCategory] = true;
         
-        // Reload track UI
+        // Reload track UI and re-render sidebar
         await loadTrack(currentIndex);
         renderQueueList();
+        // Scroll to the track's new position after the DOM is rebuilt
+        scrollActiveItemIntoView(currentIndex);
         updateQueueHeader();
 
         // Show success feedback
         showRefetchFeedback("✓ Downloaded", "var(--green)");
       } catch (err) {
+        // On failure, restore the previous similarity so the track
+        // doesn't stay stuck in 'Unresolved / No Upgrade'.
         console.error("Manual fetch/download failed:", err);
+        ledger.files[track.relPath].similarity_score = prevSimilarityScore;
+        ledger.files[track.relPath].audio_bit_identical = prevBitIdentical;
+        renderQueueList();
         showRefetchFeedback("✗ Error", "var(--red)", err.message || String(err));
       } finally {
         btnSpan.textContent = originalText;
@@ -1914,6 +2627,320 @@
     // -------------------------------------------------------------
     // Mode Flow Handlers
     // -------------------------------------------------------------
+    // App Launcher click handlers
+    document.getElementById('open-upgrader-btn').addEventListener('click', () => {
+      showView('upgrader');
+    });
+    document.getElementById('open-cleaner-btn').addEventListener('click', () => {
+      showView('rebuilder');
+    });
+    document.getElementById('home-nav-btn').addEventListener('click', async () => {
+      await resetSessionUI();
+    });
+
+    // Library Cleaner Panel Logic & Event Listeners
+    const rebuilderXmlDropZone = document.getElementById('rebuilder-xml-drop-zone');
+    const rebuilderXmlZoneText = document.getElementById('rebuilder-xml-zone-text');
+    const rebuilderSelectDestBtn = document.getElementById('rebuilder-select-dest-btn');
+    const rebuilderDestPathDisplay = document.getElementById('rebuilder-dest-path-display');
+    const rebuilderConsolidateBtn = document.getElementById('rebuilder-consolidate-btn');
+
+    function checkRebuilderSubmitReady() {
+      if (selectedXmlPath && selectedDestinationPath) {
+        rebuilderConsolidateBtn.removeAttribute('disabled');
+      } else {
+        rebuilderConsolidateBtn.setAttribute('disabled', 'true');
+      }
+    }
+
+    const rebuilderXmlCheckbox = document.getElementById('rebuilder-xml-checkbox');
+    rebuilderXmlCheckbox.addEventListener('change', () => {
+      if (!rebuilderXmlCheckbox.checked) {
+        selectedXmlPath = null;
+        rebuilderTrackCount = 0;
+        rebuilderScanResult = null;
+        document.getElementById('rebuilder-xml-status-container').classList.add('hidden');
+        rebuilderXmlZoneText.classList.remove('hidden');
+        checkRebuilderSubmitReady();
+      }
+    });
+
+    async function getXmlTrackCount(pathOrFile) {
+      if (pathOrFile instanceof File) {
+        try {
+          const text = await pathOrFile.text();
+          return (text.match(/Location="/g) || []).length;
+        } catch (e) {
+          console.error("Failed to read file in JS:", e);
+        }
+      }
+      if (window.__TAURI__) {
+        try {
+          return await window.__TAURI__.core.invoke('get_xml_track_count', { xmlPath: pathOrFile });
+        } catch (err) {
+          console.error("get_xml_track_count failed:", err);
+        }
+      }
+      return 1420; // Simulated fallback
+    }
+
+    function showXmlLoadedState(filename, trackCount) {
+      rebuilderTrackCount = trackCount;
+      rebuilderXmlZoneText.classList.add('hidden');
+      const statusContainer = document.getElementById('rebuilder-xml-status-container');
+      statusContainer.classList.remove('hidden');
+      rebuilderXmlCheckbox.checked = true;
+      const textSpan = document.getElementById('rebuilder-xml-checkbox-text');
+      textSpan.textContent = `✅ Loaded Rekordbox ${filename} (${trackCount} tracks)`;
+    }
+
+    async function triggerQuietXmlPreScan(xmlPath) {
+      rebuilderScanResult = null;
+      if (window.__TAURI__) {
+        try {
+          rebuilderScanResult = await window.__TAURI__.core.invoke("parse_and_validate_xml", { xmlPath });
+          console.log("Quiet pre-scan completed under the hood:", rebuilderScanResult);
+          if (isRebuilderOverlayActive) {
+            showConsolidationSummary();
+          }
+        } catch (err) {
+          console.error("Quiet pre-scan failed:", err);
+          if (isRebuilderOverlayActive) {
+            document.getElementById('rebuilder-progress-status').textContent = `Error: ${err}`;
+          }
+        }
+      }
+    }
+
+    function showConsolidationSummary() {
+      if (rebuilderScanResult) {
+        document.getElementById('rebuilder-progress-status').textContent = `Scan complete. Healthy: ${rebuilderScanResult.healthy_count}, Missing: ${rebuilderScanResult.missing_count}`;
+        document.getElementById('rebuilder-progress-percent').textContent = '100%';
+        document.getElementById('rebuilder-progress-fill').style.width = '100%';
+        const total = rebuilderScanResult.healthy_count + rebuilderScanResult.missing_count;
+        document.getElementById('rebuilder-progress-counter').textContent = `${total} / ${total} tracks`;
+      }
+    }
+
+    // Click trigger for XML file picker
+    rebuilderXmlDropZone.addEventListener('click', async (e) => {
+      if (e.target.closest('#rebuilder-xml-status-container')) {
+        return;
+      }
+      if (window.__TAURI__) {
+        try {
+          const selectedXml = await window.__TAURI__.core.invoke('select_xml_file');
+          if (selectedXml) {
+            selectedXmlPath = selectedXml;
+            const filename = selectedXml.split(/[/\\]/).pop();
+            const trackCount = await getXmlTrackCount(selectedXml);
+            showXmlLoadedState(filename, trackCount);
+            checkRebuilderSubmitReady();
+            triggerQuietXmlPreScan(selectedXmlPath);
+          }
+        } catch (err) {
+          console.error("select_xml_file failed:", err);
+        }
+      } else {
+        // Simulating file picker in non-tauri development environment
+        const fakePath = "/Simulated/Path/to/collection.xml";
+        selectedXmlPath = fakePath;
+        const trackCount = await getXmlTrackCount(fakePath);
+        showXmlLoadedState("collection.xml", trackCount);
+        checkRebuilderSubmitReady();
+      }
+    });
+
+    // Drag-and-drop support for XML drop zone
+    rebuilderXmlDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      rebuilderXmlDropZone.classList.add('dragover');
+    });
+
+    rebuilderXmlDropZone.addEventListener('dragleave', () => {
+      rebuilderXmlDropZone.classList.remove('dragover');
+    });
+
+    rebuilderXmlDropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      rebuilderXmlDropZone.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        if (file.name.toLowerCase().endsWith('.xml')) {
+          selectedXmlPath = file.path || file.name;
+          const trackCount = await getXmlTrackCount(file);
+          showXmlLoadedState(file.name, trackCount);
+          checkRebuilderSubmitReady();
+          triggerQuietXmlPreScan(selectedXmlPath);
+        } else {
+          alert("Please drop a valid Rekordbox XML file.");
+        }
+      }
+    });
+
+    // Click trigger for destination folder picker
+    rebuilderSelectDestBtn.addEventListener('click', async () => {
+      if (window.__TAURI__) {
+        try {
+          const selectedDir = await window.__TAURI__.core.invoke('select_directory');
+          if (selectedDir) {
+            selectedDestinationPath = selectedDir;
+            rebuilderDestPathDisplay.textContent = selectedDestinationPath;
+            rebuilderDestPathDisplay.style.color = 'var(--text-main)';
+            checkRebuilderSubmitReady();
+          }
+        } catch (err) {
+          console.error("select_directory failed:", err);
+        }
+      } else {
+        // Simulating directory picker in non-tauri development environment
+        const fakePath = "/Simulated/Path/to/DestinationFolder";
+        selectedDestinationPath = fakePath;
+        rebuilderDestPathDisplay.textContent = selectedDestinationPath;
+        rebuilderDestPathDisplay.style.color = 'var(--text-main)';
+        checkRebuilderSubmitReady();
+      }
+    });
+
+    // Execution trigger button click handler
+    rebuilderConsolidateBtn.addEventListener('click', () => {
+      console.log("CONSOLIDATE LIBRARY clicked. XML Path:", selectedXmlPath, "Destination Path:", selectedDestinationPath);
+      const opMode = document.getElementById('rebuilder-op-mode').value;
+      const folderArch = document.getElementById('rebuilder-folder-arch').value;
+      const dedupDepth = document.getElementById('rebuilder-dedup-depth').value;
+      const renameRules = document.getElementById('rebuilder-rename-rules').value;
+      console.log("Configuration Settings chosen: OpMode:", opMode, "FolderArch:", folderArch, "DedupDepth:", dedupDepth, "RenameRules:", renameRules);
+      
+      // Show progress overlay
+      isRebuilderOverlayActive = true;
+      document.getElementById('rebuilder-progress-percent').textContent = '0%';
+      document.getElementById('rebuilder-progress-counter').textContent = `0 / ${rebuilderTrackCount} tracks`;
+      document.getElementById('rebuilder-progress-fill').style.width = '0%';
+      document.getElementById('rebuilder-progress-status').textContent = 'Preparing file pipeline...';
+      document.getElementById('rebuilder-progress-overlay').classList.add('show');
+
+      if (window.__TAURI__) {
+        window.__TAURI__.core.invoke("execute_safe_clone", {
+          xmlPath: selectedXmlPath,
+          destinationPath: selectedDestinationPath,
+          fileMode: opMode,
+          folderArch: folderArch,
+          dedupDepth: dedupDepth,
+          renamingRule: renameRules
+        })
+          .then((summary) => {
+            console.log("Safe clone consolidation completed:", summary);
+            // Hide progress overlay
+            isRebuilderOverlayActive = false;
+            document.getElementById('rebuilder-progress-overlay').classList.remove('show');
+            
+            // Hide main configuration grid and drop zone
+            document.getElementById('rebuilder-xml-drop-zone').style.display = 'none';
+            document.querySelector('#rebuilder-panel .rebuilder-grid').style.display = 'none';
+            
+            // Show summary screen
+            const summaryScreen = document.getElementById('rebuilder-summary-screen');
+            summaryScreen.style.display = 'flex';
+            
+            // Inject values
+            document.getElementById('rebuilder-summary-healthy').textContent = `✓ ${summary.healthy_count} tracks successfully cloned`;
+            document.getElementById('rebuilder-summary-duplicates').textContent = `⧉ ${summary.duplicate_count} duplicate tracks found`;
+            document.getElementById('rebuilder-summary-missing').textContent = `⚠ ${summary.missing_count} missing tracks skipped`;
+            
+            // Populate log
+            const logBox = document.getElementById('rebuilder-summary-log');
+            if (summary.missing_list && summary.missing_list.length > 0) {
+              logBox.textContent = summary.missing_list.join('\n');
+            } else {
+              logBox.textContent = 'None';
+            }
+          })
+          .catch((err) => {
+            console.error("Safe clone consolidation failed:", err);
+            // Hide progress overlay so the user can see the error or try again
+            isRebuilderOverlayActive = false;
+            document.getElementById('rebuilder-progress-overlay').classList.remove('show');
+            alert("Safe clone consolidation failed: " + err);
+          });
+      } else {
+        // Simulation in browser mode
+        if (rebuilderSimInterval) clearInterval(rebuilderSimInterval);
+        let current = 0;
+        const total = rebuilderTrackCount || 100;
+        rebuilderSimInterval = setInterval(() => {
+          current += Math.ceil(total / 10);
+          if (current >= total) {
+            current = total;
+            clearInterval(rebuilderSimInterval);
+            rebuilderSimInterval = null;
+            
+            // Hide progress overlay
+            isRebuilderOverlayActive = false;
+            document.getElementById('rebuilder-progress-overlay').classList.remove('show');
+            
+            // Hide main configuration grid and drop zone
+            document.getElementById('rebuilder-xml-drop-zone').style.display = 'none';
+            document.querySelector('#rebuilder-panel .rebuilder-grid').style.display = 'none';
+            
+            // Show summary screen
+            const summaryScreen = document.getElementById('rebuilder-summary-screen');
+            summaryScreen.style.display = 'flex';
+            
+            // Inject mock values
+            const mockHealthy = Math.max(0, total - 4);
+            const mockDuplicate = 2;
+            const mockMissing = total - mockHealthy - mockDuplicate;
+            document.getElementById('rebuilder-summary-healthy').textContent = `✓ ${mockHealthy} tracks successfully cloned`;
+            document.getElementById('rebuilder-summary-duplicates').textContent = `⧉ ${mockDuplicate} duplicate tracks found`;
+            document.getElementById('rebuilder-summary-missing').textContent = `⚠ ${mockMissing} missing tracks skipped`;
+            if (mockMissing > 0) {
+              document.getElementById('rebuilder-summary-log').textContent = '/Users/mock/missing_track_1.mp3\n/Users/mock/missing_track_2.mp3';
+            } else {
+              document.getElementById('rebuilder-summary-log').textContent = 'None';
+            }
+          } else {
+            const pct = Math.round((current * 100) / total);
+            document.getElementById('rebuilder-progress-percent').textContent = `${pct}%`;
+            document.getElementById('rebuilder-progress-fill').style.width = `${pct}%`;
+            document.getElementById('rebuilder-progress-counter').textContent = `${current} / ${total} tracks`;
+            document.getElementById('rebuilder-progress-status').textContent = `Copying: track${current}.mp3`;
+          }
+        }, 200);
+      }
+    });
+
+    // Cancel consolidation button click handler
+    document.getElementById('rebuilder-cancel-btn').addEventListener('click', () => {
+      isRebuilderOverlayActive = false;
+      document.getElementById('rebuilder-progress-overlay').classList.remove('show');
+      if (rebuilderSimInterval) {
+        clearInterval(rebuilderSimInterval);
+        rebuilderSimInterval = null;
+      }
+      // Reset values
+      document.getElementById('rebuilder-progress-percent').textContent = '0%';
+      document.getElementById('rebuilder-progress-counter').textContent = '0 / 0 tracks';
+      document.getElementById('rebuilder-progress-fill').style.width = '0%';
+      document.getElementById('rebuilder-progress-status').textContent = 'Preparing file pipeline...';
+    });
+
+    // Summary screen action button click handlers
+    document.getElementById('rebuilder-open-folder-btn').addEventListener('click', () => {
+      if (window.__TAURI__ && selectedDestinationPath) {
+        window.__TAURI__.core.invoke('open_directory', { path: selectedDestinationPath })
+          .catch((err) => {
+            console.error("Failed to open directory:", err);
+            alert("Failed to open directory: " + err);
+          });
+      } else {
+        alert("Simulation Mode: Opened directory: " + (selectedDestinationPath || "(no path selected)"));
+      }
+    });
+
+    document.getElementById('rebuilder-back-btn').addEventListener('click', async () => {
+      await resetSessionUI();
+    });
+
     document.getElementById('folder-mode-card').addEventListener('click', (e) => {
       if (e.target.tagName === 'BUTTON') return;
       if (!checkArlFilled()) return;
@@ -2588,7 +3615,9 @@
               relPath,
               status,
               deezerId: fileData.deezer_id,
-              proxyPath: fileData.proxy_path
+              proxyPath: fileData.proxy_path,
+              audioBitIdentical: fileData.audio_bit_identical,
+              similarityScore: fileData.similarity_score
             });
           }
         }
@@ -2655,54 +3684,167 @@
     function renderQueueList() {
       queueListContainer.innerHTML = '';
       
+      const CATEGORY_DEFS = {
+        identical: {
+          id: 'identical',
+          title: 'Identical Audio',
+          allowApprove: true
+        },
+        almost_identical: {
+          id: 'almost_identical',
+          title: 'Almost Identical',
+          allowApprove: true
+        },
+        close_enough: {
+          id: 'close_enough',
+          title: 'Not Certain',
+          allowApprove: true
+        },
+        potential_mismatch: {
+          id: 'potential_mismatch',
+          title: 'Potential Mismatch',
+          allowApprove: true
+        },
+        unresolved: {
+          id: 'unresolved',
+          title: 'Unresolved / No Upgrade',
+          allowApprove: false
+        }
+      };
+
+      const grouped = {
+        identical: [],
+        almost_identical: [],
+        close_enough: [],
+        potential_mismatch: [],
+        unresolved: []
+      };
+      
       reviewQueue.forEach((item, index) => {
-        const ledgerFile = ledger.files[item.relPath];
-        const decision = ledgerFile.decision || 'pending';
-        
-        const div = document.createElement('div');
-        div.className = `queue-item ${index === currentIndex ? 'active' : ''}`;
-        div.setAttribute('data-index', index);
-        
-        const titleText = item.relPath.split('/').pop();
-        
-        let badgeClass = 'decision-pending';
-        let badgeText = 'pending';
-        if (decision === 'approved') {
-          badgeClass = 'decision-approved';
-          badgeText = '✓ Approved';
-        } else if (decision === 'skipped') {
-          badgeClass = 'decision-skipped';
-          badgeText = '✗ Skipped';
-        }
+        const cat = getItemCategory(item);
+        grouped[cat].push({ item, index });
+      });
 
-        let statusBadgeHtml = '';
-        if (item.status === 'downloaded') {
-          statusBadgeHtml = `<span class="status-badge status-ready">Ready</span>`;
-        } else if (item.status === 'unidentified') {
-          statusBadgeHtml = `<span class="status-badge status-unidentified">Unidentified</span>`;
-        } else if (item.status === 'not_on_deezer') {
-          statusBadgeHtml = `<span class="status-badge status-not-on-deezer">Not On Deezer</span>`;
-        } else if (item.status === 'download_failed') {
-          statusBadgeHtml = `<span class="status-badge status-download-failed">Download Failed</span>`;
-        }
-
-        div.innerHTML = `
-          <div class="queue-item-meta" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
-            <span class="queue-item-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 500;">${titleText}</span>
-            <div style="display: flex; align-items: center; margin-top: 4px;">
-              ${statusBadgeHtml}
-            </div>
-          </div>
-          <span class="queue-item-decision ${badgeClass}">${badgeText}</span>
-        `;
+      const order = ['identical', 'almost_identical', 'close_enough', 'potential_mismatch', 'unresolved'];
+      
+      order.forEach((catId) => {
+        const items = grouped[catId];
+        if (items.length === 0) return;
         
-        div.addEventListener('click', () => {
-          if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
-          if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
-          loadTrack(index);
+        const catDef = CATEGORY_DEFS[catId];
+        const isExpanded = expandedCategories[catId];
+        
+        const accordionDiv = document.createElement('div');
+        accordionDiv.className = `category-accordion${isExpanded ? ' expanded' : ''}`;
+        
+        // Header
+        const header = document.createElement('div');
+        header.className = 'category-header';
+        
+        const titleArea = document.createElement('div');
+        titleArea.className = 'category-title-area';
+        
+        const caret = document.createElement('span');
+        caret.className = `category-caret ${isExpanded ? '' : 'collapsed'}`;
+        caret.textContent = isExpanded ? '▼' : '▶';
+        
+        const titleText = document.createElement('span');
+        titleText.textContent = `${catDef.title} `;
+        
+        const countSpan = document.createElement('span');
+        countSpan.className = 'category-count';
+        countSpan.textContent = `(${items.length})`;
+        
+        titleArea.appendChild(caret);
+        titleArea.appendChild(titleText);
+        titleArea.appendChild(countSpan);
+        
+        // Actions
+        const actionsArea = document.createElement('div');
+        actionsArea.className = 'category-actions';
+        
+        // Check if there are pending files in this category
+        const hasPending = items.some(({ item }) => ledger.files[item.relPath].decision === 'pending');
+        
+        if (hasPending) {
+          if (catDef.allowApprove) {
+            const approveBtn = document.createElement('button');
+            approveBtn.className = 'batch-action-btn approve-all';
+            approveBtn.textContent = 'Approve Remaining';
+            approveBtn.title = 'Approve all remaining pending tracks in this category';
+            approveBtn.addEventListener('click', (e) => {
+              approveCategoryRemaining(e, catId);
+            });
+            actionsArea.appendChild(approveBtn);
+          }
+          
+          const skipBtn = document.createElement('button');
+          skipBtn.className = 'batch-action-btn skip-all';
+          skipBtn.textContent = catDef.allowApprove ? 'Skip Remaining' : 'Keep Remaining';
+          skipBtn.title = 'Skip or keep original for all remaining pending tracks in this category';
+          skipBtn.addEventListener('click', (e) => {
+            skipCategoryRemaining(e, catId);
+          });
+          actionsArea.appendChild(skipBtn);
+        }
+        
+        header.appendChild(titleArea);
+        header.appendChild(actionsArea);
+        
+        header.addEventListener('click', (e) => {
+          // Only toggle if we didn't click inside category-actions
+          if (e.target.closest('.category-actions')) return;
+          toggleCategory(catId);
         });
         
-        queueListContainer.appendChild(div);
+        // Items Container
+        const itemsContainer = document.createElement('div');
+        itemsContainer.className = `category-items-container ${isExpanded ? '' : 'collapsed'}`;
+        
+        items.forEach(({ item, index }) => {
+          const ledgerFile = ledger.files[item.relPath];
+          const decision = ledgerFile.decision || 'pending';
+          
+          const div = document.createElement('div');
+          div.className = `queue-item ${index === currentIndex ? 'active' : ''}`;
+          div.setAttribute('data-index', index);
+          
+          const itemTitle = item.relPath.split('/').pop();
+          
+          let badgeClass = 'decision-pending';
+          let badgeText = 'pending';
+          if (decision === 'approved') {
+            badgeClass = 'decision-approved';
+            badgeText = '✓ Approved';
+          } else if (decision === 'skipped') {
+            badgeClass = 'decision-skipped';
+            badgeText = '✗ Skipped';
+          }
+          
+          const badgeHtml = getSimilarityBadgeHtml(item);
+          
+          div.innerHTML = `
+            <div class="queue-item-meta" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
+              <span class="queue-item-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 500;">${itemTitle}</span>
+              <div style="display: flex; align-items: center; margin-top: 4px;">
+                ${badgeHtml}
+              </div>
+            </div>
+            <span class="queue-item-decision ${badgeClass}">${badgeText}</span>
+          `;
+          
+          div.addEventListener('click', () => {
+            if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
+            if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
+            loadTrack(index);
+          });
+          
+          itemsContainer.appendChild(div);
+        });
+        
+        accordionDiv.appendChild(header);
+        accordionDiv.appendChild(itemsContainer);
+        queueListContainer.appendChild(accordionDiv);
       });
     }
 
@@ -2892,16 +4034,17 @@
       const track = reviewQueue[index];
       const ledgerFile = ledger.files[track.relPath];
       
+      // Ensure the category of the loaded track is expanded (single-expand)
+      const itemCategory = getItemCategory(track);
+      if (!expandedCategories[itemCategory]) {
+        // Collapse all categories first
+        Object.keys(expandedCategories).forEach(k => expandedCategories[k] = false);
+        expandedCategories[itemCategory] = true;
+        renderQueueList();
+      }
+      
       // Update UI active styling in queue sidebar list
-      const items = queueListContainer.querySelectorAll('.queue-item');
-      items.forEach((item, idx) => {
-        if (idx === index) {
-          item.classList.add('active');
-          item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        } else {
-          item.classList.remove('active');
-        }
-      });
+      scrollActiveItemIntoView(index);
 
       originalFileUrl = null;
       stagedFileUrl = null;
@@ -2957,6 +4100,35 @@
       } else if (track.status === 'download_failed') {
         badge.classList.add('badge-unidentified');
         badge.textContent = 'Download Failed';
+      }
+
+      // Match score badge in left panel
+      const matchEl = document.getElementById('meta-match-score');
+      const simScore = ledgerFile.similarity_score;
+      const bitIdentical = ledgerFile.audio_bit_identical;
+      if (typeof simScore === 'number' && track.status === 'downloaded') {
+        const pct = bitIdentical ? 100 : Math.round(simScore * 100);
+        let color, bg;
+        if (bitIdentical) {
+          color = '#16a34a'; bg = 'rgba(22, 163, 74, 0.10)';
+        } else if (pct >= 95) {
+          color = '#22c55e'; bg = 'rgba(34, 197, 94, 0.08)';
+        } else if (pct >= 90) {
+          color = '#65a30d'; bg = 'rgba(101, 163, 13, 0.08)';
+        } else if (pct >= 85) {
+          color = '#b45309'; bg = 'rgba(180, 83, 9, 0.10)';
+        } else if (pct >= 75) {
+          color = '#c2410c'; bg = 'rgba(194, 65, 12, 0.10)';
+        } else {
+          color = '#dc2626'; bg = 'rgba(220, 38, 38, 0.10)';
+        }
+        matchEl.textContent = `${pct}% Match`;
+        matchEl.style.color = color;
+        matchEl.style.backgroundColor = bg;
+        matchEl.style.border = `0.5px solid ${color}`;
+        matchEl.style.display = 'inline-block';
+      } else {
+        matchEl.style.display = 'none';
       }
 
       const playersContainer = document.getElementById('players-container');
@@ -3195,6 +4367,33 @@
       });
     }
 
+    // Returns the reviewQueue index of the next pending track in the same
+    // category as fromIndex, scanning forward then backward.
+    // Returns -1 if no other pending track exists in the category.
+    function getNextInCategory(fromIndex) {
+      const currentTrack = reviewQueue[fromIndex];
+      const category = getItemCategory(currentTrack);
+      const candidates = [];
+      reviewQueue.forEach((item, idx) => {
+        if (idx === fromIndex) return;
+        if (getItemCategory(item) !== category) return;
+        if (ledger.files[item.relPath].decision === 'pending') {
+          candidates.push(idx);
+        }
+      });
+      if (candidates.length === 0) return -1;
+      const after = candidates.find(i => i > fromIndex);
+      return after !== undefined ? after : candidates[candidates.length - 1];
+    }
+
+    // Rebuilds the queue list DOM and instantly jumps to the current track's
+    // position so that a subsequent loadTrack(nextIdx) smooth-scrolls only
+    // the small delta to the next item (rather than sweeping from the top).
+    function renderQueueListPreservingScroll() {
+      renderQueueList();
+      scrollActiveItemIntoView(currentIndex, 'instant');
+    }
+
     // Actions
     function approveCurrent() {
       const track = reviewQueue[currentIndex];
@@ -3212,23 +4411,23 @@
       if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
       if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
 
-      renderQueueList();
+      renderQueueListPreservingScroll();
       updateQueueHeader();
 
-      if (currentIndex < reviewQueue.length - 1) {
-        loadTrack(currentIndex + 1);
+      const nextIdx = getNextInCategory(currentIndex);
+      if (nextIdx !== -1) {
+        loadTrack(nextIdx);
       } else {
+        scrollActiveItemIntoView(currentIndex);
         const decisions = reviewQueue.map(item => ledger.files[item.relPath].decision);
-        if (!decisions.includes('pending')) {
-          log("All tracks reviewed!");
-        }
+        if (!decisions.includes('pending')) log("All tracks reviewed!");
       }
     }
 
     function skipCurrent() {
       const track = reviewQueue[currentIndex];
       const ledgerFile = ledger.files[track.relPath];
-      
+
       ledgerFile.decision = 'skipped';
       saveDecision(track.relPath, 'skipped');
 
@@ -3236,20 +4435,20 @@
       if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
       if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
 
-      renderQueueList();
+      renderQueueListPreservingScroll();
       updateQueueHeader();
 
-      if (currentIndex < reviewQueue.length - 1) {
-        loadTrack(currentIndex + 1);
+      const nextIdx = getNextInCategory(currentIndex);
+      if (nextIdx !== -1) {
+        loadTrack(nextIdx);
       } else {
+        scrollActiveItemIntoView(currentIndex);
         const decisions = reviewQueue.map(item => ledger.files[item.relPath].decision);
-        if (!decisions.includes('pending')) {
-          log("All tracks reviewed!");
-        }
+        if (!decisions.includes('pending')) log("All tracks reviewed!");
       }
     }
 
-    // Keyboard bindings handler
+
     window.addEventListener('keydown', (e) => {
       if (document.activeElement && document.activeElement.tagName === 'INPUT') {
         return;
@@ -3517,10 +4716,61 @@
       selectedPlaylistName = null;
       selectedNodeType = null;
       loadedXmlPath = null;
+      selectedXmlPath = null;
+      selectedDestinationPath = null;
       explicitFileList = null;
       libraryRootPath = null;
       progressLedgerPath = null;
       isSessionDirActive = false;
+
+      rebuilderTrackCount = 0;
+      rebuilderScanResult = null;
+      isRebuilderOverlayActive = false;
+      if (rebuilderSimInterval) {
+        clearInterval(rebuilderSimInterval);
+        rebuilderSimInterval = null;
+      }
+
+      // Reset Library Cleaner UI state
+      if (document.getElementById('rebuilder-xml-drop-zone')) {
+        document.getElementById('rebuilder-xml-drop-zone').style.display = '';
+      }
+      const rebuilderGrid = document.querySelector('#rebuilder-panel .rebuilder-grid');
+      if (rebuilderGrid) {
+        rebuilderGrid.style.display = '';
+      }
+      if (document.getElementById('rebuilder-summary-screen')) {
+        document.getElementById('rebuilder-summary-screen').style.display = 'none';
+      }
+      if (document.getElementById('rebuilder-xml-zone-text')) {
+        document.getElementById('rebuilder-xml-zone-text').textContent = '📂 Drag & Drop Collection XML here, or Click to browse system drive';
+        document.getElementById('rebuilder-xml-zone-text').classList.remove('hidden');
+      }
+      if (document.getElementById('rebuilder-xml-status-container')) {
+        document.getElementById('rebuilder-xml-status-container').classList.add('hidden');
+      }
+      if (document.getElementById('rebuilder-dest-path-display')) {
+        document.getElementById('rebuilder-dest-path-display').textContent = 'No folder selected (Required)';
+        document.getElementById('rebuilder-dest-path-display').style.color = 'var(--tan)';
+      }
+      if (document.getElementById('rebuilder-consolidate-btn')) {
+        document.getElementById('rebuilder-consolidate-btn').setAttribute('disabled', 'true');
+      }
+      if (document.getElementById('rebuilder-progress-percent')) {
+        document.getElementById('rebuilder-progress-percent').textContent = '0%';
+      }
+      if (document.getElementById('rebuilder-progress-counter')) {
+        document.getElementById('rebuilder-progress-counter').textContent = '0 / 0 tracks';
+      }
+      if (document.getElementById('rebuilder-progress-fill')) {
+        document.getElementById('rebuilder-progress-fill').style.width = '0%';
+      }
+      if (document.getElementById('rebuilder-progress-status')) {
+        document.getElementById('rebuilder-progress-status').textContent = 'Preparing processing streams...';
+      }
+      if (document.getElementById('rebuilder-progress-overlay')) {
+        document.getElementById('rebuilder-progress-overlay').classList.remove('show');
+      }
       
       // Update header
       document.getElementById('reset-session-btn').classList.add('hidden');
@@ -3589,9 +4839,238 @@
       }
     });
 
+    async function listenToRebuilder() {
+      if (!window.__TAURI__) return;
+      await window.__TAURI__.event.listen('xml-scan-progress', (event) => {
+        if (!isRebuilderOverlayActive) return;
+        console.log("xml-scan-progress event received:", event.payload);
+        const { track_name, processed, total, percentage } = event.payload;
+        
+        document.getElementById('rebuilder-progress-percent').textContent = `${percentage}%`;
+        document.getElementById('rebuilder-progress-fill').style.width = `${percentage}%`;
+        document.getElementById('rebuilder-progress-counter').textContent = `${processed} / ${total} tracks`;
+        document.getElementById('rebuilder-progress-status').textContent = `Scanning: ${track_name}`;
+      });
+
+      await window.__TAURI__.event.listen('consolidation-progress', (event) => {
+        if (!isRebuilderOverlayActive) return;
+        console.log("consolidation-progress event received:", event.payload);
+        const { filename, processed, total, percentage } = event.payload;
+        
+        document.getElementById('rebuilder-progress-percent').textContent = `${percentage}%`;
+        document.getElementById('rebuilder-progress-fill').style.width = `${percentage}%`;
+        document.getElementById('rebuilder-progress-counter').textContent = `${processed} / ${total} tracks`;
+        document.getElementById('rebuilder-progress-status').textContent = `Copying: ${filename}`;
+      });
+    }
+
+    function getItemCategory(item) {
+      const ledgerFile = ledger.files[item.relPath];
+      if (!ledgerFile) return 'unresolved';
+      
+      const status = item.status;
+      const bitIdentical = ledgerFile.audio_bit_identical;
+      const score = ledgerFile.similarity_score;
+      
+      if (status === 'downloaded') {
+        if (bitIdentical) {
+          return 'identical';
+        } else if (score >= 0.95) {
+          return 'almost_identical';
+        } else if (score >= 0.75) {
+          return 'close_enough';
+        } else {
+          return 'potential_mismatch';
+        }
+      } else {
+        return 'unresolved';
+      }
+    }
+
+    function getSimilarityBadgeHtml(item) {
+      const ledgerFile = ledger.files[item.relPath];
+      if (item.status !== 'downloaded') {
+        if (item.status === 'unidentified') {
+          return `<span class="status-badge status-unidentified">Unidentified</span>`;
+        } else if (item.status === 'not_on_deezer') {
+          return `<span class="status-badge status-not-on-deezer">Not On Deezer</span>`;
+        } else if (item.status === 'download_failed') {
+          return `<span class="status-badge status-download-failed">Download Failed</span>`;
+        }
+        return '';
+      }
+      
+      const bitIdentical = ledgerFile.audio_bit_identical;
+      const score = ledgerFile.similarity_score;
+      
+      if (bitIdentical) {
+        return `<span class="similarity-badge" style="background-color: rgba(22, 163, 74, 0.15); border: 0.5px solid #16a34a; color: #16a34a;">100% Identical</span>`;
+      }
+      
+      const pct = Math.round(score * 100);
+      let color, bgColor;
+      
+      if (pct >= 95) {
+        color = '#22c55e'; bgColor = 'rgba(34, 197, 94, 0.12)';
+      } else if (pct >= 90) {
+        color = '#65a30d'; bgColor = 'rgba(101, 163, 13, 0.12)';
+      } else if (pct >= 85) {
+        color = '#b45309'; bgColor = 'rgba(180, 83, 9, 0.15)';
+      } else if (pct >= 75) {
+        color = '#c2410c'; bgColor = 'rgba(194, 65, 12, 0.15)';
+      } else {
+        color = '#dc2626'; bgColor = 'rgba(220, 38, 38, 0.15)';
+      }
+      
+      return `<span class="similarity-badge" style="background-color: ${bgColor}; border: 0.5px solid ${color}; color: ${color};">${pct}% Match</span>`;
+    }
+
+    // Scroll the active queue item into view and update active styling.
+    // Centers the item within its scrollable .category-items-container when possible.
+    function scrollActiveItemIntoView(index, behavior) {
+      if (index === undefined) index = currentIndex;
+      if (!behavior) behavior = 'smooth';
+      const items = queueListContainer.querySelectorAll('.queue-item');
+      items.forEach((item) => {
+        const itemIndex = parseInt(item.getAttribute('data-index'), 10);
+        if (itemIndex === index) {
+          item.classList.add('active');
+          // Find the nearest scrollable ancestor (.category-items-container)
+          const container = item.closest('.category-items-container');
+          if (container) {
+            // Compute offset of item relative to container's scroll origin
+            const containerRect = container.getBoundingClientRect();
+            const itemRect = item.getBoundingClientRect();
+            const itemOffsetInContainer = itemRect.top - containerRect.top + container.scrollTop;
+            const targetScrollTop = itemOffsetInContainer - (container.clientHeight / 2) + (item.offsetHeight / 2);
+            container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: behavior });
+          } else {
+            item.scrollIntoView({ block: 'nearest', behavior: behavior });
+          }
+        } else {
+          item.classList.remove('active');
+        }
+      });
+    }
+
+    function toggleCategory(categoryId) {
+      const wasExpanded = expandedCategories[categoryId];
+      // Collapse all categories first
+      Object.keys(expandedCategories).forEach(k => expandedCategories[k] = false);
+      // If the category was collapsed, expand it (if it was already open, it stays collapsed = all closed)
+      if (!wasExpanded) {
+        expandedCategories[categoryId] = true;
+      }
+      renderQueueList();
+    }
+
+    function approveCategoryRemaining(event, categoryId) {
+      if (event) event.stopPropagation();
+      
+      let changed = false;
+      reviewQueue.forEach((item) => {
+        if (getItemCategory(item) === categoryId) {
+          const ledgerFile = ledger.files[item.relPath];
+          if (ledgerFile && ledgerFile.decision === 'pending') {
+            const hasShazamMeta = ledgerFile.artist && ledgerFile.title && ledgerFile.artist !== 'Unknown Artist' && ledgerFile.title !== 'Unknown Title';
+            if (item.status === 'downloaded' || (item.status !== 'downloaded' && hasShazamMeta)) {
+              ledgerFile.decision = 'approved';
+              saveDecision(item.relPath, 'approved');
+              changed = true;
+            } else {
+              ledgerFile.decision = 'skipped';
+              saveDecision(item.relPath, 'skipped');
+              changed = true;
+            }
+          }
+        }
+      });
+      
+      if (changed) {
+        if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
+        if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
+        
+        renderQueueList();
+        updateQueueHeader();
+        
+        if (currentIndex !== -1) {
+          loadTrack(currentIndex);
+        }
+      }
+    }
+
+    function skipCategoryRemaining(event, categoryId) {
+      if (event) event.stopPropagation();
+      
+      let changed = false;
+      reviewQueue.forEach((item) => {
+        if (getItemCategory(item) === categoryId) {
+          const ledgerFile = ledger.files[item.relPath];
+          if (ledgerFile && ledgerFile.decision === 'pending') {
+            ledgerFile.decision = 'skipped';
+            saveDecision(item.relPath, 'skipped');
+            changed = true;
+          }
+        }
+      });
+      
+      if (changed) {
+        if (waveSurferOriginal && waveSurferOriginal.isPlaying()) waveSurferOriginal.pause();
+        if (waveSurferStaged && waveSurferStaged.isPlaying()) waveSurferStaged.pause();
+        
+        renderQueueList();
+        updateQueueHeader();
+        
+        if (currentIndex !== -1) {
+          loadTrack(currentIndex);
+        }
+      }
+    }
+
+    function initSidebarResizer() {
+      const resizer = document.getElementById('sidebar-resizer');
+      const main = document.querySelector('main');
+      if (!resizer || !main) return;
+      
+      let isDragging = false;
+      
+      resizer.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        resizer.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+      
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        
+        const containerWidth = main.getBoundingClientRect().width;
+        const newSidebarWidth = containerWidth - e.clientX - 2;
+        
+        const minWidth = 280;
+        const maxWidth = 700;
+        const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newSidebarWidth));
+        
+        lastSidebarWidth = clampedWidth;
+        main.style.gridTemplateColumns = `1fr auto ${clampedWidth}px`;
+      });
+      
+      window.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          resizer.classList.remove('dragging');
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+        }
+      });
+    }
+
     // Initialize pipeline listeners and ARL on startup
     listenToPipeline();
+    listenToRebuilder();
     initARL();
+    initSidebarResizer();
     showView('home');
   </script>
 </body>

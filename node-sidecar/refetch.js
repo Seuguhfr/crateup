@@ -25,7 +25,7 @@ function setupBinaries() {
     
     let activeBinDir = fs.existsSync(prodBinDir) ? prodBinDir : devBinDir;
 
-    const binaries = ['ffmpeg', 'ffprobe'];
+    const binaries = ['ffmpeg', 'ffprobe', 'fpcalc'];
     for (const bin of binaries) {
       const targetLinkPath = path.join(binDir, bin);
       const sourceFilePath = path.join(activeBinDir, `${bin}${suffix}`);
@@ -64,6 +64,7 @@ setupBinaries();
 
 const PythonBridge = require('./rpc');
 const { getBitrate } = require('./scanner');
+const { compareAudioFiles } = require('./similarity');
 
 function sanitizeFilenamePart(part) {
   if (!part) return '';
@@ -192,6 +193,22 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
 
     const stagedBitrate = getBitrate(fs.existsSync(finalAbsPath) ? finalAbsPath : stagedAbsPath);
 
+    // Calculate audio similarity between original and new staged file
+    let audioSimilarity = 0.0;
+    let audioBitIdentical = false;
+    try {
+      const absOriginalPath = path.join(rootPath, relPath.startsWith('/') ? relPath.substring(1) : relPath);
+      const compareTarget = fs.existsSync(finalAbsPath) ? finalAbsPath : stagedAbsPath;
+      if (fs.existsSync(absOriginalPath) && fs.existsSync(compareTarget)) {
+        const compResult = compareAudioFiles(absOriginalPath, compareTarget);
+        audioSimilarity = compResult.similarity;
+        audioBitIdentical = compResult.bitIdentical;
+      }
+    } catch (simErr) {
+      // Non-fatal — similarity defaults to 0
+      console.error(`[NODE] Similarity check failed: ${simErr.message}`);
+    }
+
     // Update ledger
     const isProdDir = fs.existsSync(path.join(__dirname, '../../Resources/binaries')) || fs.existsSync(path.join(path.dirname(process.execPath), '../Resources/binaries'));
     const isTestMode = process.env.NODE_ENV === 'test';
@@ -208,6 +225,8 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
         ledger.files[relPath].artist = matchedArtist;
         ledger.files[relPath].title = matchedTitle;
         ledger.files[relPath].decision = 'pending';
+        ledger.files[relPath].similarity_score = audioSimilarity;
+        ledger.files[relPath].audio_bit_identical = audioBitIdentical;
         fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf8');
       }
     }
@@ -219,7 +238,9 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
       proxy_path: absoluteProxy,
       staged_bitrate: stagedBitrate,
       artist: matchedArtist,
-      title: matchedTitle
+      title: matchedTitle,
+      similarity_score: audioSimilarity,
+      audio_bit_identical: audioBitIdentical
     };
   } finally {
 

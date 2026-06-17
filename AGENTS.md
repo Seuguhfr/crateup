@@ -107,6 +107,110 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Implemented Raw Audio MD5 & Acoustic Fingerprinting Similarity Comparison with Collapsible Accordion Sidebar Grouping & Category Batch Actions:
+- **Packaged AcoustID Chromaprint fpcalc**: Downloaded the universal macOS `fpcalc` binary, placed it in `src-tauri/binaries/fpcalc-aarch64-apple-darwin`, registered it in `src-tauri/tauri.conf.json` resources, and configured Node sidecar entry points to symlink/copy and place it on the system PATH.
+- **Developed Audio Similarity Module**: Created `node-sidecar/similarity.js` containing:
+  - Raw audio stream MD5 checksum generation via `ffmpeg` (mapping stream 0:a and output format md5) to detect bit-identical audio files.
+  - Acoustic fingerprint extraction via `fpcalc -raw`.
+  - A sliding popcount alignment algorithm that calculates a 0.0 - 1.0 (0% - 100%) bitwise similarity match score.
+- **Integrated Similarity checks in Background Pipeline**: Updated `node-sidecar/pipeline.js` to calculate and store similarity properties (`similarity_score` and `audio_bit_identical`) for all fresh downloads and backfill missing data for previously downloaded files on pipeline reload.
+- **Redesigned Sidebar Review list**: Grouped tracks into collapsible accordion categories based on similarity scores in `ui/index.html`:
+  - **Identical Audio** (100% bit-identical PCM)
+  - **Almost Identical** (95% - 99% match)
+  - **Close Enough** (75% - 94% match)
+  - **Potential Mismatch** (<75% match)
+  - **Unresolved / No Upgrade** (unidentified/missing files)
+- **Interactive Sidebar Accordion Features**:
+  - Toggles collapse states on header clicks.
+  - Renders color-coded similarity badges next to each track.
+  - Implemented tiny high-contrast "Approve Remaining" / "Skip Remaining" batch buttons that execute decision updates only on pending tracks.
+  - Programmed active track auto-expansion to expand the category accordion automatically if the loaded track is in a collapsed category.
+- **Session Reset Dev Ledger Deletion Fix**: Updated the `reset_session` Rust backend command in `src-tauri/src/lib.rs` to check for and delete `.crateup-progress-dev.json` if it exists, ensuring both production and development ledgers are completely cleaned during session reset.
+- **Resizable Review Sidebar Column**:
+  - Increased default sidebar width from 340px to 400px.
+  - Inserted a drag splitter element (`.sidebar-resizer`) between the left workspace and the right sidebar.
+  - Bound mouse events to dynamically adjust the grid columns layout inline, clamping the width between 280px and 700px.
+  - Ensured correct rendering behavior when moving between screens by clearing and restoring inline styles dynamically.
+- **Verification**: Verified that Vite production build (`npm run build`), Jest tests (`npx jest`), and Tauri Rust compilation (`cargo test`) compile and pass 100%.
+
+## Previous session
+Mitigated File-System Limits & Naming Conflicts & Added Tier 3 Fuzzy Deduplication:
+
+## Previous session
+Fixed Multiline XML Track Element Ingestion & Consolidation & Added Duplicates Metric Card:
+- **Fixed Multiline XML Track Element Ingestion & Consolidation**: Resolved the bug where Rekordbox library collections containing wrapped/multiline `<TRACK ...>` elements resulted in `0` successfully cloned tracks and `0` missing tracks.
+- **Track Accumulator Stream Pattern**: Programmed both `parse_and_validate_xml_inner` (pre-scan verification) and `execute_safe_clone` (consolidation runner) in Rust to enter an accumulator mode upon encountering `<TRACK` and accumulate lines until the tag terminates with `>`.
+- **Robust XML Parsing & Reconstruction**: Enabled extraction of track attributes (`Location`, `Artist`, `Name`, etc.) from the multiline accumulated tag string, and ensured the generated `crateup_collection.xml` preserves the original file structure, indentations, and format exactly byte-for-byte.
+- **Added Duplicates Count Tracking**: Appended a `duplicate_count` property to `ResultPayload` returned by `execute_safe_clone` and updated the physical copy loop to increment the count when deduplication settings filter a track as a duplicate.
+- **Updated Post-Flight Summary UI**: Integrated a third orange/accent metric card (`rebuilder-summary-duplicates`) in the metrics flex row on the summary screen to display exactly how many duplicate tracks were found and remapped.
+- **Added Cargo Integration Unit Test**: Created `test_multiline_track_parsing` in the tests module in `src-tauri/src/lib.rs` verifying that multiline tags are correctly ingested.
+- **Verification**: Verified that the entire project passes both Rust automated unit tests (`cargo test`), Node/JS Jest test suites (`npx jest`), compiles cleanly via `cargo check`, and bundles Vite successfully (`npm run build`).
+
+## Previous session
+Fixed Path Parsing, Physical File I/O, and Counter States in execute_safe_clone (Step 2.9):
+- **XML Tag Attribute Parsing Fix**: Resolved the `0/0` progress counter display by extracting both `Entries` and `Total` attributes from the `<COLLECTION>` node.
+- **Track Local Path & Existence Validation**: Implemented clean isolated prefix stripping (`file://localhost` and `file://`) and percent-decoding before conducting track file existence checks. Missing tracks correctly write the original line back untouched, increment `missing_count`, and skip the physical operations.
+- **Directory Creation & I/O Loop Fix**: Ensured target subdirectories are created dynamically on demand via `std::fs::create_dir_all` before physical operations copy/rename/hardlink the files.
+- **Remapped Database Locations**: Remapped the absolute path of successfully copied healthy tracks to a valid URL prefix format and wrote the modified `<TRACK Location="..." />` line into `crateup_collection.xml`.
+- **Verification**: Verified that Vite production build (`npm run build`), Jest tests (`npx jest`), and Tauri Rust backend compilation (`cargo check`) compile and pass successfully.
+
+## Previous session
+Completed Final Feature Assembly for Library Cleaner (Dropdown Logic & XML Generation):
+- **Upgraded execute_safe_clone Command Signature**: Expanded the Rust Tauri command to accept all configuration values (File Mode, Folder Architecture, Deduplication Depth, and Renaming Rules).
+- **Implemented Renaming & Folder Architecture Rules**: Added metadata extraction (`Artist`, `Name`, `Tonality`, `AverageBpm`, `Year`), folder structures (`flat`, `key`, `bpm`, `year`), file modes (Copy, Move, Hardlink), and renaming rules (`preserve`, `clean`, `performance`).
+- **Enforced Tier 1 Deduplication**: Checked track duplicates by file size/name combinations in a `HashSet` to skip redundant filesystem copies while keeping remapped XML indexes.
+- **Created Updated Rekordbox Collection XML**: Generated a fully remapped `crateup_collection.xml` collection inside the output destination folder containing updated `<TRACK Location="..." />` paths.
+- **Frontend Dropdown Binding**: Configured the frontend cloner invocation to pull selected option values from all 4 configuration dropdown inputs and invoke the cloner with them.
+- **Verification**: Verified that Vite production build (`npm run build`), Jest tests (`npx jest`), and Tauri Rust backend compilation (`cargo check`) compile and pass successfully.
+
+## Previous session
+Implemented Post-Flight Summary Screen and Completed Rebuilder Loop (Step 2.8):
+
+## Previous session
+Implemented Core File Copying Loop for Safe Clone Mode (Step 2.7):
+- **Tauri command registration**: Registered the `execute_safe_clone` asynchronous command in the invoke handler in `src-tauri/src/lib.rs`.
+- **Copy Progress Events & Logging**: The safe clone command extracts track paths, checks existence, copies tracks to the target destination, and streams `consolidation-progress` events with file name, processed count, total count, and percentage.
+- **Frontend IPC Integration**: Updated the click handler for the `CONSOLIDATE LIBRARY` button in `ui/index.html` to invoke the `execute_safe_clone` command with the selected XML and destination directory.
+- **Real-Time Progress UI Rendering**: Added a frontend event listener for `consolidation-progress` to dynamically scale the progress modal percentage, horizon fill bar, processed/total counter, and the copying file status label in real-time.
+- **Verification**: Verified that Vite production build (`npm run build`), Jest tests (`npx jest`), and Tauri Rust backend compilation (`cargo check`) compile and pass successfully.
+
+## Previous session
+Implemented checkbox and track count status indicator, progress overlay, and Rust stream parser for the Library Cleaner Rekordbox XML loader:
+- **Clean Ingestion Feedback Loop (Step 2.6)**: Updated the XML loaded checkbox text format to display exactly `✅ Loaded Rekordbox [filename] ([total_tracks] tracks)` immediately after loading. Removed any intermediate loading status texts.
+- **Under the Hood Quiet Pre-Scan**: Kicked off the backend XML parsing validation quietly in the background immediately upon loading/dropping the collection file, storing the resulting track list tallies safely in a global cache variable `rebuilderScanResult` and silencing console outputs / missing tallies until consolidation execution.
+- **Consolidation Overlay Trigger**: Locked the `#rebuilder-progress-overlay` trigger exclusively to the `CONSOLIDATE LIBRARY` execution button, initializing the modal with `0%` progress bar, a monospace track count, and the status text `Preparing file pipeline...`.
+- **Rust XML Stream Parser & Validation Command (Step 2.4)**: Developed a thread-safe `parse_and_validate_xml` Tauri command in Rust that opens the target Rekordbox XML with a buffered reader, extracts `<COLLECTION Total="X">` and `<TRACK ...>` location attributes, strips file protocols, decodes URL characters to check physical path existence, and aggregates healthy vs missing tallies.
+- **Real-Time Progress Event Emissions**: Configured the validation loop to emit `xml-scan-progress` events containing live processed track tallies, track name, and percentage values back to the webview.
+- **Frontend IPC Integration & Progress Binding**: Connected the `CONSOLIDATE LIBRARY` button to invoke `parse_and_validate_xml` and added a frontend event listener for `xml-scan-progress` to dynamically scale the progress overlay percentage, horizon filling track, counter lines, and current scanning file label in real-time.
+- **Cleaner Progress Overlay UI (Step 2.3)**: Programmed and styled the `#rebuilder-progress-overlay` element with absolute positioning, a semi-transparent dark espresso tint, and backdrop-filter blurs. Perfect-centered a floating box holding a large numerical percent text, a progress bar track styled with `--paper-dark`, live tracking status subtext, and a cancellation trigger button.
+- **Wider Progress Modal & Track Counter**: Increased the progress box `max-width` to `600px` to make the layout wider, and integrated a live track counter display (`id="rebuilder-progress-counter"`) styled in monospace `JetBrains Mono` rendering `0 / [total_loaded_tracks] tracks` upon starting consolidation.
+- **Interactivity State Event Handlers**: Connected event listeners to toggle visibility: clicking `CONSOLIDATE LIBRARY` shows the overlay, and clicking `CANCEL CONSOLIDATION` immediately hides and resets the overlay elements back to initial defaults without clearing the user's selected configuration options and folder/file paths.
+- **XML Track Counting Backend Command**: Created a fast `get_xml_track_count` command in `src-tauri/src/lib.rs` that reads the selected XML file and counts the occurrences of `<TRACK ` nodes.
+- **Frontend Track Count API Integration**: Integrated a `getXmlTrackCount` helper in the UI to fetch the track count using the new Tauri command for file paths or standard HTML5 `File.text()` matching for dropped files.
+- **Custom Checked Status Indicator & UI Reset**: Swapped the text-only loaded indicator with a custom checked status checkbox inside `#rebuilder-xml-drop-zone`. Style rules are fully compliant with the "Early Pressing" cream/espresso/orange color palette. Unchecking this status checkbox unloads the current XML, hides the checkbox status, restores the default drop-zone text prompt, and disables the execution trigger validation. The square checkbox input is styled with `display: none` to keep only the green checkmark emoji visible while preserving toggle clickability on the text label.
+- **Navigation and Reset Sync**: Ensured `resetSessionUI()` clears the checkbox status container, restores the default zone text prompt, and resets the target file paths.
+- **Verification**: Verified that Vite production build (`npm run build`), Jest tests (`npx jest`), and Tauri Rust backend compilation (`cargo check`) compile and pass successfully.
+
+## Previous session - Hybrid Configuration Layout
+Implemented Hybrid Configuration Layout for Library Cleaner Panel:
+- **Library Cleaner View State & Layout (`#rebuilder-panel`)**: Created the full-width drag-and-drop zone container for collection XML files and the balanced two-column settings grid beneath it.
+- **Top Section XML Drop Zone**: Programmed HTML5 drag-and-drop handlers (`dragover`, `dragleave`, `drop`) on the drop zone, and bound zone click triggers to invoke the custom backend file-picker Tauri command `select_xml_file`. Displays the selected filename inside the zone using the format `📂 Loaded [filename]`.
+- **Left Column Configuration Selects**: Configured dropdown options for File Operation Mode, Target Folder Architecture, Deduplication Scan Depth, and Physical File Renaming Rules styled with high-contrast uppercase labels.
+- **Right Column Destination & Action Hub**: Integrated the "Target Destination Folder" selector invoking Tauri's `select_directory` command and the path label displaying the chosen path.
+- **Safety Switch Validation**: Configured the execution trigger button `CONSOLIDATE LIBRARY` to initialize completely disabled (styled as a muted grey block). Enabled the button automatically once both `selectedXmlPath` and `selectedDestinationPath` are populated, transforming its appearance to a high-contrast clickable button.
+- **Home Reset Sync**: Configured the Home button navigation handler and `resetSessionUI()` function to clear all local cleaner variables and reset all HTML drop-zone and destination paths to their initial clean defaults.
+- **Verification**: Verified that all Jest tests pass successfully, the frontend compiles cleanly under Vite (`npm run build`), and the Tauri Rust backend compiles successfully.
+
+## Previous session - Home screen, launcher hub, navigation and styling
+Implemented Modular App Launcher Hub and Isolated Quality Upgrader View:
+- **Global Header & Navigation Re-engineering**: Introduced a transparent home navigation button (`⌂`) with a rounded border inside the logo container, displaying only when inside sub-module views, allowing navigation back to the app launcher dashboard view. Removed the global bottom footer area completely.
+- **Modular App Launcher Hub (`#home-screen`)**: Created a side-by-side two-column card grid layout for Card 1 (Quality Upgrader) and Card 2 (Library Cleaner) styled with the "Early Pressing" background palette. Clicking Card 1 routes to the Quality Upgrader sub-module view, and clicking Card 2 routes to the Library Cleaner panel view. Both cards feature solid gold buttons (`var(--gold)`) with dark espresso text (`var(--espresso)`) and smooth brightness hover shifts.
+- **Deezer ARL Isolation**: Relocated the Deezer ARL Token input, Toggle button, and Save button from the main landing page directly inside the Quality Upgrader landing screen (`#upgrader-landing-panel`), preserving all original DOM IDs so the underlying controllers remain intact.
+- **Module Card Hover**: Removed the hover lift (`transform: translateY(-2px)`) from module launcher cards.
+- **Typography**: Set up local "Playfair Display" font-family for the module titles (`.launcher-card h2`).
+- **Handoff Exit Sync**: Programmed the Home button click to call `resetSessionUI()` to unload all active session variables and reset players when returning to the launcher hub.
+
+## Previous session - WebAudio and WebKit fixes
 Fixed WebAudio loading and WebKit blob fetch issues:
 - Patched [ui/wavesurfer.js](file:///Users/hugues/Code/crateup/ui/wavesurfer.js) to fix the WebAudio player (class `E`) so that it doesn't fetch the blob URL a second time. Instead, it accepts the pre-fetched `Blob` from WaveSurfer, reads its arrayBuffer directly, and decodes it, preventing the 403/network block in WebKit/WKWebView.
 - Reused the decoded player buffer (`this.media.buffer`) in `loadAudio` of WaveSurfer, completely eliminating double-decoding overhead.
@@ -270,7 +374,7 @@ Fixed a metadata display leak in the review screen when a track is not found:
 - Configured track review headers in `ui/index.html` to display the Shazam-identified song title and artist for unresolved/failed tracks if they exist in the ledger.
 - Verified that all unit tests (Jest & Pytest) pass cleanly.
 
-## Last session
+## Previous session
 Implemented manual approval for unresolved tracks that have Shazam metadata:
 - Updated `approveCurrent()` in [ui/index.html](file:///Users/hugues/Code/crateup/ui/index.html) to set `ledgerFile.decision = 'approved'` instead of falling back to `'skipped'` when the track status is not downloaded but valid Shazam metadata is present.
 - Updated the keydown listener to allow using `Enter` to approve tracks that are not downloaded but possess Shazam metadata.
