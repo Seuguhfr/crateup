@@ -107,6 +107,8 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Merged `feature/modular-launcher` into `main` and pushed the tag `v3.0.0` to GitHub.
+
 Implemented Raw Audio MD5 & Acoustic Fingerprinting Similarity Comparison with Collapsible Accordion Sidebar Grouping & Category Batch Actions:
 - **Packaged AcoustID Chromaprint fpcalc**: Downloaded the universal macOS `fpcalc` binary, placed it in `src-tauri/binaries/fpcalc-aarch64-apple-darwin`, registered it in `src-tauri/tauri.conf.json` resources, and configured Node sidecar entry points to symlink/copy and place it on the system PATH.
 - **Developed Audio Similarity Module**: Created `node-sidecar/similarity.js` containing:
