@@ -704,6 +704,7 @@ struct ResultPayload {
     missing_count: usize,
     duplicate_count: usize,
     missing_list: Vec<String>,
+    backup_filename: Option<String>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -854,6 +855,7 @@ async fn parse_and_validate_xml_inner(
         missing_count: missing_tracks.len(),
         duplicate_count: 0,
         missing_list: missing_tracks,
+        backup_filename: None,
     })
 }
 
@@ -863,6 +865,115 @@ async fn parse_and_validate_xml(
     xml_path: String,
 ) -> Result<ResultPayload, String> {
     parse_and_validate_xml_inner(Some(&window), xml_path).await
+}
+
+fn get_fpcalc_path(app: &tauri::AppHandle) -> std::path::PathBuf {
+    let temp_path = std::env::temp_dir().join("crateup-bin").join("fpcalc");
+    if temp_path.exists() {
+        return temp_path;
+    }
+    
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let arch = if cfg!(target_arch = "x86_64") {
+            "x86_64"
+        } else if cfg!(target_arch = "aarch64") {
+            "aarch64"
+        } else {
+            ""
+        };
+        let platform = if cfg!(target_os = "macos") {
+            "apple-darwin"
+        } else if cfg!(target_os = "windows") {
+            "pc-windows-msvc"
+        } else if cfg!(target_os = "linux") {
+            "unknown-linux-gnu"
+        } else {
+            ""
+        };
+        
+        if !arch.is_empty() && !platform.is_empty() {
+            let bin_name = format!("fpcalc-{}-{}", arch, platform);
+            let resource_path = resource_dir.join("binaries").join(&bin_name);
+            if resource_path.exists() {
+                return resource_path;
+            }
+        }
+    }
+    
+    std::path::PathBuf::from("fpcalc")
+}
+
+fn get_audio_fingerprint(fpcalc_path: &std::path::Path, file_path: &std::path::Path) -> Option<Vec<i32>> {
+    let output = std::process::Command::new(fpcalc_path)
+        .arg("-raw")
+        .arg(file_path)
+        .output()
+        .ok()?;
+        
+    if !output.status.success() {
+        return None;
+    }
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if line.starts_with("FINGERPRINT=") {
+            let fp_str = &line["FINGERPRINT=".len()..];
+            let fingerprint: Vec<i32> = fp_str
+                .split(',')
+                .filter_map(|s| s.trim().parse::<i32>().ok())
+                .collect();
+            if !fingerprint.is_empty() {
+                return Some(fingerprint);
+            }
+        }
+    }
+    
+    None
+}
+
+fn calculate_similarity(fp1: &[i32], fp2: &[i32]) -> f64 {
+    if fp1.is_empty() || fp2.is_empty() {
+        return 0.0;
+    }
+    
+    let (a, b) = if fp1.len() <= fp2.len() {
+        (fp1, fp2)
+    } else {
+        (fp2, fp1)
+    };
+    
+    let n = a.len() as isize;
+    let m = b.len() as isize;
+    
+    let min_overlap = std::cmp::min(60, n);
+    let mut max_sim = 0.0;
+    
+    let start_offset = -n + min_overlap;
+    let end_offset = m - min_overlap;
+    
+    for d in start_offset..=end_offset {
+        let start_a = std::cmp::max(0, -d);
+        let end_a = std::cmp::min(n, m - d);
+        let k = end_a - start_a;
+        
+        if k < min_overlap {
+            continue;
+        }
+        
+        let mut matching_bits = 0;
+        for i in start_a..end_a {
+            let x = a[i as usize];
+            let y = b[(i + d) as usize];
+            matching_bits += 32 - (x ^ y).count_ones();
+        }
+        
+        let sim = (matching_bits as f64) / ((k * 32) as f64);
+        if sim > max_sim {
+            max_sim = sim;
+        }
+    }
+    
+    max_sim
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -894,6 +1005,7 @@ fn sanitize_filename(name: &str) -> String {
     sanitized.trim().to_string()
 }
 
+#[allow(dead_code)]
 fn clean_fuzzy(s: &str) -> String {
     let mut cleaned = String::new();
     let mut in_parentheses = 0;
@@ -963,8 +1075,9 @@ async fn execute_safe_clone(
     let mut missing_track_ids: Vec<String> = Vec::new();
     let mut line_buf = String::new();
     
-    let mut processed_files = std::collections::HashSet::new();
-    let mut processed_metadata = std::collections::HashSet::new();
+    let mut processed_strict_map: std::collections::HashMap<(u64, String), std::path::PathBuf> = std::collections::HashMap::new();
+    let mut processed_standard_map: std::collections::HashMap<(String, String), std::path::PathBuf> = std::collections::HashMap::new();
+    let mut processed_fingerprints: Vec<(Vec<i32>, std::path::PathBuf)> = Vec::new();
     
     let mut xml_out = String::new();
     
@@ -1053,130 +1166,148 @@ async fn execute_safe_clone(
                             .map(|m| m.len())
                             .unwrap_or(0);
                         
-                        let is_duplicate = if dedup_depth == "strict" || dedup_depth == "tier1" {
+                        let mut target_path = std::path::PathBuf::new();
+                        let mut is_duplicate = false;
+                        let mut duplicate_target_path = None;
+                        let mut current_fp = None;
+
+                        if dedup_depth == "strict" || dedup_depth == "tier1" {
                             let key = (file_size, filename_str.clone());
-                            !processed_files.insert(key)
+                            if let Some(prev_path) = processed_strict_map.get(&key) {
+                                is_duplicate = true;
+                                duplicate_target_path = Some(prev_path.clone());
+                            }
                         } else if dedup_depth == "standard" || dedup_depth == "tier2" {
                             let key = (artist.to_lowercase(), title.to_lowercase());
-                            !processed_metadata.insert(key)
+                            if let Some(prev_path) = processed_standard_map.get(&key) {
+                                is_duplicate = true;
+                                duplicate_target_path = Some(prev_path.clone());
+                            }
                         } else if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
-                            let key = (clean_fuzzy(&artist), clean_fuzzy(&title));
-                            !processed_metadata.insert(key)
-                        } else {
-                            false
-                        };
-                        
-                        let ext = src_path.extension()
-                            .map(|e| e.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "mp3".to_string());
-                        
-                        let stem = match renaming_rule.as_str() {
-                            "clean" => {
-                                let artist_clean = sanitize_filename(&decode_xml_entities(&artist));
-                                let title_clean = sanitize_filename(&decode_xml_entities(&title));
-                                let artist_val = if artist_clean.is_empty() { "Unknown Artist".to_string() } else { artist_clean };
-                                let title_val = if title_clean.is_empty() { "Unknown Title".to_string() } else { title_clean };
-                                format!("{} - {}", artist_val, title_val)
-                            }
-                            "performance" => {
-                                let artist_clean = sanitize_filename(&decode_xml_entities(&artist));
-                                let title_clean = sanitize_filename(&decode_xml_entities(&title));
-                                let bpm_clean = sanitize_filename(&decode_xml_entities(&bpm));
-                                let key_clean = sanitize_filename(&decode_xml_entities(&key));
-                                let artist_val = if artist_clean.is_empty() { "Unknown Artist".to_string() } else { artist_clean };
-                                let title_val = if title_clean.is_empty() { "Unknown Title".to_string() } else { title_clean };
-                                let bpm_val = if bpm_clean.is_empty() { "0".to_string() } else { bpm_clean };
-                                let key_val = if key_clean.is_empty() { "Unknown Key".to_string() } else { key_clean };
-                                
-                                let bpm_display = if let Some(dot_idx) = bpm_val.find('.') {
-                                    bpm_val[..dot_idx].to_string()
-                                } else {
-                                    bpm_val
-                                };
-                                format!("{} - {} - {} - {}", bpm_display, key_val, artist_val, title_val)
-                            }
-                            _ => src_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Unknown Track".to_string()),
-                        };
-
-                        let truncated_stem = {
-                            let max_stem_len = 120; // Truncate stem to 120 chars so stem + ext + directory never exceeds segment limits (255)
-                            let mut truncated = String::new();
-                            let mut char_count = 0;
-                            for c in stem.chars() {
-                                if char_count >= max_stem_len {
-                                    break;
+                            let fpcalc_path = get_fpcalc_path(&window.app_handle());
+                            let fp = get_audio_fingerprint(&fpcalc_path, &src_path);
+                            if let Some(fp_val) = fp {
+                                for (prev_fp, prev_path) in &processed_fingerprints {
+                                    let sim = calculate_similarity(&fp_val, prev_fp);
+                                    if sim > 0.90 {
+                                        is_duplicate = true;
+                                        duplicate_target_path = Some(prev_path.clone());
+                                        break;
+                                    }
                                 }
-                                truncated.push(c);
-                                char_count += 1;
+                                current_fp = Some(fp_val);
                             }
-                            truncated.trim_end().to_string()
-                        };
-
-                        let new_filename = format!("{}.{}", truncated_stem, ext);
-                        
-                        let bpm_val = if let Some(dot_idx) = bpm.find('.') {
-                            bpm[..dot_idx].to_string()
-                        } else {
-                            bpm.clone()
-                        };
-                        let bpm_num: u32 = bpm_val.parse().unwrap_or(0);
-                        let bpm_folder = if bpm_num > 0 {
-                            let start = (bpm_num / 10) * 10;
-                            format!("{}-{}", start, start + 9)
-                        } else {
-                            "Unknown BPM".to_string()
-                        };
-                        
-                        let sub_dir = match folder_arch.as_str() {
-                            "key" => {
-                                let key_val = sanitize_filename(&decode_xml_entities(&key));
-                                if key_val.is_empty() { "Unknown Key".to_string() } else { key_val }
-                            }
-                            "bpm" => bpm_folder,
-                            "year" => {
-                                let year_val = sanitize_filename(&decode_xml_entities(&year));
-                                if year_val.is_empty() { "Unknown Year".to_string() } else { year_val }
-                            }
-                            _ => "".to_string(),
-                        };
-                        
-                        let target_dir = if sub_dir.is_empty() {
-                            dest_dir.to_path_buf()
-                        } else {
-                            dest_dir.join(&sub_dir)
-                        };
-                        
-                        // Force Directory Creation
-                        if let Err(e) = std::fs::create_dir_all(&target_dir) {
-                            eprintln!("[Consolidation Error] Failed to create directories {:?}: {}", target_dir, e);
                         }
-                        
-                        let mut target_path = target_dir.join(&new_filename);
-                        let mut counter = 1;
+
                         let mut needs_write = true;
-                        
-                        let src_size = std::fs::metadata(&src_path).map(|m| m.len()).unwrap_or(0);
-                        
-                        while target_path.exists() {
-                            if let Ok(target_meta) = std::fs::metadata(&target_path) {
-                                if target_meta.len() == src_size {
-                                    // File exists with the exact same size, assume it's already copied (resume/collision success)
-                                    needs_write = false;
-                                    break;
+                        if is_duplicate {
+                            target_path = duplicate_target_path.unwrap();
+                            needs_write = false;
+                        } else {
+                            let ext = src_path.extension()
+                                .map(|e| e.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "mp3".to_string());
+                            
+                            let stem = match renaming_rule.as_str() {
+                                "clean" => {
+                                    let artist_clean = sanitize_filename(&decode_xml_entities(&artist));
+                                    let title_clean = sanitize_filename(&decode_xml_entities(&title));
+                                    let artist_val = if artist_clean.is_empty() { "Unknown Artist".to_string() } else { artist_clean };
+                                    let title_val = if title_clean.is_empty() { "Unknown Title".to_string() } else { title_clean };
+                                    format!("{} - {}", artist_val, title_val)
                                 }
+                                "performance" => {
+                                    let artist_clean = sanitize_filename(&decode_xml_entities(&artist));
+                                    let title_clean = sanitize_filename(&decode_xml_entities(&title));
+                                    let bpm_clean = sanitize_filename(&decode_xml_entities(&bpm));
+                                    let key_clean = sanitize_filename(&decode_xml_entities(&key));
+                                    let artist_val = if artist_clean.is_empty() { "Unknown Artist".to_string() } else { artist_clean };
+                                    let title_val = if title_clean.is_empty() { "Unknown Title".to_string() } else { title_clean };
+                                    let bpm_val = if bpm_clean.is_empty() { "0".to_string() } else { bpm_clean };
+                                    let key_val = if key_clean.is_empty() { "Unknown Key".to_string() } else { key_clean };
+                                    
+                                    let bpm_display = if let Some(dot_idx) = bpm_val.find('.') {
+                                        bpm_val[..dot_idx].to_string()
+                                    } else {
+                                        bpm_val
+                                    };
+                                    format!("{} - {} - {} - {}", bpm_display, key_val, artist_val, title_val)
+                                }
+                                _ => src_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Unknown Track".to_string()),
+                            };
+
+                            let truncated_stem = {
+                                let max_stem_len = 120;
+                                let mut truncated = String::new();
+                                let mut char_count = 0;
+                                for c in stem.chars() {
+                                    if char_count >= max_stem_len {
+                                        break;
+                                    }
+                                    truncated.push(c);
+                                    char_count += 1;
+                                }
+                                truncated.trim_end().to_string()
+                            };
+
+                            let new_filename = format!("{}.{}", truncated_stem, ext);
+                            
+                            let bpm_val = if let Some(dot_idx) = bpm.find('.') {
+                                bpm[..dot_idx].to_string()
+                            } else {
+                                bpm.clone()
+                            };
+                            let bpm_num: u32 = bpm_val.parse().unwrap_or(0);
+                            let bpm_folder = if bpm_num > 0 {
+                                let start = (bpm_num / 10) * 10;
+                                format!("{}-{}", start, start + 9)
+                            } else {
+                                "Unknown BPM".to_string()
+                            };
+                            
+                            let sub_dir = match folder_arch.as_str() {
+                                "key" => {
+                                    let key_val = sanitize_filename(&decode_xml_entities(&key));
+                                    if key_val.is_empty() { "Unknown Key".to_string() } else { key_val }
+                                }
+                                "bpm" => bpm_folder,
+                                "year" => {
+                                    let year_val = sanitize_filename(&decode_xml_entities(&year));
+                                    if year_val.is_empty() { "Unknown Year".to_string() } else { year_val }
+                                }
+                                _ => "".to_string(),
+                            };
+                            
+                            let target_dir = if sub_dir.is_empty() {
+                                dest_dir.to_path_buf()
+                            } else {
+                                dest_dir.join(&sub_dir)
+                            };
+                            
+                            if let Err(e) = std::fs::create_dir_all(&target_dir) {
+                                eprintln!("[Consolidation Error] Failed to create directories {:?}: {}", target_dir, e);
                             }
-                            // Name conflict with a different file size, generate unique name
-                            let final_filename = format!("{} ({}).{}", truncated_stem, counter, ext);
-                            target_path = target_dir.join(&final_filename);
-                            counter += 1;
+                            
+                            target_path = target_dir.join(&new_filename);
+                            let mut counter = 1;
+                            
+                            while target_path.exists() {
+                                if let Ok(target_meta) = std::fs::metadata(&target_path) {
+                                    if target_meta.len() == file_size {
+                                        needs_write = false;
+                                        break;
+                                    }
+                                }
+                                let final_filename = format!("{} ({}).{}", truncated_stem, counter, ext);
+                                target_path = target_dir.join(&final_filename);
+                                counter += 1;
+                            }
                         }
                         
                         let mut copy_success = true;
                         if is_duplicate {
-                            // Duplicate skipped
                             duplicate_count += 1;
                         } else if needs_write {
-                            // Execute Physical I/O
                             let op_result = match file_mode.as_str() {
                                 "move" => std::fs::rename(&src_path, &target_path),
                                 "hardlink" => std::fs::hard_link(&src_path, &target_path),
@@ -1186,8 +1317,6 @@ async fn execute_safe_clone(
                             if let Err(e) = op_result {
                                 eprintln!("[Consolidation Error] Failed operation for {:?} -> {:?}: {}", src_path, target_path, e);
                                 copy_success = false;
-                                
-                                // Revert healthy_count increment and count as missing/failed instead
                                 healthy_count -= 1;
                                 missing_count += 1;
                                 missing_list.push(format!("{} (Operation error: {})", decoded_path.clone(), e));
@@ -1200,6 +1329,20 @@ async fn execute_safe_clone(
                             let updated_track = track_buf.replace(&old_location_attr, &new_location_attr);
                             xml_out.push_str(&updated_track);
                             line_written = true;
+                            
+                            if !is_duplicate {
+                                if dedup_depth == "strict" || dedup_depth == "tier1" {
+                                    let key = (file_size, filename_str.clone());
+                                    processed_strict_map.insert(key, target_path.clone());
+                                } else if dedup_depth == "standard" || dedup_depth == "tier2" {
+                                    let key = (artist.to_lowercase(), title.to_lowercase());
+                                    processed_standard_map.insert(key, target_path.clone());
+                                } else if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
+                                    if let Some(fp_val) = current_fp {
+                                        processed_fingerprints.push((fp_val, target_path.clone()));
+                                    }
+                                }
+                            }
                         }
                         
                         let percentage = if total > 0 {
@@ -1271,7 +1414,611 @@ async fn execute_safe_clone(
         missing_count,
         duplicate_count,
         missing_list,
+        backup_filename: None,
     })
+}
+
+fn get_rekordbox_db_path() -> Result<std::path::PathBuf, String> {
+    let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
+    let base = std::path::Path::new(&home)
+        .join("Library")
+        .join("Pioneer");
+    let lowercase_path = base.join("rekordbox").join("master.db");
+    if lowercase_path.exists() {
+        return Ok(lowercase_path);
+    }
+    let camelcase_path = base.join("Rekordbox").join("master.db");
+    if camelcase_path.exists() {
+        return Ok(camelcase_path);
+    }
+    Ok(lowercase_path)
+}
+
+fn is_rekordbox_running() -> bool {
+    // Check for lowercase process name "rekordbox" exactly
+    let output = std::process::Command::new("pgrep")
+        .arg("-x")
+        .arg("rekordbox")
+        .output();
+    if let Ok(out) = output {
+        if !out.stdout.is_empty() {
+            return true;
+        }
+    }
+
+    // Check for camelcase process name "Rekordbox" exactly
+    let output_camel = std::process::Command::new("pgrep")
+        .arg("-x")
+        .arg("Rekordbox")
+        .output();
+    if let Ok(out) = output_camel {
+        if !out.stdout.is_empty() {
+            return true;
+        }
+    }
+
+    // Check command lines exactly in ps -ax
+    let output_ps = std::process::Command::new("ps")
+        .arg("-ax")
+        .output();
+    if let Ok(out) = output_ps {
+        let ps_str = String::from_utf8_lossy(&out.stdout);
+        for line in ps_str.lines() {
+            let cmd = line.trim();
+            let cmd_lower = cmd.to_lowercase();
+            if let Some(last_part) = cmd_lower.split('/').last() {
+                let last_part_trimmed = last_part.trim();
+                if last_part_trimmed == "rekordbox" || last_part_trimmed.starts_with("rekordbox ") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn open_rekordbox_db(db_path: &std::path::Path) -> Result<rusqlite::Connection, String> {
+    let conn = rusqlite::Connection::open(db_path).map_err(|e| format!("Failed to open DB: {}", e))?;
+    
+    // Format 1: Plain key
+    let key1 = "PRAGMA key = \"402fd482c38817c35ffa8ffb8c7d93143b749e7d315df7a81732a1ff43608497\";";
+    if let Ok(mut stmt) = conn.prepare(key1) {
+        let _ = stmt.query([]);
+    }
+    let mut check1_ok = false;
+    if let Ok(mut s) = conn.prepare("PRAGMA table_info(djmdContent)") {
+        if s.query([]).is_ok() {
+            check1_ok = true;
+        }
+    }
+    if check1_ok {
+        return Ok(conn);
+    }
+    
+    // Format 2: Hex key
+    let key2 = "PRAGMA key = \"x'402fd482c38817c35ffa8ffb8c7d93143b749e7d315df7a81732a1ff43608497'\";";
+    if let Ok(mut stmt) = conn.prepare(key2) {
+        let _ = stmt.query([]);
+    }
+    let mut check2_ok = false;
+    if let Ok(mut s) = conn.prepare("PRAGMA table_info(djmdContent)") {
+        if s.query([]).is_ok() {
+            check2_ok = true;
+        }
+    }
+    if check2_ok {
+        return Ok(conn);
+    }
+    
+    Err("Failed to decrypt database with any key format".to_string())
+}
+
+#[derive(serde::Serialize)]
+struct RekordboxStatus {
+    running: bool,
+    db_exists: bool,
+    db_path: String,
+}
+
+#[tauri::command]
+async fn check_rekordbox_status() -> Result<RekordboxStatus, String> {
+    let db_path = get_rekordbox_db_path()?;
+    let db_exists = db_path.exists();
+    let running = is_rekordbox_running();
+    Ok(RekordboxStatus {
+        running,
+        db_exists,
+        db_path: db_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+async fn get_db_backups() -> Result<Vec<String>, String> {
+    let db_path = get_rekordbox_db_path()?;
+    let db_dir = db_path.parent().ok_or_else(|| "Failed to get database parent directory".to_string())?;
+    if !db_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut backups = Vec::new();
+    for entry in std::fs::read_dir(db_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let filename = entry.file_name().to_string_lossy().to_string();
+        if filename.starts_with("master.db.backup_") {
+            backups.push(filename);
+        }
+    }
+    backups.sort_by(|a, b| b.cmp(a));
+    Ok(backups)
+}
+
+#[derive(serde::Serialize)]
+struct CleanupResult {
+    path: String,
+    status: String,
+}
+
+#[derive(serde::Serialize)]
+struct CleanupReport {
+    results: Vec<CleanupResult>,
+}
+
+#[tauri::command]
+async fn execute_backup_cleanup(backup_filename: String) -> Result<CleanupReport, String> {
+    let db_path = get_rekordbox_db_path()?;
+    let db_dir = db_path.parent().ok_or_else(|| "Failed to get database parent directory".to_string())?;
+    let backup_path = db_dir.join(&backup_filename);
+    if !backup_path.exists() {
+        return Err(format!("Backup file does not exist: {}", backup_filename));
+    }
+    
+    let conn_backup = open_rekordbox_db(&backup_path)?;
+    let mut stmt = conn_backup.prepare("SELECT FolderPath FROM djmdContent").map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    let mut old_paths = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let path: String = row.get(0).map_err(|e| e.to_string())?;
+        if !path.trim().is_empty() {
+            old_paths.push(path);
+        }
+    }
+    drop(rows);
+    drop(stmt);
+    
+    let conn_live = open_rekordbox_db(&db_path)?;
+    let mut stmt_live = conn_live.prepare("SELECT FolderPath FROM djmdContent").map_err(|e| e.to_string())?;
+    let mut rows_live = stmt_live.query([]).map_err(|e| e.to_string())?;
+    let mut live_paths = std::collections::HashSet::new();
+    while let Some(row) = rows_live.next().map_err(|e| e.to_string())? {
+        let path: String = row.get(0).map_err(|e| e.to_string())?;
+        if !path.trim().is_empty() {
+            live_paths.insert(path);
+        }
+    }
+    drop(rows_live);
+    drop(stmt_live);
+    
+    let mut results = Vec::new();
+    for path in old_paths {
+        if live_paths.contains(&path) {
+            results.push(CleanupResult {
+                path: path.clone(),
+                status: "skipped_in_live_db".to_string(),
+            });
+            continue;
+        }
+        
+        let file_path = std::path::Path::new(&path);
+        if !file_path.exists() {
+            results.push(CleanupResult {
+                path: path.clone(),
+                status: "skipped_not_exists".to_string(),
+            });
+            continue;
+        }
+        
+        match std::fs::remove_file(file_path) {
+            Ok(_) => {
+                results.push(CleanupResult {
+                    path: path.clone(),
+                    status: "deleted".to_string(),
+                });
+                if let Some(parent) = file_path.parent() {
+                    if parent.exists() {
+                        if let Ok(entries) = std::fs::read_dir(parent) {
+                            let count = entries.count();
+                            if count == 0 {
+                                let _ = std::fs::remove_dir(parent);
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                results.push(CleanupResult {
+                    path: path.clone(),
+                    status: format!("delete_failed: {}", e),
+                });
+            }
+        }
+    }
+    
+    Ok(CleanupReport { results })
+}
+
+#[allow(dead_code)]
+struct DbTrack {
+    id: String,
+    folder_path: String,
+    file_name: String,
+    title: String,
+    artist: String,
+    album: String,
+    genre: String,
+    bpm_num: i64,
+    year_num: i64,
+    key: String,
+}
+
+#[tauri::command]
+async fn execute_db_consolidation(
+    window: tauri::Window,
+    destination_path: String,
+    file_mode: String,
+    folder_arch: String,
+    dedup_depth: String,
+    renaming_rule: String,
+) -> Result<ResultPayload, String> {
+    let live_db_path = get_rekordbox_db_path()?;
+    if !live_db_path.exists() {
+        return Err("Rekordbox master.db database not found".to_string());
+    }
+    
+    if is_rekordbox_running() {
+        return Err("Rekordbox process is active; database is locked. Close Rekordbox first.".to_string());
+    }
+    
+    let timestamp = if let Ok(out) = std::process::Command::new("date").arg("+%Y%m%d_%H%M").output() {
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    } else {
+        "unknown".to_string()
+    };
+    
+    let db_dir = live_db_path.parent().unwrap();
+    let backup_filename = format!("master.db.backup_{}", timestamp);
+    let backup_path = db_dir.join(&backup_filename);
+    std::fs::copy(&live_db_path, &backup_path).map_err(|e| format!("Failed to create database backup: {}", e))?;
+    
+    let mut conn = open_rekordbox_db(&live_db_path)?;
+    
+    let query = "
+        SELECT 
+            c.ID, 
+            c.FolderPath, 
+            c.FileNameL, 
+            c.Title,
+            a.Name AS ArtistName,
+            al.Name AS AlbumName,
+            g.Name AS GenreName,
+            c.BPM,
+            c.ReleaseYear,
+            k.ScaleName AS KeyName
+        FROM djmdContent c
+        LEFT JOIN djmdArtist a ON c.ArtistID = a.ID
+        LEFT JOIN djmdAlbum al ON c.AlbumID = al.ID
+        LEFT JOIN djmdGenre g ON c.GenreID = g.ID
+        LEFT JOIN djmdKey k ON c.KeyID = k.ID
+    ";
+    
+    let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    
+    let mut tracks = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let id: String = row.get(0).map_err(|e| e.to_string())?;
+        let folder_path: String = row.get(1).map_err(|e| e.to_string())?;
+        let file_name: String = row.get(2).map_err(|e| e.to_string())?;
+        let title: String = row.get(3).unwrap_or_default();
+        let artist: String = row.get(4).unwrap_or_default();
+        let album: String = row.get(5).unwrap_or_default();
+        let genre: String = row.get(6).unwrap_or_default();
+        let bpm_num: i64 = row.get(7).unwrap_or(0);
+        let year_num: i64 = row.get(8).unwrap_or(0);
+        let key: String = row.get(9).unwrap_or_default();
+        
+        tracks.push(DbTrack {
+            id,
+            folder_path,
+            file_name,
+            title,
+            artist,
+            album,
+            genre,
+            bpm_num,
+            year_num,
+            key,
+        });
+    }
+    drop(rows);
+    drop(stmt);
+    
+    let total = tracks.len();
+    let mut processed = 0;
+    let mut healthy_count = 0;
+    let mut missing_count = 0;
+    let mut duplicate_count = 0;
+    let mut missing_list = Vec::new();
+    
+    let mut processed_strict_map: std::collections::HashMap<(u64, String), std::path::PathBuf> = std::collections::HashMap::new();
+    let mut processed_standard_map: std::collections::HashMap<(String, String), std::path::PathBuf> = std::collections::HashMap::new();
+    let mut processed_fingerprints: Vec<(Vec<i32>, std::path::PathBuf)> = Vec::new();
+    
+    let dest_dir = std::path::Path::new(&destination_path);
+    if !dest_dir.exists() {
+        return Err(format!("Destination directory does not exist: {}", destination_path));
+    }
+    
+    let tx = conn.transaction().map_err(|e| format!("Failed to start database transaction: {}", e))?;
+    
+    for track in &tracks {
+        processed += 1;
+        let src_path = std::path::Path::new(&track.folder_path);
+        let filename_str = track.file_name.clone();
+        
+        if !src_path.exists() {
+            missing_count += 1;
+            missing_list.push(track.folder_path.clone());
+            
+            let percentage = if total > 0 {
+                ((processed * 100) / total) as u32
+            } else {
+                0
+            };
+            
+            let progress = ConsolidationProgressPayload {
+                filename: format!("(Missing) {}", filename_str),
+                processed,
+                total,
+                percentage,
+            };
+            let _ = window.emit("consolidation-progress", progress);
+        } else {
+            healthy_count += 1;
+            
+            let file_size = std::fs::metadata(&src_path).map(|m| m.len()).unwrap_or(0);
+            
+            let mut target_path = std::path::PathBuf::new();
+            let mut is_duplicate = false;
+            let mut duplicate_target_path = None;
+            let mut current_fp = None;
+
+            if dedup_depth == "strict" || dedup_depth == "tier1" {
+                let key = (file_size, filename_str.clone());
+                if let Some(prev_path) = processed_strict_map.get(&key) {
+                    is_duplicate = true;
+                    duplicate_target_path = Some(prev_path.clone());
+                }
+            } else if dedup_depth == "standard" || dedup_depth == "tier2" {
+                let key = (track.artist.to_lowercase(), track.title.to_lowercase());
+                if let Some(prev_path) = processed_standard_map.get(&key) {
+                    is_duplicate = true;
+                    duplicate_target_path = Some(prev_path.clone());
+                }
+            } else if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
+                let fpcalc_path = get_fpcalc_path(&window.app_handle());
+                let fp = get_audio_fingerprint(&fpcalc_path, &src_path);
+                if let Some(fp_val) = fp {
+                    for (prev_fp, prev_path) in &processed_fingerprints {
+                        let sim = calculate_similarity(&fp_val, prev_fp);
+                        if sim > 0.90 {
+                            is_duplicate = true;
+                            duplicate_target_path = Some(prev_path.clone());
+                            break;
+                        }
+                    }
+                    current_fp = Some(fp_val);
+                }
+            }
+
+            let mut needs_write = true;
+            if is_duplicate {
+                target_path = duplicate_target_path.unwrap();
+                needs_write = false;
+            } else {
+                let ext = src_path.extension()
+                    .map(|e| e.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "mp3".to_string());
+                    
+                let stem = match renaming_rule.as_str() {
+                    "clean" => {
+                        let artist_clean = sanitize_filename(&track.artist);
+                        let title_clean = sanitize_filename(&track.title);
+                        let artist_val = if artist_clean.is_empty() { "Unknown Artist".to_string() } else { artist_clean };
+                        let title_val = if title_clean.is_empty() { "Unknown Title".to_string() } else { title_clean };
+                        format!("{} - {}", artist_val, title_val)
+                    }
+                    "performance" => {
+                        let artist_clean = sanitize_filename(&track.artist);
+                        let title_clean = sanitize_filename(&track.title);
+                        let bpm_val = if track.bpm_num > 0 { (track.bpm_num / 100).to_string() } else { "0".to_string() };
+                        let key_clean = sanitize_filename(&track.key);
+                        
+                        let artist_val = if artist_clean.is_empty() { "Unknown Artist".to_string() } else { artist_clean };
+                        let title_val = if title_clean.is_empty() { "Unknown Title".to_string() } else { title_clean };
+                        let key_val = if key_clean.is_empty() { "Unknown Key".to_string() } else { key_clean };
+                        format!("{} - {} - {} - {}", bpm_val, key_val, artist_val, title_val)
+                    }
+                    _ => src_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Unknown Track".to_string()),
+                };
+                
+                let truncated_stem = {
+                    let max_stem_len = 120;
+                    let mut truncated = String::new();
+                    let mut char_count = 0;
+                    for c in stem.chars() {
+                        if char_count >= max_stem_len {
+                            break;
+                        }
+                        truncated.push(c);
+                        char_count += 1;
+                    }
+                    truncated.trim_end().to_string()
+                };
+                
+                let new_filename = format!("{}.{}", truncated_stem, ext);
+                
+                let bpm_val = if track.bpm_num > 0 { (track.bpm_num / 100).to_string() } else { "0".to_string() };
+                let bpm_num: u32 = bpm_val.parse().unwrap_or(0);
+                let bpm_folder = if bpm_num > 0 {
+                    let start = (bpm_num / 10) * 10;
+                    format!("{}-{}", start, start + 9)
+                } else {
+                    "Unknown BPM".to_string()
+                };
+                
+                let sub_dir = match folder_arch.as_str() {
+                    "key" => {
+                        let key_val = sanitize_filename(&track.key);
+                        if key_val.is_empty() { "Unknown Key".to_string() } else { key_val }
+                    }
+                    "bpm" => bpm_folder,
+                    "year" => {
+                        let year_val = if track.year_num > 0 { track.year_num.to_string() } else { "".to_string() };
+                        let year_val_clean = sanitize_filename(&year_val);
+                        if year_val_clean.is_empty() { "Unknown Year".to_string() } else { year_val_clean }
+                    }
+                    _ => "".to_string(),
+                };
+                
+                let target_dir = if sub_dir.is_empty() {
+                    dest_dir.to_path_buf()
+                } else {
+                    dest_dir.join(&sub_dir)
+                };
+                
+                if let Err(e) = std::fs::create_dir_all(&target_dir) {
+                    eprintln!("[Consolidation Error] Failed to create directories {:?}: {}", target_dir, e);
+                }
+                
+                target_path = target_dir.join(&new_filename);
+                let mut counter = 1;
+                
+                while target_path.exists() {
+                    if let Ok(target_meta) = std::fs::metadata(&target_path) {
+                        if target_meta.len() == file_size {
+                            needs_write = false;
+                            break;
+                        }
+                    }
+                    let final_filename = format!("{} ({}).{}", truncated_stem, counter, ext);
+                    target_path = target_dir.join(&final_filename);
+                    counter += 1;
+                }
+            }
+            
+            let mut copy_success = true;
+            if is_duplicate {
+                duplicate_count += 1;
+            } else if needs_write {
+                let op_result = match file_mode.as_str() {
+                    "move" => std::fs::rename(&src_path, &target_path),
+                    "hardlink" => std::fs::hard_link(&src_path, &target_path),
+                    _ => std::fs::copy(&src_path, &target_path).map(|_| ()),
+                };
+                
+                if let Err(e) = op_result {
+                    eprintln!("[Consolidation Error] Failed operation for {:?} -> {:?}: {}", src_path, target_path, e);
+                    copy_success = false;
+                    healthy_count -= 1;
+                    missing_count += 1;
+                    missing_list.push(format!("{} (Operation error: {})", track.folder_path.clone(), e));
+                }
+            }
+            
+            if copy_success {
+                let new_folder_path = target_path.to_string_lossy().to_string();
+                let new_file_name = target_path.file_name().unwrap().to_string_lossy().to_string();
+                let update_res = tx.execute(
+                    "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE ID = ?",
+                    rusqlite::params![new_folder_path, new_file_name, track.id],
+                );
+                if let Err(e) = update_res {
+                    eprintln!("[Consolidation Error] Failed to update DB for track {}: {}", track.id, e);
+                }
+                
+                if !is_duplicate {
+                    if dedup_depth == "strict" || dedup_depth == "tier1" {
+                        let key = (file_size, filename_str.clone());
+                        processed_strict_map.insert(key, target_path.clone());
+                    } else if dedup_depth == "standard" || dedup_depth == "tier2" {
+                        let key = (track.artist.to_lowercase(), track.title.to_lowercase());
+                        processed_standard_map.insert(key, target_path.clone());
+                    } else if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
+                        if let Some(fp_val) = current_fp {
+                            processed_fingerprints.push((fp_val, target_path.clone()));
+                        }
+                    }
+                }
+            }
+            
+            let percentage = if total > 0 {
+                ((processed * 100) / total) as u32
+            } else {
+                0
+            };
+            
+            let label_prefix = if is_duplicate {
+                "(Duplicate) "
+            } else if !copy_success {
+                "(Failed) "
+            } else {
+                ""
+            };
+            
+            let progress = ConsolidationProgressPayload {
+                filename: format!("{}{}", label_prefix, filename_str),
+                processed,
+                total,
+                percentage,
+            };
+            let _ = window.emit("consolidation-progress", progress);
+        }
+    }
+    
+    tx.commit().map_err(|e| format!("Failed to commit database changes: {}", e))?;
+    
+    Ok(ResultPayload {
+        success: true,
+        healthy_count,
+        missing_count,
+        duplicate_count,
+        missing_list,
+        backup_filename: Some(backup_filename),
+    })
+}
+
+#[tauri::command]
+async fn rollback_to_latest_backup() -> Result<String, String> {
+    if is_rekordbox_running() {
+        return Err("Rekordbox process is active; database is locked. Close Rekordbox first.".to_string());
+    }
+    let db_path = get_rekordbox_db_path()?;
+    let db_dir = db_path.parent().ok_or_else(|| "Failed to get database parent directory".to_string())?;
+    
+    let backups = get_db_backups().await?;
+    if backups.is_empty() {
+        return Err("No database backups found to restore.".to_string());
+    }
+    
+    let latest_backup = &backups[0];
+    let backup_path = db_dir.join(latest_backup);
+    
+    std::fs::copy(&backup_path, &db_path)
+        .map_err(|e| format!("Failed to restore backup: {}", e))?;
+        
+    std::fs::remove_file(&backup_path)
+        .map_err(|e| format!("Successfully restored database, but failed to delete backup file: {}", e))?;
+        
+    Ok(latest_backup.clone())
 }
 
 #[tauri::command]
@@ -1333,7 +2080,12 @@ pub fn run() {
             save_arl,
             parse_and_validate_xml,
             execute_safe_clone,
-            open_directory
+            open_directory,
+            check_rekordbox_status,
+            get_db_backups,
+            execute_backup_cleanup,
+            execute_db_consolidation,
+            rollback_to_latest_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1399,4 +2151,17 @@ mod tests {
         assert_eq!(clean_fuzzy("Destination Calabria [Extended Mix]"), "destinationcalabria");
         assert_eq!(clean_fuzzy("Alex Gaudino"), "alexgaudino");
     }
+
+    #[test]
+    fn test_calculate_similarity() {
+        let fp1 = vec![0x11111111, 0x22222222, 0x33333333];
+        let fp2 = vec![0x11111111, 0x22222222, 0x33333333];
+        assert!((calculate_similarity(&fp1, &fp2) - 1.0).abs() < 1e-9);
+
+        let fp3 = vec![0x11111111, 0x22222222, 0x33333333, 0x44444444];
+        let fp4 = vec![0x22222222, 0x33333333, 0x44444444]; // offset by 1
+        let sim = calculate_similarity(&fp3, &fp4);
+        assert!((sim - 1.0).abs() < 1e-9);
+    }
+
 }

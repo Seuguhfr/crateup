@@ -107,7 +107,56 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
-Merged `feature/modular-launcher` into `main` and pushed the tag `v3.0.0` to GitHub.
+Implemented Acoustic Fingerprinting Similarity for Library Cleaner Deduplication (Tier 3 / Fuzzy) & Fixed Settings Persistence:
+- **Implemented Acoustic Fingerprinting Similarity for Tier 3 Deduplication**:
+  - Added Rust helper functions: `get_fpcalc_path` (which resolves to Node's extracted binary path `crateup-bin/fpcalc` or searches bundled Tauri resources for platform-specific binaries), `get_audio_fingerprint` (which launches `fpcalc -raw` on the audio track and parses the output), and `calculate_similarity` (which performs the sliding popcount bit alignment match algorithm on the raw fingerprinted integer arrays).
+  - Integrated these acoustic check components inside `execute_safe_clone` and `execute_db_consolidation` commands when deduplication depth is set to `"fuzzy"` or `"tier3"`.
+  - Set the similarity threshold to `> 0.90` (90% match) for acoustic duplicate matching.
+  - Removed the metadata fuzzy fallback completely; if fingerprinting is unavailable or fails, the track is assumed not to be a duplicate.
+  - Remapped duplicates to point to the exact target path destination of the first copied instance (updating XML indices or SQLite records to match) and avoided redundant physical file writes.
+- **Fixed Settings Persistence race conditions and key typos**:
+  - Introduced `isLoadingSettings` boolean guard during `loadRebuilderSettings()` to prevent programmatically simulated click handlers (e.g., restoring the route strategy card) from invoking `saveRebuilderSettings()` prematurely and overwriting the saved destination path in `localStorage` with an empty string.
+  - Rectified key name typos in `loadRebuilderSettings` where dropdown properties were being retrieved using hyphenated keys (`rebuilder-folder-arch`, etc.) while they were saved using underscored keys (`rebuilder_folder_arch`, etc.), ensuring dropdown choices are correctly restored between session launches.
+- **Added Rust unit tests**: Created `test_calculate_similarity` to verify the popcount and sliding window matching accuracy.
+- **Verification**: Verified that Vite production build (`npm run build`), cargo checks (`cargo check`), and automated unit tests (`cargo test`) pass successfully.
+
+## Previous session
+Relocated Database Actions to Header, Fixed Silent Confirm Hanging, & Enabled Backup Deletion on Rollback Success:
+- **Moved Action Buttons to Header**: Relocated `rebuilder-cleanup-trigger-btn` and `rebuilder-rollback-trigger-btn` from the Step 1 card to the top right of the application header, matching the "Reset Session" button position of the quality upgrader. Wrapping the buttons inside a shared `#rebuilder-backup-cleanup-container` flex box ensures their visibility toggles automatically based on backup presence.
+- **Implemented Native Dialog Prompts & Safe Click Bindings**:
+  - Replaced browser `confirm()` with a call to the native `show_confirm_dialog` Tauri command (falling back to browser `confirm` if Tauri is unavailable). This bypasses macOS WebView restrictions that can silently block/freeze browser modal popups, resolving the issue where clicking the button had no effect.
+  - Wrapped event listener bindings in safe try-catch blocks with detailed logging so that any binding or execution failures print clearly to the console.
+  - Appended a global click logger at the end of the script block to trace click coordinates and target elements in the developer console.
+- **Enabled Auto-Deletion of Backup on Rollback Success**: Updated `rollback_to_latest_backup` in `src-tauri/src/lib.rs` to delete the backup database file itself using `std::fs::remove_file` after it has been successfully copied back over the live `master.db` database.
+- **Implemented Session Settings Persistence**: Added `saveRebuilderSettings` and `loadRebuilderSettings` functions utilizing WebView `localStorage` to automatically remember the user's selected strategy, target XML path, target destination folder path, and option dropdowns between app restarts.
+- **Verification**: Verified that Vite production build (`npm run build`), Rust compilation checks (`cargo check`), and Rust automated unit tests (`cargo test`) all compile and pass successfully.
+
+## Previous session
+Fixed Rekordbox Process False-Positive Detection & Implemented Inline DOM Rollback & Restore Status Feedback:
+- **Fixed Rekordbox Process False-Positive Detection**: Rewrote command-line matching in `is_rekordbox_running` in `src-tauri/src/lib.rs` by splitting Unix command lines by slash (`/`) and validating the trailing component exactly. This resolves the false-positive block where macOS helper agents like `rekordboxAgent` or helper threads kept the restore/rollback buttons blocked even after closing Rekordbox.
+- **Implemented Inline DOM Rollback & Restore Status Feedback**:
+  - Replaced blocking browser `alert()` modal calls with inline DOM status updates inside `#rebuilder-backup-status-feedback` (Step 1 card) and `#rebuilder-summary-rollback-feedback` (Summary recommendation card).
+  - Programmed automatic button disabling on click for the trigger button and all its sibling actions (e.g. `Rollback`, `Cleanup`, `Later` / `Back`) to prevent concurrent process clicks or double-clicks.
+  - Integrated multi-colored state representations: gold/accent for `⚙️ Restoring database backup...`, green for `✅ Successfully restored database backup!`, and red for `❌ Rollback failed: [error]`.
+  - Added a 1.5-second success status delay before invoking `resetSessionUI()`, letting the user clearly confirm the operations completed successfully.
+- **Added CSS disabled state styles**: Styled `.launcher-card-btn:disabled` in the CSS styles block in `ui/index.html` to gracefully lower opacity, disable interactions, and grayscale colors.
+- **Verification**: Verified that Vite production build (`npm run build`), Rust compiler checks (`cargo check`), and Rust automated unit tests (`cargo test`) all compile and pass successfully.
+
+## Previous session
+Implemented 3-Step Accordion Library Cleaner with Direct SQLite Database Modification & Cross-Check Purging (Step 2.12):
+- **Built 3-Step Accordion state machine**: Structured `#rebuilder-panel` inside `ui/index.html` into three collapsable step cards:
+  - Step 1: Strategy Selection (`XML Export Clone Route` vs `Direct Database Modification`) and scan backups link.
+  - Step 2: Intake Selection (Drag-and-drop XML zone for XML mode, or native SQLite Rekordbox process checker for DB mode) and Destination Selector.
+  - Step 3: Core Modifiers options and primary execution button.
+- **Implemented Destructive Rewind State Protection**: Click events on completed step headers collapse downstream cards, clear/wipe downstream cached configurations, and restore disabled states of downstream next/consolidate buttons to guarantee pipeline integrity.
+- **Integrated Direct Database Consolidation**: Added invocation logic for the `execute_db_consolidation` command, which copies/moves/hardlinks files on disk, decrypts `master.db` via SQLCipher using Pioneer's plain-key decryption method, updates the `FolderPath` and `FileNameL` table records, commits transaction, and streams progress notifications back to the UI.
+- **Developed Safe Cross-Check Deletion Engine**: Wired the cleanup trigger to fetch backup snapshot files, list them, open the selected backup db via SQLCipher, query all original track paths, skip live active tracks in the live `master.db`, delete files from disk, and remove empty parent folders safely, rendering a detailed completion report.
+- **Added Safety Recommendation Card & Rollback Support**:
+  - Appended a conditional post-flight safety notice to the completion screen if database editing was chosen.
+  - Implemented the `rollback_to_latest_backup` Tauri command in Rust, which automatically copies the most recent `master.db.backup_*` snapshot back over the live `master.db` if the user triggers a rollback.
+  - Integrated validation button actions in the UI: `Delete Old Files Now` (which auto-opens the cleanup modal with the session's backup selected), `⚠️ Rollback to Backup` (to restore the latest backup), and `I'll do it later` (to return to the launcher).
+  - Also added both buttons (`Delete / Cleanup` and `Rollback / Restore`) directly on the main Step 1 landing card of the Library Cleaner panel if backups are discovered, enabling users to run cleanup or rollback actions later.
+  - Fixed false-positive process check lock by refactoring `is_rekordbox_running` to perform exact process name matching (matching `rekordbox` exactly), resolving issues where background helper agent processes (like `rekordboxAgent` which stays running indefinitely on macOS after Rekordbox is closed) blocked the restore/rollback buttons.
 
 Implemented Raw Audio MD5 & Acoustic Fingerprinting Similarity Comparison with Collapsible Accordion Sidebar Grouping & Category Batch Actions:
 - **Packaged AcoustID Chromaprint fpcalc**: Downloaded the universal macOS `fpcalc` binary, placed it in `src-tauri/binaries/fpcalc-aarch64-apple-darwin`, registered it in `src-tauri/tauri.conf.json` resources, and configured Node sidecar entry points to symlink/copy and place it on the system PATH.

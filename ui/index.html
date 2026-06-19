@@ -1215,6 +1215,12 @@
     .launcher-card-btn:hover {
       filter: brightness(1.1);
     }
+    
+    .launcher-card-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      filter: grayscale(0.5);
+    }
 
     /* Library Cleaner / Rebuilder Panel Styles */
     .rebuilder-drop-zone {
@@ -1356,6 +1362,174 @@
     }
 
 
+    /* Perfected Accordion Step Structures */
+    .rebuilder-step-card {
+      background-color: var(--paper-2);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      margin-bottom: 20px;
+      overflow: hidden;
+      transition: var(--transition);
+    }
+    .rebuilder-step-card.active {
+      border-color: var(--accent);
+      box-shadow: 0 4px 12px rgba(26,15,5,0.05);
+    }
+    .rebuilder-step-card.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+      background-color: var(--paper-3);
+    }
+    
+    /* Step Headers & Dynamic State Badges */
+    .rebuilder-step-header {
+      background-color: var(--paper-3);
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--espresso);
+      cursor: pointer;
+      border-bottom: 1px solid transparent;
+      user-select: none;
+    }
+    .rebuilder-step-card.active .rebuilder-step-header {
+      border-color: var(--border-color);
+      background-color: var(--paper-2);
+    }
+    
+    .rebuilder-step-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .rebuilder-step-badge {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background-color: var(--tan);
+      color: var(--paper);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .rebuilder-step-card.active .rebuilder-step-badge {
+      background-color: var(--accent);
+    }
+    .rebuilder-step-card.completed .rebuilder-step-badge {
+      background-color: var(--green);
+    }
+    
+    .rebuilder-step-summary {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--tan);
+      margin-left: 10px;
+    }
+    
+    /* Step Content Area Container */
+    .rebuilder-step-content {
+      padding: 24px;
+      display: none;
+      background-color: var(--paper-2);
+    }
+    .rebuilder-step-card.active .rebuilder-step-content {
+      display: block;
+    }
+    
+    /* Interactive Method Selection Cards */
+    .rebuilder-method-selector {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .rebuilder-method-card {
+      border: 1px solid var(--border-color);
+      padding: 20px;
+      border-radius: var(--card-radius);
+      cursor: pointer;
+      background-color: var(--paper-3);
+      transition: var(--transition);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .rebuilder-method-card:hover {
+      border-color: var(--accent);
+      background-color: var(--paper-2);
+    }
+    .rebuilder-method-card.selected {
+      border-color: var(--accent);
+      background-color: var(--paper-3);
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+    .rebuilder-method-card h4 {
+      margin: 0;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--espresso);
+    }
+    .rebuilder-method-card p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--tan);
+      line-height: 1.5;
+    }
+    
+    /* Warnings & System Alerts */
+    .rebuilder-alert-box {
+      padding: 14px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    .rebuilder-alert-box.error {
+      background-color: #fbebeb;
+      border: 1px solid #e3afaf;
+      color: #a63232;
+    }
+    .rebuilder-alert-box.success {
+      background-color: #ebf5ec;
+      border: 1px solid #bfe3c3;
+      color: #2b5730;
+    }
+    
+    .rebuilder-step-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 15px;
+      border-top: 1px solid var(--border-color);
+      padding-top: 15px;
+    }
+    
+    .rebuilder-btn-next {
+      padding: 10px 24px;
+      font-weight: 700;
+      background-color: var(--espresso);
+      color: var(--gold);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: var(--transition);
+    }
+    .rebuilder-btn-next:hover {
+      filter: brightness(1.2);
+    }
+    .rebuilder-btn-next:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
     
     .rebuilder-grid {
       display: grid;
@@ -1626,7 +1800,7 @@
     <header>
       <div class="logo-container">
         <img src="./icon.png" alt="CrateUp" class="header-logo" style="width: 28px; height: 28px; border-radius: 6px;" />
-        <h1>CrateUp <span class="mono" style="font-size: 10px; color: var(--mocha); border: 0.5px solid var(--roast); padding: 2px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.1em;">Ver. 2.1.3</span></h1>
+        <h1>CrateUp <span class="mono" style="font-size: 10px; color: var(--mocha); border: 0.5px solid var(--roast); padding: 2px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.1em;">Ver. 3.1.0</span></h1>
         <button id="home-nav-btn" class="hidden" title="Go to Launcher Dashboard">⌂</button>
       </div>
       
@@ -1637,6 +1811,16 @@
         <button class="picker-btn hidden" id="reset-session-btn" tabindex="-1">
           <span>↺ Reset Session</span>
         </button>
+        <!-- Rebuilder Backup Actions (Top Right in Header) -->
+        <div id="rebuilder-backup-cleanup-container" class="hidden" style="display: flex; gap: 12px; align-items: center;">
+          <span id="rebuilder-backup-status-feedback" style="font-size: 11px; font-weight: 600; color: var(--accent); display: none; white-space: nowrap;"></span>
+          <button type="button" class="picker-btn" id="rebuilder-cleanup-trigger-btn" tabindex="-1" style="background-color: var(--accent) !important; color: white !important; border: none !important;">
+            <span>🧹 Clean up old files</span>
+          </button>
+          <button type="button" class="picker-btn" id="rebuilder-rollback-trigger-btn" tabindex="-1" style="border: 0.5px solid #c62828 !important; color: #c62828 !important; background-color: transparent !important;">
+            <span>↺ Restore Latest Backup</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -1703,76 +1887,143 @@
       <!-- Library Cleaner Panel -->
       <div id="rebuilder-panel" class="hidden" style="display: flex; flex-direction: column; gap: 24px; padding: 32px; box-sizing: border-box; width: 100%; height: 100%; overflow-y: auto;">
         
-        <!-- Top Section: Drag-and-drop zone -->
-        <div id="rebuilder-xml-drop-zone" class="rebuilder-drop-zone">
-          <span id="rebuilder-xml-zone-text" style="font-size: 18px; font-weight: 600; color: var(--espresso); pointer-events: none;">📂 Drag & Drop Collection XML here, or Click to browse system drive</span>
-          <div id="rebuilder-xml-status-container" class="hidden" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
-            <label class="rebuilder-checkbox-label">
-              <input type="checkbox" id="rebuilder-xml-checkbox" checked />
-              <span id="rebuilder-xml-checkbox-text">collection.xml loaded (1420 tracks)</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- Bottom Section: Balanced Two-Column Split Grid -->
-        <div class="rebuilder-grid">
+        <!-- Accordion Container -->
+        <div id="rebuilder-accordion" style="display: flex; flex-direction: column; width: 100%; max-width: 800px; margin: 0 auto; box-sizing: border-box; gap: 16px;">
           
-          <!-- Left Column: Settings Stack -->
-          <div class="rebuilder-settings-column">
-            
-            <div class="rebuilder-setting-group">
-              <label>File Operation Mode</label>
-              <select id="rebuilder-op-mode">
-                <option value="copy">Safe Clone (Copy)</option>
-                <option value="move">Hard Relocate (Move)</option>
-                <option value="hardlink">Space-Saving Link (Hardlink)</option>
-              </select>
-            </div>
-
-            <div class="rebuilder-setting-group">
-              <label>Target Folder Architecture</label>
-              <select id="rebuilder-folder-arch">
-                <option value="consolidated">Single Consolidated Directory</option>
-                <option value="key">Organized by Key Matrix</option>
-                <option value="bpm">Organized by BPM Range</option>
-                <option value="year">Organized by Release Year</option>
-              </select>
-            </div>
-
-            <div class="rebuilder-setting-group">
-              <label>Deduplication Scan Depth</label>
-              <select id="rebuilder-dedup-depth">
-                <option value="strict">Tier 1: Strict (Exact Byte Checksums Only)</option>
-                <option value="standard">Tier 2: Standard (Same Artist, Title, & Track Length)</option>
-                <option value="fuzzy">Tier 3: Fuzzy Smart Scan (Flag Close Variation Matches)</option>
-              </select>
-            </div>
-
-            <div class="rebuilder-setting-group">
-              <label>Physical File Renaming Rules</label>
-              <select id="rebuilder-rename-rules">
-                <option value="preserve">Preserve Native Filenames</option>
-                <option value="clean">Clean Metadata Format (Artist - Title)</option>
-                <option value="performance">Performance Metric Prepend (BPM - Key - Artist - Title)</option>
-              </select>
-            </div>
-
-          </div>
-
-          <!-- Right Column: Destination & Action Hub -->
-          <div class="rebuilder-action-column">
-            
-            <div class="rebuilder-destination-container" style="display: flex; flex-direction: column; gap: 12px;">
-              <span class="rebuilder-dest-label">Target Destination Folder</span>
-              <div class="rebuilder-dest-subframe" style="display: flex; flex-direction: column; justify-content: flex-start; gap: 16px;">
-                <button id="rebuilder-select-dest-btn" class="launcher-card-btn" style="width: auto; padding: 10px 20px; font-size: 13px;">Select Destination...</button>
-                <div id="rebuilder-dest-path-display">No folder selected (Required)</div>
+          <!-- Step 1: Processing Method Selection -->
+          <div class="rebuilder-step-card active" id="rebuilder-step-1-card">
+            <div class="rebuilder-step-header" id="rebuilder-step-1-header">
+              <div class="rebuilder-step-left">
+                <div class="rebuilder-step-badge" id="rebuilder-step-1-badge">1</div>
+                <span>Processing Method Selection</span>
+                <span class="rebuilder-step-summary" id="rebuilder-step-1-summary"></span>
               </div>
             </div>
+            <div class="rebuilder-step-content" id="rebuilder-step-1-content">
+              <div class="rebuilder-method-selector" style="margin-bottom: 16px;">
+                <div class="rebuilder-method-card" id="rebuilder-method-xml">
+                  <h4><span>📄</span> XML Export Clone Route</h4>
+                  <p>Generates a standard standalone clone copy bridge file. Requires manual XML targeting steps inside Rekordbox later.</p>
+                </div>
+                <div class="rebuilder-method-card" id="rebuilder-method-db">
+                  <h4><span>🔒</span> Direct Database Modification</h4>
+                  <p>Automated snapshot processing that writes directly to live files. Instantly preserves 100% of waveforms and phrasing data layers.</p>
+                </div>
+              </div>
+              
 
-            <button id="rebuilder-consolidate-btn" disabled>CONSOLIDATE LIBRARY</button>
-
+              
+              <div class="rebuilder-step-actions">
+                <button type="button" class="rebuilder-btn-next" id="rebuilder-step-1-next" disabled>Continue to Inputs</button>
+              </div>
+            </div>
           </div>
+          
+          <!-- Step 2: Target Ingestion & Destination -->
+          <div class="rebuilder-step-card disabled" id="rebuilder-step-2-card">
+            <div class="rebuilder-step-header" id="rebuilder-step-2-header">
+              <div class="rebuilder-step-left">
+                <div class="rebuilder-step-badge" id="rebuilder-step-2-badge">2</div>
+                <span>Target Ingestion & Destination</span>
+                <span class="rebuilder-step-summary" id="rebuilder-step-2-summary"></span>
+              </div>
+            </div>
+            <div class="rebuilder-step-content" id="rebuilder-step-2-content">
+              
+              <!-- Conditional Intake Area -->
+              <div id="rebuilder-step-2-intake-container">
+                <!-- XML Drag-and-drop zone -->
+                <div id="rebuilder-xml-drop-zone" class="rebuilder-drop-zone">
+                  <span id="rebuilder-xml-zone-text" style="font-size: 18px; font-weight: 600; color: var(--espresso); pointer-events: none;">📂 Drag & Drop Collection XML here, or Click to browse system drive</span>
+                  <div id="rebuilder-xml-status-container" class="hidden" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
+                    <label class="rebuilder-checkbox-label">
+                      <input type="checkbox" id="rebuilder-xml-checkbox" checked />
+                      <span id="rebuilder-xml-checkbox-text">collection.xml loaded (1420 tracks)</span>
+                    </label>
+                  </div>
+                </div>
+                
+                <!-- DB Native hook checker -->
+                <div id="rebuilder-db-status-zone" class="hidden" style="display: flex; flex-direction: column; gap: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--espresso); opacity: 0.8;">Native SQLite Engine Hook Status</label>
+                    <button type="button" id="rebuilder-db-status-refresh-btn" class="picker-btn" style="padding: 4px 10px; font-size: 11px; height: auto; display: inline-flex; border-color: var(--accent); color: var(--accent); margin: 0;">
+                      <span>↺ Recheck status</span>
+                    </button>
+                  </div>
+                  <div class="rebuilder-alert-box error" id="rebuilder-db-status-alert">
+                    <strong>⚠️ Checking Rekordbox status...</strong>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Destination folder block -->
+              <div class="rebuilder-destination-container" style="display: flex; flex-direction: column; gap: 12px; margin-top: 24px;">
+                <span class="rebuilder-dest-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--espresso); opacity: 0.8;">Target Destination Folder</span>
+                <div class="rebuilder-dest-subframe" style="display: flex; align-items: center; gap: 16px; width: 100%;">
+                  <button id="rebuilder-select-dest-btn" class="launcher-card-btn" style="width: auto; padding: 10px 20px; font-size: 13px; margin: 0;">Browse OS</button>
+                  <div id="rebuilder-dest-path-display" style="flex: 1; font-size: 13px; font-weight: 500; color: var(--mocha); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No folder selected (Required)</div>
+                </div>
+              </div>
+              
+              <div class="rebuilder-step-actions">
+                <button type="button" class="rebuilder-btn-next" id="rebuilder-step-2-next" disabled>Validate & Lock Inputs</button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Step 3: Structural Modifiers & Execution -->
+          <div class="rebuilder-step-card disabled" id="rebuilder-step-3-card">
+            <div class="rebuilder-step-header" id="rebuilder-step-3-header">
+              <div class="rebuilder-step-left">
+                <div class="rebuilder-step-badge" id="rebuilder-step-3-badge">3</div>
+                <span>Structural Modifiers & Execution</span>
+              </div>
+            </div>
+            <div class="rebuilder-step-content" id="rebuilder-step-3-content">
+              
+              <div class="rebuilder-grid" style="margin-bottom: 24px;">
+                <div class="rebuilder-settings-column" style="grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; background: transparent; border: none; padding: 0;">
+                  <div class="rebuilder-setting-group">
+                    <label>File Operation Mode</label>
+                    <select id="rebuilder-op-mode">
+                      <option value="copy">Safe Clone (Copy)</option>
+                      <option value="hardlink">Space-Saving Link (Hardlink)</option>
+                      <option value="move">Hard Relocate (Move)</option>
+                    </select>
+                  </div>
+                  <div class="rebuilder-setting-group">
+                    <label>Target Folder Architecture</label>
+                    <select id="rebuilder-folder-arch">
+                      <option value="consolidated">Single Consolidated Directory</option>
+                      <option value="key">Organized by Key Matrix</option>
+                      <option value="bpm">Organized by BPM Range</option>
+                      <option value="year">Organized by Release Year</option>
+                    </select>
+                  </div>
+                  <div class="rebuilder-setting-group">
+                    <label>Deduplication Scan Depth</label>
+                    <select id="rebuilder-dedup-depth">
+                      <option value="strict">Tier 1: Strict (Exact Byte Checksums Only)</option>
+                      <option value="standard">Tier 2: Standard (Same Artist, Title, & Track Length)</option>
+                      <option value="fuzzy">Tier 3: Fuzzy Smart Scan (Flag Close Variation Matches)</option>
+                    </select>
+                  </div>
+                  <div class="rebuilder-setting-group">
+                    <label>Physical File Renaming Rules</label>
+                    <select id="rebuilder-rename-rules">
+                      <option value="preserve">Preserve Native Filenames</option>
+                      <option value="clean">Clean Metadata Format (Artist - Title)</option>
+                      <option value="performance">Performance Metric Prepend (BPM - Key - Artist - Title)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              
+              <button id="rebuilder-consolidate-btn" disabled style="width: 100%;">CONSOLIDATE LIBRARY</button>
+            </div>
+          </div>
+          
         </div>
 
         <!-- Post-Flight Summary Screen (Step 2.8) -->
@@ -1799,6 +2050,22 @@
           <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 576px; margin: 0 auto; box-sizing: border-box;">
             <label style="font-size: 12px; font-weight: 700; color: var(--espresso); text-transform: uppercase; letter-spacing: 1px;">Skipped Missing Tracks Log</label>
             <div id="rebuilder-summary-log" style="max-height: 200px; overflow-y: auto; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--espresso); line-height: 1.5; white-space: pre-wrap; box-sizing: border-box; width: 100%;">None</div>
+          </div>
+
+          <!-- DB Post-flight validation recommendation -->
+          <div id="rebuilder-db-summary-recommendation" class="hidden" style="display: flex; flex-direction: column; gap: 12px; background-color: var(--paper-3); border: 1px solid var(--border-color); padding: 20px; border-radius: var(--card-radius); max-width: 576px; margin: 0 auto; box-sizing: border-box; text-align: left; width: 100%;">
+            <h4 style="margin: 0; color: var(--espresso); font-size: 14px; display: flex; align-items: center; gap: 8px; font-weight: 700;">
+              <span>🛡️</span> Safety Recommendation: Verify Rekordbox Library
+            </h4>
+            <p style="margin: 0; font-size: 12px; color: var(--tan); line-height: 1.5;">
+              Before deleting your old music files, please open Rekordbox and verify that your library loads correctly, waveforms look healthy, and updated tracks play without warnings.
+            </p>
+            <div style="display: flex; gap: 12px; margin-top: 8px;">
+              <button type="button" id="rebuilder-summary-cleanup-btn" class="launcher-card-btn" style="background-color: var(--accent); color: white; padding: 8px 16px; font-size: 12px; border: none; margin: 0; width: auto; height: auto; line-height: normal;">Delete Old Files Now</button>
+              <button type="button" id="rebuilder-summary-rollback-btn" class="launcher-card-btn" style="border: 1px solid #c62828; color: #c62828; background-color: transparent; padding: 8px 16px; font-size: 12px; margin: 0; width: auto; height: auto; line-height: normal;">⚠️ Rollback to Backup</button>
+              <button type="button" id="rebuilder-summary-later-btn" class="launcher-card-btn" style="background-color: transparent; border: 1px solid var(--espresso); color: var(--espresso); padding: 8px 16px; font-size: 12px; margin: 0; width: auto; height: auto; line-height: normal;">I'll do it later</button>
+            </div>
+            <div id="rebuilder-summary-rollback-feedback" style="font-size: 11px; font-weight: 600; color: var(--accent); display: none; margin-top: 4px;"></div>
           </div>
 
           <!-- Action Button Footer -->
@@ -2113,6 +2380,39 @@
     </div>
   </div>
 
+  <!-- Modal 5: Backup Database Cleanup Utility (Step 2.12 / Section 5) -->
+  <div class="modal-backdrop" id="rebuilder-cleanup-modal-backdrop">
+    <div class="modal" style="max-width: 600px; width: 90%; display: flex; flex-direction: column; max-height: 85vh; box-sizing: border-box;">
+      <div class="modal-title">
+        <span>🧹</span> Backup Cleanup Utility
+      </div>
+      <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; gap: 16px; overflow: hidden; min-height: 0; box-sizing: border-box; text-align: left;">
+        <p style="color: var(--text-main); font-size: 13px; margin: 0; line-height: 1.5;">Select a backup database file from a previous session to clean up orphan files that are no longer referenced in your active Rekordbox library.</p>
+        
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--espresso);">Select Database Backup</label>
+          <select id="rebuilder-cleanup-backup-select" style="background-color: var(--paper-3); border: 1px solid var(--espresso); color: var(--espresso); padding: 10px; border-radius: 6px; font-size: 13px; font-family: 'Outfit', sans-serif;">
+            <!-- Options populated dynamically -->
+          </select>
+        </div>
+        
+        <!-- Cleanup progress / report screen -->
+        <div id="rebuilder-cleanup-report-container" class="hidden" style="flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; box-sizing: border-box;">
+          <label style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--espresso);">Wiped & Skipped Files Report</label>
+          <div id="rebuilder-cleanup-report-log" class="mono" style="flex: 1; overflow-y: auto; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: var(--espresso); box-sizing: border-box; width: 100%;">
+            <!-- Log output populated dynamically -->
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; box-sizing: border-box;">
+        <button class="picker-btn" id="rebuilder-cleanup-cancel-btn" style="padding: 10px 20px;">Close</button>
+        <button class="apply-btn" id="rebuilder-cleanup-start-btn" style="padding: 10px 20px; font-size: 13px; background-color: var(--accent); color: white;">
+          <span>Run Clean Up</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Logic Script -->
   <script>
     let ledger = null;
@@ -2145,6 +2445,10 @@
     let rebuilderSimInterval = null;
     let isRebuilderOverlayActive = false;
     let rebuilderScanResult = null;
+    let rebuilderStrategy = null;
+    let isDbReady = false;
+    let currentSessionBackupFilename = null;
+    let isLoadingSettings = false;
 
     const readyState = {
       original: { ready: false, decode: false },
@@ -2211,6 +2515,16 @@
       } else if (viewName === 'rebuilder') {
         document.getElementById('rebuilder-panel').classList.remove('hidden');
         showSidebar(false);
+      }
+
+      // Manage visibility of Rebuilder Backup Container
+      const backupBtnContainer = document.getElementById('rebuilder-backup-cleanup-container');
+      if (viewName === 'rebuilder') {
+        scanForDbBackups();
+      } else {
+        if (backupBtnContainer) {
+          backupBtnContainer.classList.add('hidden');
+        }
       }
     }
 
@@ -2631,8 +2945,10 @@
     document.getElementById('open-upgrader-btn').addEventListener('click', () => {
       showView('upgrader');
     });
-    document.getElementById('open-cleaner-btn').addEventListener('click', () => {
+    document.getElementById('open-cleaner-btn').addEventListener('click', async () => {
       showView('rebuilder');
+      await loadRebuilderSettings();
+      scanForDbBackups();
     });
     document.getElementById('home-nav-btn').addEventListener('click', async () => {
       await resetSessionUI();
@@ -2645,11 +2961,118 @@
     const rebuilderDestPathDisplay = document.getElementById('rebuilder-dest-path-display');
     const rebuilderConsolidateBtn = document.getElementById('rebuilder-consolidate-btn');
 
-    function checkRebuilderSubmitReady() {
-      if (selectedXmlPath && selectedDestinationPath) {
-        rebuilderConsolidateBtn.removeAttribute('disabled');
+    const methodXml = document.getElementById('rebuilder-method-xml');
+    const methodDb = document.getElementById('rebuilder-method-db');
+    const step1Next = document.getElementById('rebuilder-step-1-next');
+    const step2Next = document.getElementById('rebuilder-step-2-next');
+
+    // Method selection (Step 1)
+    methodXml.addEventListener('click', () => {
+      rebuilderStrategy = 'xml';
+      methodXml.classList.add('selected');
+      methodDb.classList.remove('selected');
+      step1Next.removeAttribute('disabled');
+      saveRebuilderSettings();
+    });
+
+    methodDb.addEventListener('click', () => {
+      rebuilderStrategy = 'db';
+      methodDb.classList.add('selected');
+      methodXml.classList.remove('selected');
+      step1Next.removeAttribute('disabled');
+      saveRebuilderSettings();
+    });
+
+    // Step 1 Next Button
+    step1Next.addEventListener('click', () => {
+      if (!rebuilderStrategy) return;
+      
+      const card1 = document.getElementById('rebuilder-step-1-card');
+      const card2 = document.getElementById('rebuilder-step-2-card');
+      
+      card1.classList.remove('active');
+      card1.classList.add('completed');
+      
+      const summary1 = document.getElementById('rebuilder-step-1-summary');
+      if (rebuilderStrategy === 'xml') {
+        summary1.textContent = '📄 XML Export Route';
+        document.getElementById('rebuilder-xml-drop-zone').style.display = '';
+        document.getElementById('rebuilder-db-status-zone').classList.add('hidden');
       } else {
-        rebuilderConsolidateBtn.setAttribute('disabled', 'true');
+        summary1.textContent = '🔒 Direct DB Mode';
+        document.getElementById('rebuilder-xml-drop-zone').style.display = 'none';
+        document.getElementById('rebuilder-db-status-zone').classList.remove('hidden');
+        checkRekordboxStatus();
+      }
+      
+      card2.classList.remove('disabled');
+      card2.classList.add('active');
+      
+      checkStep2Ready();
+    });
+
+    // Process checker status checking
+    async function checkRekordboxStatus() {
+      const alertEl = document.getElementById('rebuilder-db-status-alert');
+      alertEl.className = 'rebuilder-alert-box error';
+      alertEl.innerHTML = '<strong>⚠️ Checking Rekordbox status...</strong>';
+      
+      if (window.__TAURI__) {
+        try {
+          const status = await window.__TAURI__.core.invoke('check_rekordbox_status');
+          if (status.running) {
+            alertEl.className = 'rebuilder-alert-box error';
+            alertEl.innerHTML = '<strong>⚠️ Rekordbox Process Active: Database Locked</strong>';
+            isDbReady = false;
+          } else {
+            alertEl.className = 'rebuilder-alert-box success';
+            alertEl.innerHTML = '<strong>🔒 Native Interconnect Armed: master.db auto-located</strong>';
+            isDbReady = true;
+          }
+          checkStep2Ready();
+        } catch (err) {
+          console.error("check_rekordbox_status failed:", err);
+          alertEl.className = 'rebuilder-alert-box error';
+          alertEl.innerHTML = `<strong>⚠️ Error checking Rekordbox status: ${err}</strong>`;
+          isDbReady = false;
+          checkStep2Ready();
+        }
+      } else {
+        // simulation
+        setTimeout(() => {
+          alertEl.className = 'rebuilder-alert-box success';
+          alertEl.innerHTML = '<strong>🔒 Native Interconnect Armed: master.db auto-located (Simulated)</strong>';
+          isDbReady = true;
+          checkStep2Ready();
+        }, 800);
+      }
+    }
+
+    document.getElementById('rebuilder-db-status-refresh-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('rebuilder-db-status-refresh-btn');
+      btn.setAttribute('disabled', 'true');
+      btn.querySelector('span').textContent = '↺ Rechecking...';
+      await checkRekordboxStatus();
+      btn.removeAttribute('disabled');
+      btn.querySelector('span').textContent = '↺ Recheck status';
+    });
+
+    // Check Step 2 readiness to proceed to Step 3
+    function checkStep2Ready() {
+      if (rebuilderStrategy === 'xml') {
+        if (selectedXmlPath && selectedDestinationPath) {
+          step2Next.removeAttribute('disabled');
+        } else {
+          step2Next.setAttribute('disabled', 'true');
+        }
+      } else if (rebuilderStrategy === 'db') {
+        if (isDbReady && selectedDestinationPath) {
+          step2Next.removeAttribute('disabled');
+        } else {
+          step2Next.setAttribute('disabled', 'true');
+        }
+      } else {
+        step2Next.setAttribute('disabled', 'true');
       }
     }
 
@@ -2661,7 +3084,8 @@
         rebuilderScanResult = null;
         document.getElementById('rebuilder-xml-status-container').classList.add('hidden');
         rebuilderXmlZoneText.classList.remove('hidden');
-        checkRebuilderSubmitReady();
+        checkStep2Ready();
+        saveRebuilderSettings();
       }
     });
 
@@ -2700,25 +3124,9 @@
         try {
           rebuilderScanResult = await window.__TAURI__.core.invoke("parse_and_validate_xml", { xmlPath });
           console.log("Quiet pre-scan completed under the hood:", rebuilderScanResult);
-          if (isRebuilderOverlayActive) {
-            showConsolidationSummary();
-          }
         } catch (err) {
           console.error("Quiet pre-scan failed:", err);
-          if (isRebuilderOverlayActive) {
-            document.getElementById('rebuilder-progress-status').textContent = `Error: ${err}`;
-          }
         }
-      }
-    }
-
-    function showConsolidationSummary() {
-      if (rebuilderScanResult) {
-        document.getElementById('rebuilder-progress-status').textContent = `Scan complete. Healthy: ${rebuilderScanResult.healthy_count}, Missing: ${rebuilderScanResult.missing_count}`;
-        document.getElementById('rebuilder-progress-percent').textContent = '100%';
-        document.getElementById('rebuilder-progress-fill').style.width = '100%';
-        const total = rebuilderScanResult.healthy_count + rebuilderScanResult.missing_count;
-        document.getElementById('rebuilder-progress-counter').textContent = `${total} / ${total} tracks`;
       }
     }
 
@@ -2735,8 +3143,9 @@
             const filename = selectedXml.split(/[/\\]/).pop();
             const trackCount = await getXmlTrackCount(selectedXml);
             showXmlLoadedState(filename, trackCount);
-            checkRebuilderSubmitReady();
+            checkStep2Ready();
             triggerQuietXmlPreScan(selectedXmlPath);
+            saveRebuilderSettings();
           }
         } catch (err) {
           console.error("select_xml_file failed:", err);
@@ -2747,7 +3156,8 @@
         selectedXmlPath = fakePath;
         const trackCount = await getXmlTrackCount(fakePath);
         showXmlLoadedState("collection.xml", trackCount);
-        checkRebuilderSubmitReady();
+        checkStep2Ready();
+        saveRebuilderSettings();
       }
     });
 
@@ -2770,8 +3180,9 @@
           selectedXmlPath = file.path || file.name;
           const trackCount = await getXmlTrackCount(file);
           showXmlLoadedState(file.name, trackCount);
-          checkRebuilderSubmitReady();
+          checkStep2Ready();
           triggerQuietXmlPreScan(selectedXmlPath);
+          saveRebuilderSettings();
         } else {
           alert("Please drop a valid Rekordbox XML file.");
         }
@@ -2787,7 +3198,8 @@
             selectedDestinationPath = selectedDir;
             rebuilderDestPathDisplay.textContent = selectedDestinationPath;
             rebuilderDestPathDisplay.style.color = 'var(--text-main)';
-            checkRebuilderSubmitReady();
+            checkStep2Ready();
+            saveRebuilderSettings();
           }
         } catch (err) {
           console.error("select_directory failed:", err);
@@ -2798,116 +3210,234 @@
         selectedDestinationPath = fakePath;
         rebuilderDestPathDisplay.textContent = selectedDestinationPath;
         rebuilderDestPathDisplay.style.color = 'var(--text-main)';
-        checkRebuilderSubmitReady();
+        checkStep2Ready();
+        saveRebuilderSettings();
+      }
+    });
+
+    // Step 2 Next Button click handler
+    step2Next.addEventListener('click', () => {
+      const card2 = document.getElementById('rebuilder-step-2-card');
+      const card3 = document.getElementById('rebuilder-step-3-card');
+      
+      card2.classList.remove('active');
+      card2.classList.add('completed');
+      
+      const summary2 = document.getElementById('rebuilder-step-2-summary');
+      let summaryText = "";
+      const destShort = selectedDestinationPath.split(/[/\\]/).pop();
+      if (rebuilderStrategy === 'xml') {
+        const filename = selectedXmlPath.split(/[/\\]/).pop();
+        summaryText = `📄 ${filename} (${rebuilderTrackCount} tracks) → ${destShort}`;
+      } else {
+        summaryText = `🔒 master.db auto-located → ${destShort}`;
+      }
+      summary2.textContent = summaryText;
+      
+      card3.classList.remove('disabled');
+      card3.classList.add('active');
+      
+      rebuilderConsolidateBtn.removeAttribute('disabled');
+    });
+
+    // Step 1 Header click rewind handler
+    document.getElementById('rebuilder-step-1-header').addEventListener('click', () => {
+      const card1 = document.getElementById('rebuilder-step-1-card');
+      if (card1.classList.contains('completed') || card1.classList.contains('active')) {
+        card1.classList.remove('completed');
+        card1.classList.add('active');
+        
+        const card2 = document.getElementById('rebuilder-step-2-card');
+        card2.classList.remove('completed', 'active');
+        card2.classList.add('disabled');
+        
+        const card3 = document.getElementById('rebuilder-step-3-card');
+        card3.classList.remove('completed', 'active');
+        card3.classList.add('disabled');
+        
+        document.getElementById('rebuilder-step-1-summary').textContent = '';
+        document.getElementById('rebuilder-step-2-summary').textContent = '';
+        
+        // Wipe downstream inputs
+        selectedXmlPath = null;
+        selectedDestinationPath = null;
+        rebuilderTrackCount = 0;
+        rebuilderScanResult = null;
+        isDbReady = false;
+        
+        // Reset Step 2 UI elements
+        document.getElementById('rebuilder-xml-status-container').classList.add('hidden');
+        rebuilderXmlCheckbox.checked = true;
+        rebuilderXmlZoneText.textContent = '📂 Drag & Drop Collection XML here, or Click to browse system drive';
+        rebuilderXmlZoneText.classList.remove('hidden');
+        
+        const alertEl = document.getElementById('rebuilder-db-status-alert');
+        alertEl.className = 'rebuilder-alert-box error';
+        alertEl.innerHTML = '<strong>⚠️ Checking Rekordbox status...</strong>';
+        
+        rebuilderDestPathDisplay.textContent = 'No folder selected (Required)';
+        rebuilderDestPathDisplay.style.color = 'var(--tan)';
+        
+        step2Next.setAttribute('disabled', 'true');
+        rebuilderConsolidateBtn.setAttribute('disabled', 'true');
+      }
+    });
+
+    // Step 2 Header click rewind handler
+    document.getElementById('rebuilder-step-2-header').addEventListener('click', () => {
+      const card2 = document.getElementById('rebuilder-step-2-card');
+      if (card2.classList.contains('completed') || card2.classList.contains('active')) {
+        card2.classList.remove('completed');
+        card2.classList.add('active');
+        
+        const card3 = document.getElementById('rebuilder-step-3-card');
+        card3.classList.remove('completed', 'active');
+        card3.classList.add('disabled');
+        
+        document.getElementById('rebuilder-step-2-summary').textContent = '';
+        
+        rebuilderConsolidateBtn.setAttribute('disabled', 'true');
+        
+        if (rebuilderStrategy === 'db') {
+          checkRekordboxStatus();
+        }
       }
     });
 
     // Execution trigger button click handler
-    rebuilderConsolidateBtn.addEventListener('click', () => {
-      console.log("CONSOLIDATE LIBRARY clicked. XML Path:", selectedXmlPath, "Destination Path:", selectedDestinationPath);
+    rebuilderConsolidateBtn.addEventListener('click', async () => {
+      console.log("CONSOLIDATE LIBRARY clicked. Strategy:", rebuilderStrategy, "Destination Path:", selectedDestinationPath);
       const opMode = document.getElementById('rebuilder-op-mode').value;
       const folderArch = document.getElementById('rebuilder-folder-arch').value;
       const dedupDepth = document.getElementById('rebuilder-dedup-depth').value;
       const renameRules = document.getElementById('rebuilder-rename-rules').value;
-      console.log("Configuration Settings chosen: OpMode:", opMode, "FolderArch:", folderArch, "DedupDepth:", dedupDepth, "RenameRules:", renameRules);
+      console.log("Configuration Settings: OpMode:", opMode, "FolderArch:", folderArch, "DedupDepth:", dedupDepth, "RenameRules:", renameRules);
       
       // Show progress overlay
       isRebuilderOverlayActive = true;
       document.getElementById('rebuilder-progress-percent').textContent = '0%';
-      document.getElementById('rebuilder-progress-counter').textContent = `0 / ${rebuilderTrackCount} tracks`;
       document.getElementById('rebuilder-progress-fill').style.width = '0%';
       document.getElementById('rebuilder-progress-status').textContent = 'Preparing file pipeline...';
       document.getElementById('rebuilder-progress-overlay').classList.add('show');
 
-      if (window.__TAURI__) {
-        window.__TAURI__.core.invoke("execute_safe_clone", {
-          xmlPath: selectedXmlPath,
-          destinationPath: selectedDestinationPath,
-          fileMode: opMode,
-          folderArch: folderArch,
-          dedupDepth: dedupDepth,
-          renamingRule: renameRules
-        })
-          .then((summary) => {
+      if (rebuilderStrategy === 'xml') {
+        document.getElementById('rebuilder-progress-counter').textContent = `0 / ${rebuilderTrackCount} tracks`;
+        
+        if (window.__TAURI__) {
+          try {
+            const summary = await window.__TAURI__.core.invoke("execute_safe_clone", {
+              xmlPath: selectedXmlPath,
+              destinationPath: selectedDestinationPath,
+              fileMode: opMode,
+              folderArch: folderArch,
+              dedupDepth: dedupDepth,
+              renamingRule: renameRules
+            });
             console.log("Safe clone consolidation completed:", summary);
-            // Hide progress overlay
-            isRebuilderOverlayActive = false;
-            document.getElementById('rebuilder-progress-overlay').classList.remove('show');
-            
-            // Hide main configuration grid and drop zone
-            document.getElementById('rebuilder-xml-drop-zone').style.display = 'none';
-            document.querySelector('#rebuilder-panel .rebuilder-grid').style.display = 'none';
-            
-            // Show summary screen
-            const summaryScreen = document.getElementById('rebuilder-summary-screen');
-            summaryScreen.style.display = 'flex';
-            
-            // Inject values
-            document.getElementById('rebuilder-summary-healthy').textContent = `✓ ${summary.healthy_count} tracks successfully cloned`;
-            document.getElementById('rebuilder-summary-duplicates').textContent = `⧉ ${summary.duplicate_count} duplicate tracks found`;
-            document.getElementById('rebuilder-summary-missing').textContent = `⚠ ${summary.missing_count} missing tracks skipped`;
-            
-            // Populate log
-            const logBox = document.getElementById('rebuilder-summary-log');
-            if (summary.missing_list && summary.missing_list.length > 0) {
-              logBox.textContent = summary.missing_list.join('\n');
-            } else {
-              logBox.textContent = 'None';
-            }
-          })
-          .catch((err) => {
+            handleConsolidationSuccess(summary);
+          } catch (err) {
             console.error("Safe clone consolidation failed:", err);
-            // Hide progress overlay so the user can see the error or try again
-            isRebuilderOverlayActive = false;
-            document.getElementById('rebuilder-progress-overlay').classList.remove('show');
-            alert("Safe clone consolidation failed: " + err);
-          });
-      } else {
-        // Simulation in browser mode
-        if (rebuilderSimInterval) clearInterval(rebuilderSimInterval);
-        let current = 0;
-        const total = rebuilderTrackCount || 100;
-        rebuilderSimInterval = setInterval(() => {
-          current += Math.ceil(total / 10);
-          if (current >= total) {
-            current = total;
-            clearInterval(rebuilderSimInterval);
-            rebuilderSimInterval = null;
-            
-            // Hide progress overlay
-            isRebuilderOverlayActive = false;
-            document.getElementById('rebuilder-progress-overlay').classList.remove('show');
-            
-            // Hide main configuration grid and drop zone
-            document.getElementById('rebuilder-xml-drop-zone').style.display = 'none';
-            document.querySelector('#rebuilder-panel .rebuilder-grid').style.display = 'none';
-            
-            // Show summary screen
-            const summaryScreen = document.getElementById('rebuilder-summary-screen');
-            summaryScreen.style.display = 'flex';
-            
-            // Inject mock values
-            const mockHealthy = Math.max(0, total - 4);
-            const mockDuplicate = 2;
-            const mockMissing = total - mockHealthy - mockDuplicate;
-            document.getElementById('rebuilder-summary-healthy').textContent = `✓ ${mockHealthy} tracks successfully cloned`;
-            document.getElementById('rebuilder-summary-duplicates').textContent = `⧉ ${mockDuplicate} duplicate tracks found`;
-            document.getElementById('rebuilder-summary-missing').textContent = `⚠ ${mockMissing} missing tracks skipped`;
-            if (mockMissing > 0) {
-              document.getElementById('rebuilder-summary-log').textContent = '/Users/mock/missing_track_1.mp3\n/Users/mock/missing_track_2.mp3';
-            } else {
-              document.getElementById('rebuilder-summary-log').textContent = 'None';
-            }
-          } else {
-            const pct = Math.round((current * 100) / total);
-            document.getElementById('rebuilder-progress-percent').textContent = `${pct}%`;
-            document.getElementById('rebuilder-progress-fill').style.width = `${pct}%`;
-            document.getElementById('rebuilder-progress-counter').textContent = `${current} / ${total} tracks`;
-            document.getElementById('rebuilder-progress-status').textContent = `Copying: track${current}.mp3`;
+            handleConsolidationFailure(err);
           }
-        }, 200);
+        } else {
+          simulateConsolidation();
+        }
+      } else {
+        // Direct DB Mode
+        document.getElementById('rebuilder-progress-counter').textContent = '0 tracks';
+        
+        if (window.__TAURI__) {
+          try {
+            // Abort immediately if rekordbox process is active before database modification
+            const status = await window.__TAURI__.core.invoke('check_rekordbox_status');
+            if (status.running) {
+              handleConsolidationFailure("Rekordbox process is active; database is locked. Close Rekordbox first.");
+              return;
+            }
+            
+            const summary = await window.__TAURI__.core.invoke("execute_db_consolidation", {
+              destinationPath: selectedDestinationPath,
+              fileMode: opMode,
+              folderArch: folderArch,
+              dedupDepth: dedupDepth,
+              renamingRule: renameRules
+            });
+            console.log("Database consolidation completed:", summary);
+            handleConsolidationSuccess(summary);
+          } catch (err) {
+            console.error("Database consolidation failed:", err);
+            handleConsolidationFailure(err);
+          }
+        } else {
+          simulateConsolidation();
+        }
       }
     });
+
+    function handleConsolidationSuccess(summary) {
+      isRebuilderOverlayActive = false;
+      document.getElementById('rebuilder-progress-overlay').classList.remove('show');
+      
+      // Hide the accordion to show the summary screen cleanly
+      document.getElementById('rebuilder-accordion').style.display = 'none';
+      
+      const summaryScreen = document.getElementById('rebuilder-summary-screen');
+      summaryScreen.style.display = 'flex';
+      
+      document.getElementById('rebuilder-summary-healthy').textContent = `✓ ${summary.healthy_count} tracks successfully processed`;
+      document.getElementById('rebuilder-summary-duplicates').textContent = `⧉ ${summary.duplicate_count} duplicate tracks found`;
+      document.getElementById('rebuilder-summary-missing').textContent = `⚠ ${summary.missing_count} missing tracks skipped`;
+      
+      const logBox = document.getElementById('rebuilder-summary-log');
+      if (summary.missing_list && summary.missing_list.length > 0) {
+        logBox.textContent = summary.missing_list.join('\n');
+      } else {
+        logBox.textContent = 'None';
+      }
+
+      // Handle DB Mode safety validation recommendations
+      const recBox = document.getElementById('rebuilder-db-summary-recommendation');
+      if (rebuilderStrategy === 'db') {
+        currentSessionBackupFilename = summary.backup_filename || null;
+        if (recBox) recBox.classList.remove('hidden');
+      } else {
+        currentSessionBackupFilename = null;
+        if (recBox) recBox.classList.add('hidden');
+      }
+    }
+
+    function handleConsolidationFailure(err) {
+      isRebuilderOverlayActive = false;
+      document.getElementById('rebuilder-progress-overlay').classList.remove('show');
+      alert("Consolidation failed: " + err);
+    }
+
+    function simulateConsolidation() {
+      if (rebuilderSimInterval) clearInterval(rebuilderSimInterval);
+      let current = 0;
+      const total = rebuilderTrackCount || 100;
+      rebuilderSimInterval = setInterval(() => {
+        current += Math.ceil(total / 10);
+        if (current >= total) {
+          current = total;
+          clearInterval(rebuilderSimInterval);
+          rebuilderSimInterval = null;
+          
+          handleConsolidationSuccess({
+            healthy_count: Math.max(0, total - 4),
+            duplicate_count: 2,
+            missing_count: total - Math.max(0, total - 4) - 2,
+            missing_list: ['/Users/mock/missing_track_1.mp3', '/Users/mock/missing_track_2.mp3']
+          });
+        } else {
+          const pct = Math.round((current * 100) / total);
+          document.getElementById('rebuilder-progress-percent').textContent = `${pct}%`;
+          document.getElementById('rebuilder-progress-fill').style.width = `${pct}%`;
+          document.getElementById('rebuilder-progress-counter').textContent = `${current} / ${total} tracks`;
+          document.getElementById('rebuilder-progress-status').textContent = `Processing: track${current}.mp3`;
+        }
+      }, 200);
+    }
 
     // Cancel consolidation button click handler
     document.getElementById('rebuilder-cancel-btn').addEventListener('click', () => {
@@ -2917,7 +3447,6 @@
         clearInterval(rebuilderSimInterval);
         rebuilderSimInterval = null;
       }
-      // Reset values
       document.getElementById('rebuilder-progress-percent').textContent = '0%';
       document.getElementById('rebuilder-progress-counter').textContent = '0 / 0 tracks';
       document.getElementById('rebuilder-progress-fill').style.width = '0%';
@@ -2939,6 +3468,465 @@
 
     document.getElementById('rebuilder-back-btn').addEventListener('click', async () => {
       await resetSessionUI();
+    });
+
+    // DB post-flight recommendation handlers
+    document.getElementById('rebuilder-summary-later-btn').addEventListener('click', () => {
+      document.getElementById('rebuilder-db-summary-recommendation').classList.add('hidden');
+    });
+
+    document.getElementById('rebuilder-summary-cleanup-btn').addEventListener('click', () => {
+      openCleanupModal(currentSessionBackupFilename);
+    });
+
+    async function handleRollbackExecution(feedbackElId, triggerBtnId, otherBtnIds = []) {
+      console.log(`[handleRollbackExecution] Starting rollback process. feedbackElId=${feedbackElId}, triggerBtnId=${triggerBtnId}`);
+      
+      const feedbackEl = document.getElementById(feedbackElId);
+      const triggerBtn = document.getElementById(triggerBtnId);
+      const otherBtns = otherBtnIds.map(id => document.getElementById(id)).filter(Boolean);
+
+      let confirmed = false;
+      const title = "Restore Latest Database Backup";
+      const message = "Are you sure you want to restore the latest database backup? This will overwrite your active Rekordbox library database back to the state before consolidation.";
+      
+      try {
+        if (window.__TAURI__) {
+          console.log("[handleRollbackExecution] Invoking native show_confirm_dialog...");
+          confirmed = await window.__TAURI__.core.invoke('show_confirm_dialog', { title, message });
+        } else {
+          console.log("[handleRollbackExecution] Falling back to browser confirm (Web Simulation)...");
+          confirmed = confirm(message);
+        }
+      } catch (confirmErr) {
+        console.error("[handleRollbackExecution] Confirmation dialog failed, falling back to browser confirm:", confirmErr);
+        confirmed = confirm(message);
+      }
+
+      console.log("[handleRollbackExecution] User confirmation result:", confirmed);
+      if (!confirmed) {
+        console.log("[handleRollbackExecution] Rollback cancelled by user.");
+        return;
+      }
+
+      // Disable buttons
+      console.log("[handleRollbackExecution] Disabling buttons...");
+      if (triggerBtn) triggerBtn.setAttribute('disabled', 'true');
+      otherBtns.forEach(btn => btn.setAttribute('disabled', 'true'));
+
+      // Show loader feedback
+      if (feedbackEl) {
+        feedbackEl.style.display = 'block';
+        feedbackEl.style.color = 'var(--accent)';
+        feedbackEl.textContent = '⚙️ Restoring database backup...';
+      }
+
+      if (window.__TAURI__) {
+        try {
+          console.log("[handleRollbackExecution] Invoking rollback_to_latest_backup...");
+          const restoredBackup = await window.__TAURI__.core.invoke('rollback_to_latest_backup');
+          console.log("[handleRollbackExecution] Rollback succeeded. Restored backup file:", restoredBackup);
+          
+          if (feedbackEl) {
+            feedbackEl.style.color = 'var(--green)';
+            feedbackEl.textContent = `✅ Successfully restored database backup: ${restoredBackup}!`;
+          }
+          
+          // Delay UI reset by 1.5 seconds so user can see success feedback
+          setTimeout(async () => {
+            if (feedbackEl) {
+              feedbackEl.style.display = 'none';
+              feedbackEl.textContent = '';
+            }
+            if (triggerBtn) triggerBtn.removeAttribute('disabled');
+            otherBtns.forEach(btn => btn.removeAttribute('disabled'));
+            await resetSessionUI();
+          }, 1500);
+        } catch (err) {
+          console.error("[handleRollbackExecution] Rollback command failed:", err);
+          if (feedbackEl) {
+            feedbackEl.style.color = 'var(--red)';
+            feedbackEl.textContent = `❌ Rollback failed: ${err}`;
+          }
+          
+          // Re-enable buttons so user can try again
+          if (triggerBtn) triggerBtn.removeAttribute('disabled');
+          otherBtns.forEach(btn => btn.removeAttribute('disabled'));
+        }
+      } else {
+        // Simulation mode
+        console.log("[handleRollbackExecution] Running rollback in simulation mode...");
+        setTimeout(() => {
+          if (feedbackEl) {
+            feedbackEl.style.color = 'var(--green)';
+            feedbackEl.textContent = '✅ (Simulation) Successfully restored database backup!';
+          }
+          
+          setTimeout(async () => {
+            if (feedbackEl) {
+              feedbackEl.style.display = 'none';
+              feedbackEl.textContent = '';
+            }
+            if (triggerBtn) triggerBtn.removeAttribute('disabled');
+            otherBtns.forEach(btn => btn.removeAttribute('disabled'));
+            await resetSessionUI();
+          }, 1500);
+        }, 1000);
+      }
+    }
+
+    try {
+      const summaryRollbackBtn = document.getElementById('rebuilder-summary-rollback-btn');
+      if (summaryRollbackBtn) {
+        summaryRollbackBtn.addEventListener('click', async (e) => {
+          console.log("[Event] Summary rollback button click event fired!");
+          e.preventDefault();
+          await handleRollbackExecution(
+            'rebuilder-summary-rollback-feedback', 
+            'rebuilder-summary-rollback-btn', 
+            ['rebuilder-summary-cleanup-btn', 'rebuilder-summary-later-btn']
+          );
+        });
+        console.log("Successfully bound click listener to rebuilder-summary-rollback-btn");
+      } else {
+        console.error("rebuilder-summary-rollback-btn element not found in DOM!");
+      }
+    } catch (e) {
+      console.error("Error binding rebuilder-summary-rollback-btn listener:", e);
+    }
+
+    // Backup Scanning & Cleanup Logic (Step 2.12 / Section 5)
+    async function scanForDbBackups() {
+      const backupBtnContainer = document.getElementById('rebuilder-backup-cleanup-container');
+      if (window.__TAURI__) {
+        try {
+          const backups = await window.__TAURI__.core.invoke('get_db_backups');
+          if (backups && backups.length > 0) {
+            backupBtnContainer.classList.remove('hidden');
+          } else {
+            backupBtnContainer.classList.add('hidden');
+          }
+        } catch (e) {
+          console.error("Failed to scan for db backups:", e);
+          backupBtnContainer.classList.add('hidden');
+        }
+      } else {
+        backupBtnContainer.classList.remove('hidden');
+      }
+    }
+
+    // Settings Persistence (Save & Load between sessions)
+    function saveRebuilderSettings() {
+      if (isLoadingSettings) return;
+      localStorage.setItem('rebuilder_strategy', rebuilderStrategy || '');
+      localStorage.setItem('rebuilder_xml_path', selectedXmlPath || '');
+      localStorage.setItem('rebuilder_destination_path', selectedDestinationPath || '');
+      
+      const opModeEl = document.getElementById('rebuilder-op-mode');
+      const folderArchEl = document.getElementById('rebuilder-folder-arch');
+      const dedupDepthEl = document.getElementById('rebuilder-dedup-depth');
+      const renameRulesEl = document.getElementById('rebuilder-rename-rules');
+      
+      if (opModeEl) localStorage.setItem('rebuilder_op_mode', opModeEl.value);
+      if (folderArchEl) localStorage.setItem('rebuilder_folder_arch', folderArchEl.value);
+      if (dedupDepthEl) localStorage.setItem('rebuilder_dedup_depth', dedupDepthEl.value);
+      if (renameRulesEl) localStorage.setItem('rebuilder_rename_rules', renameRulesEl.value);
+      console.log("[Settings] Saved Library Cleaner settings to localStorage.");
+    }
+
+    async function loadRebuilderSettings() {
+      isLoadingSettings = true;
+      console.log("[Settings] Loading Library Cleaner settings...");
+      
+      // 1. Strategy
+      const savedStrategy = localStorage.getItem('rebuilder_strategy');
+      if (savedStrategy === 'xml' || savedStrategy === 'db') {
+        const mXml = document.getElementById('rebuilder-method-xml');
+        const mDb = document.getElementById('rebuilder-method-db');
+        if (savedStrategy === 'xml' && mXml) {
+          mXml.click();
+        } else if (savedStrategy === 'db' && mDb) {
+          mDb.click();
+        }
+      }
+
+      // 2. XML Path (XML Strategy only)
+      const savedXmlPath = localStorage.getItem('rebuilder_xml_path');
+      if (savedXmlPath) {
+        let exists = false;
+        if (window.__TAURI__) {
+          try {
+            exists = await window.__TAURI__.core.invoke('check_file_exists', { path: savedXmlPath });
+          } catch (e) {
+            console.error("Error checking saved XML path:", e);
+          }
+        } else {
+          exists = true;
+        }
+        
+        if (exists) {
+          selectedXmlPath = savedXmlPath;
+          loadedXmlPath = savedXmlPath;
+          const filename = savedXmlPath.split(/[/\\]/).pop();
+          const trackCount = await getXmlTrackCount(savedXmlPath);
+          showXmlLoadedState(filename, trackCount);
+          checkStep2Ready();
+          triggerQuietXmlPreScan(savedXmlPath);
+        }
+      }
+
+      // 3. Destination Path
+      const savedDestPath = localStorage.getItem('rebuilder_destination_path');
+      if (savedDestPath) {
+        let exists = false;
+        if (window.__TAURI__) {
+          try {
+            exists = await window.__TAURI__.core.invoke('check_file_exists', { path: savedDestPath });
+          } catch (e) {
+            console.error("Error checking saved destination path:", e);
+          }
+        } else {
+          exists = true;
+        }
+        
+        if (exists) {
+          selectedDestinationPath = savedDestPath;
+          const displayEl = document.getElementById('rebuilder-dest-path-display');
+          if (displayEl) {
+            displayEl.textContent = savedDestPath;
+            displayEl.style.color = 'var(--text-main)';
+          }
+          checkStep2Ready();
+        }
+      }
+
+      // 4. Dropdowns
+      const savedOpMode = localStorage.getItem('rebuilder_op_mode');
+      if (savedOpMode) {
+        const el = document.getElementById('rebuilder-op-mode');
+        if (el) el.value = savedOpMode;
+      }
+      const savedFolderArch = localStorage.getItem('rebuilder_folder_arch');
+      if (savedFolderArch) {
+        const el = document.getElementById('rebuilder-folder-arch');
+        if (el) el.value = savedFolderArch;
+      }
+      const savedDedupDepth = localStorage.getItem('rebuilder_dedup_depth');
+      if (savedDedupDepth) {
+        const el = document.getElementById('rebuilder-dedup-depth');
+        if (el) el.value = savedDedupDepth;
+      }
+      const savedRenameRules = localStorage.getItem('rebuilder_rename_rules');
+      if (savedRenameRules) {
+        const el = document.getElementById('rebuilder-rename-rules');
+        if (el) el.value = savedRenameRules;
+      }
+      
+      isLoadingSettings = false;
+      console.log("[Settings] Loaded Library Cleaner settings successfully.");
+    }
+
+    // Register dropdown change events to auto-save choices
+    try {
+      ['rebuilder-op-mode', 'rebuilder-folder-arch', 'rebuilder-dedup-depth', 'rebuilder-rename-rules'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('change', () => {
+            console.log(`[Event] Dropdown ${id} changed to:`, el.value);
+            saveRebuilderSettings();
+          });
+          console.log(`Successfully bound change listener to ${id}`);
+        }
+      });
+    } catch (e) {
+      console.error("Error binding rebuilder dropdown change listeners:", e);
+    }
+
+    try {
+      const rollbackBtn = document.getElementById('rebuilder-rollback-trigger-btn');
+      if (rollbackBtn) {
+        rollbackBtn.addEventListener('click', async (e) => {
+          console.log("[Event] Rollback trigger button click event fired!");
+          e.preventDefault();
+          await handleRollbackExecution(
+            'rebuilder-backup-status-feedback', 
+            'rebuilder-rollback-trigger-btn', 
+            ['rebuilder-cleanup-trigger-btn']
+          );
+        });
+        console.log("Successfully bound click listener to rebuilder-rollback-trigger-btn");
+      } else {
+        console.error("rebuilder-rollback-trigger-btn element not found in DOM!");
+      }
+    } catch (e) {
+      console.error("Error binding rebuilder-rollback-trigger-btn listener:", e);
+    }
+
+    async function openCleanupModal(preselectedFilename = null) {
+      const selectEl = document.getElementById('rebuilder-cleanup-backup-select');
+      selectEl.innerHTML = '';
+      
+      const startBtn = document.getElementById('rebuilder-cleanup-start-btn');
+      const cancelBtn = document.getElementById('rebuilder-cleanup-cancel-btn');
+      
+      startBtn.removeAttribute('disabled');
+      cancelBtn.removeAttribute('disabled');
+      
+      document.getElementById('rebuilder-cleanup-report-container').classList.add('hidden');
+      document.getElementById('rebuilder-cleanup-report-log').textContent = '';
+      
+      let backups = [];
+      if (window.__TAURI__) {
+        try {
+          backups = await window.__TAURI__.core.invoke('get_db_backups');
+        } catch (e) {
+          console.error("Failed to fetch backups:", e);
+        }
+      } else {
+        backups = ["master.db.backup_20260618_1200", "master.db.backup_20260617_1530"];
+      }
+      
+      if (backups && backups.length > 0) {
+        backups.forEach(filename => {
+          const opt = document.createElement('option');
+          opt.value = filename;
+          opt.textContent = filename;
+          selectEl.appendChild(opt);
+        });
+        
+        if (preselectedFilename) {
+          let exists = false;
+          for (let i = 0; i < selectEl.options.length; i++) {
+            if (selectEl.options[i].value === preselectedFilename) {
+              exists = true;
+              selectEl.selectedIndex = i;
+              break;
+            }
+          }
+          if (!exists) {
+            const opt = document.createElement('option');
+            opt.value = preselectedFilename;
+            opt.textContent = preselectedFilename;
+            selectEl.appendChild(opt);
+            selectEl.value = preselectedFilename;
+          }
+        }
+      } else {
+        const opt = document.createElement('option');
+        opt.textContent = "No backups found";
+        opt.disabled = true;
+        selectEl.appendChild(opt);
+        startBtn.setAttribute('disabled', 'true');
+      }
+      
+      document.getElementById('rebuilder-cleanup-modal-backdrop').classList.add('show');
+    }
+
+    try {
+      const cleanupBtn = document.getElementById('rebuilder-cleanup-trigger-btn');
+      if (cleanupBtn) {
+        cleanupBtn.addEventListener('click', (e) => {
+          console.log("[Event] Cleanup trigger button click event fired!");
+          e.preventDefault();
+          openCleanupModal();
+        });
+        console.log("Successfully bound click listener to rebuilder-cleanup-trigger-btn");
+      } else {
+        console.error("rebuilder-cleanup-trigger-btn element not found in DOM!");
+      }
+    } catch (e) {
+      console.error("Error binding rebuilder-cleanup-trigger-btn listener:", e);
+    }
+
+    try {
+      const cancelBtn = document.getElementById('rebuilder-cleanup-cancel-btn');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', (e) => {
+          console.log("[Event] Cleanup cancel button click event fired!");
+          e.preventDefault();
+          document.getElementById('rebuilder-cleanup-modal-backdrop').classList.remove('show');
+        });
+        console.log("Successfully bound click listener to rebuilder-cleanup-cancel-btn");
+      } else {
+        console.error("rebuilder-cleanup-cancel-btn element not found in DOM!");
+      }
+    } catch (e) {
+      console.error("Error binding rebuilder-cleanup-cancel-btn listener:", e);
+    }
+
+    document.getElementById('rebuilder-cleanup-start-btn').addEventListener('click', async () => {
+      const selectEl = document.getElementById('rebuilder-cleanup-backup-select');
+      const filename = selectEl.value;
+      if (!filename) return;
+      
+      const startBtn = document.getElementById('rebuilder-cleanup-start-btn');
+      const cancelBtn = document.getElementById('rebuilder-cleanup-cancel-btn');
+      
+      startBtn.setAttribute('disabled', 'true');
+      cancelBtn.setAttribute('disabled', 'true');
+      
+      const reportContainer = document.getElementById('rebuilder-cleanup-report-container');
+      const reportLog = document.getElementById('rebuilder-cleanup-report-log');
+      
+      reportContainer.classList.remove('hidden');
+      reportLog.textContent = 'Analyzing backup database and cross-checking live tracks...\n';
+      
+      if (window.__TAURI__) {
+        try {
+          const report = await window.__TAURI__.core.invoke('execute_backup_cleanup', { backupFilename: filename });
+          let logText = `Wiped & Skipped Files Report for ${filename}:\n\n`;
+          let deletedCount = 0;
+          let skippedLiveCount = 0;
+          let skippedNotExistCount = 0;
+          let failedCount = 0;
+          
+          report.results.forEach(res => {
+            if (res.status === 'deleted') {
+              logText += `🧹 [DELETED] ${res.path}\n`;
+              deletedCount++;
+            } else if (res.status === 'skipped_in_live_db') {
+              logText += `🔒 [SKIPPED - LIVE DB] ${res.path}\n`;
+              skippedLiveCount++;
+            } else if (res.status === 'skipped_not_exists') {
+              logText += `📂 [SKIPPED - NOT ON DISK] ${res.path}\n`;
+              skippedNotExistCount++;
+            } else {
+              logText += `⚠️ [FAILED] ${res.path} - ${res.status}\n`;
+              failedCount++;
+            }
+          });
+          
+          logText += `\nSummary:\n`;
+          logText += `- Deleted orphan files: ${deletedCount}\n`;
+          logText += `- Skipped (still in live DB): ${skippedLiveCount}\n`;
+          logText += `- Skipped (already missing): ${skippedNotExistCount}\n`;
+          if (failedCount > 0) {
+            logText += `- Failed deletions: ${failedCount}\n`;
+          }
+          
+          reportLog.textContent = logText;
+          scanForDbBackups();
+        } catch (e) {
+          reportLog.textContent += `\nError during cleanup: ${e}\n`;
+        } finally {
+          startBtn.removeAttribute('disabled');
+          cancelBtn.removeAttribute('disabled');
+        }
+      } else {
+        setTimeout(() => {
+          let logText = `Wiped & Skipped Files Report for ${filename} (SIMULATION):\n\n`;
+          logText += `🧹 [DELETED] /Users/mock/Music/old_track1.mp3\n`;
+          logText += `🔒 [SKIPPED - LIVE DB] /Users/mock/Music/active_track.mp3\n`;
+          logText += `📂 [SKIPPED - NOT ON DISK] /Users/mock/Music/nonexistent.mp3\n`;
+          logText += `\nSummary:\n`;
+          logText += `- Deleted orphan files: 1\n`;
+          logText += `- Skipped (still in live DB): 1\n`;
+          logText += `- Skipped (already missing): 1\n`;
+          reportLog.textContent = logText;
+          startBtn.removeAttribute('disabled');
+          cancelBtn.removeAttribute('disabled');
+        }, 1500);
+      }
     });
 
     document.getElementById('folder-mode-card').addEventListener('click', (e) => {
@@ -4726,10 +5714,49 @@
       rebuilderTrackCount = 0;
       rebuilderScanResult = null;
       isRebuilderOverlayActive = false;
+      rebuilderStrategy = null;
+      isDbReady = false;
+      currentSessionBackupFilename = null;
       if (rebuilderSimInterval) {
         clearInterval(rebuilderSimInterval);
         rebuilderSimInterval = null;
       }
+
+      // Reset Accordion step states
+      const card1 = document.getElementById('rebuilder-step-1-card');
+      const card2 = document.getElementById('rebuilder-step-2-card');
+      const card3 = document.getElementById('rebuilder-step-3-card');
+      
+      if (card1) {
+        card1.classList.remove('completed', 'disabled');
+        card1.classList.add('active');
+      }
+      if (card2) {
+        card2.classList.remove('completed', 'active');
+        card2.classList.add('disabled');
+      }
+      if (card3) {
+        card3.classList.remove('completed', 'active');
+        card3.classList.add('disabled');
+      }
+      
+      const summary1 = document.getElementById('rebuilder-step-1-summary');
+      if (summary1) summary1.textContent = '';
+      const summary2 = document.getElementById('rebuilder-step-2-summary');
+      if (summary2) summary2.textContent = '';
+      
+      const mXml = document.getElementById('rebuilder-method-xml');
+      if (mXml) mXml.classList.remove('selected');
+      const mDb = document.getElementById('rebuilder-method-db');
+      if (mDb) mDb.classList.remove('selected');
+      
+      const s1Next = document.getElementById('rebuilder-step-1-next');
+      if (s1Next) s1Next.setAttribute('disabled', 'true');
+      const s2Next = document.getElementById('rebuilder-step-2-next');
+      if (s2Next) s2Next.setAttribute('disabled', 'true');
+
+      const accordion = document.getElementById('rebuilder-accordion');
+      if (accordion) accordion.style.display = '';
 
       // Reset Library Cleaner UI state
       if (document.getElementById('rebuilder-xml-drop-zone')) {
@@ -4741,6 +5768,9 @@
       }
       if (document.getElementById('rebuilder-summary-screen')) {
         document.getElementById('rebuilder-summary-screen').style.display = 'none';
+      }
+      if (document.getElementById('rebuilder-db-summary-recommendation')) {
+        document.getElementById('rebuilder-db-summary-recommendation').classList.add('hidden');
       }
       if (document.getElementById('rebuilder-xml-zone-text')) {
         document.getElementById('rebuilder-xml-zone-text').textContent = '📂 Drag & Drop Collection XML here, or Click to browse system drive';
@@ -4770,6 +5800,11 @@
       }
       if (document.getElementById('rebuilder-progress-overlay')) {
         document.getElementById('rebuilder-progress-overlay').classList.remove('show');
+      }
+      
+      const backupBtnContainer = document.getElementById('rebuilder-backup-cleanup-container');
+      if (backupBtnContainer) {
+        backupBtnContainer.classList.add('hidden');
       }
       
       // Update header
@@ -5071,6 +6106,12 @@
     listenToRebuilder();
     initARL();
     initSidebarResizer();
+    
+    // Global click listener for debugging
+    document.addEventListener('click', (e) => {
+      console.log("[Global Click] target:", e.target, "id:", e.target.id, "class:", e.target.className);
+    });
+    
     showView('home');
   </script>
 </body>
