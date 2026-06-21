@@ -1152,10 +1152,10 @@
     /* App Launcher Hub */
     .launcher-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 32px;
       width: 100%;
-      max-width: 900px;
+      max-width: 1200px;
       margin: auto;
       box-sizing: border-box;
     }
@@ -1220,6 +1220,16 @@
       opacity: 0.5;
       cursor: not-allowed;
       filter: grayscale(0.5);
+    }
+
+    @media (max-width: 768px) {
+      .launcher-grid {
+        gap: 20px;
+      }
+      .launcher-card {
+        padding: 30px 20px;
+        min-height: 280px;
+      }
     }
 
     /* Library Cleaner / Rebuilder Panel Styles */
@@ -1661,6 +1671,12 @@
       background-color: var(--accent-d);
       transform: translateY(-1px);
     }
+
+    /* Metric Inspector Active Card Highlights */
+    .rebuilder-metric-card.active {
+      border-color: var(--espresso) !important;
+      background-color: var(--gold) !important;
+    }
     
     /* Accordion styles */
     .category-accordion {
@@ -1792,6 +1808,251 @@
     .sidebar-resizer:hover, .sidebar-resizer.dragging {
       background-color: var(--accent);
     }
+
+    /* --- Playlist Ingestion Hub Styles --- */
+    .workspace-panel {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .panel-header {
+      border-bottom: 2px solid var(--gold);
+      padding-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .panel-header h2 { text-transform: uppercase; font-size: 1.2rem; letter-spacing: 0.5px; color: var(--tan); }
+    .reset-link { font-size: 0.85rem; color: var(--accent); font-weight: 600; cursor: pointer; text-transform: uppercase; text-decoration: none; }
+    .reset-link:hover { text-decoration: underline; }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 32px;
+      align-items: stretch;
+    }
+
+    .ingest-deck-side {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      height: 100%;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border-color);
+      background-color: var(--paper-3);
+      border-radius: var(--card-radius);
+      text-align: center;
+      padding: 60px 40px;
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--espresso);
+      flex: 1;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      background-color: var(--paper-2);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .drop-zone-icon { font-size: 3rem; transition: transform 0.2s ease; }
+    .drop-zone:hover .drop-zone-icon { transform: scale(1.1); }
+    .drop-zone h4 { font-size: 1.05rem; font-weight: 600; }
+    .drop-zone p { font-size: 0.85rem; color: var(--espresso); opacity: 0.7; }
+
+    .drop-zone.mini-state {
+      padding: 20px;
+      flex-direction: row;
+      gap: 16px;
+      min-height: auto;
+      border-style: solid;
+      background-color: var(--paper-3);
+      border-color: var(--gold);
+      flex: 0 0 auto;
+    }
+    .drop-zone.mini-state .drop-zone-icon { font-size: 1.5rem; }
+    .drop-zone.mini-state p { display: none; }
+
+    .preview-ledger-container {
+      flex: 1;
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      background-color: var(--paper-3);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+      animation: fadeIn 0.3s ease forwards;
+    }
+    .ledger-header {
+      background-color: var(--border-color);
+      padding: 10px 16px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--espresso);
+      display: flex;
+      justify-content: space-between;
+    }
+    .ledger-list {
+      list-style: none;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    .ledger-row {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background-color: var(--paper-2);
+      font-size: 0.9rem;
+      color: var(--espresso);
+    }
+    .ledger-row:last-child { border-bottom: none; }
+    .track-info-cell { display: flex; align-items: center; gap: 10px; max-width: 75%; overflow: hidden; }
+    .track-name-string { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+    .track-meta-cell { display: flex; align-items: center; gap: 8px; }
+    
+    .badge {
+      font-size: 0.7rem;
+      font-weight: bold;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .badge.flac, .badge.wav, .badge.aiff, .badge.aif { background-color: var(--espresso); color: var(--gold); }
+    .badge.mp3, .badge.m4a { background-color: var(--border-color); color: var(--espresso); }
+    .size-text { font-size: 0.8rem; color: var(--tan); font-family: monospace; }
+
+    .command-control-side {
+      background-color: var(--paper-3);
+      border: 1px solid var(--border-color);
+      border-radius: var(--card-radius);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .section-group {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .section-group.modifiers {
+      border-top: 1px solid var(--border-color);
+      padding-top: 18px;
+    }
+    .group-title { font-size: 0.75rem; font-weight: bold; text-transform: uppercase; color: var(--tan); letter-spacing: 0.5px; margin-bottom: -4px; }
+
+    .input-wrapper { display: flex; flex-direction: column; gap: 6px; }
+    .input-wrapper label { font-size: 0.8rem; font-weight: 500; color: var(--espresso); }
+    
+    .input-wrapper input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      border: 1px solid var(--espresso);
+      background-color: var(--paper-2);
+      color: var(--espresso);
+      font-family: 'Outfit', sans-serif;
+      transition: border-color 0.15s ease;
+    }
+    .input-wrapper input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    
+    .input-wrapper select {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-color: var(--paper-2);
+      border: 1px solid var(--espresso);
+      color: var(--espresso);
+      padding: 10px 20px;
+      border-radius: 6px;
+      width: 100%;
+      cursor: pointer;
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      transition: var(--transition);
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231A0F05' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      background-size: 14px;
+      padding-right: 36px;
+    }
+    .input-wrapper select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .input-wrapper select:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 8px rgba(181, 65, 14, 0.1);
+    }
+    
+    .path-picker-row { display: flex; gap: 8px; }
+    .btn-browse {
+      padding: 0 14px;
+      background-color: var(--tan);
+      color: var(--paper);
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 0.85rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.15s ease;
+    }
+    .btn-browse:hover { background-color: var(--mocha); }
+
+    button.btn-execute-pipeline {
+      width: 100%;
+      padding: 14px;
+      font-weight: bold;
+      background-color: var(--espresso);
+      color: var(--gold);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: auto;
+      transition: all 0.15s ease;
+      font-family: 'Outfit', sans-serif;
+    }
+    button.btn-execute-pipeline:not(:disabled) {
+      background-color: var(--accent);
+      color: var(--paper);
+      box-shadow: 0 4px 15px rgba(181, 65, 14, 0.2);
+    }
+    button.btn-execute-pipeline:hover:not(:disabled) {
+      background-color: var(--accent-d);
+      transform: translateY(-1px);
+    }
+    button.btn-execute-pipeline:disabled {
+      background-color: var(--border-color);
+      color: var(--espresso);
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
 <body>
@@ -1831,13 +2092,13 @@
       <!-- Home Screen (App Launcher Hub) -->
       <div id="home-screen" class="home-screen-container">
         <div class="launcher-grid">
-          <!-- Card 1: Quality Upgrader -->
+          <!-- Card 1: Playlist Ingestion -->
           <div class="launcher-card">
             <div>
-              <h2>Quality upgrader</h2>
-              <p>Scans your playlists, checks the audio quality, and replaces low-quality tracks with high-quality files from Deezer.</p>
+              <h2>Playlist Ingestion</h2>
+              <p>Traverses a set of tracks, validates metadata, performs cross-format deduplication, and creates a Rekordbox XML playlist import package.</p>
             </div>
-            <button id="open-upgrader-btn" class="launcher-card-btn">OPEN</button>
+            <button id="open-ingestion-btn" class="launcher-card-btn">OPEN</button>
           </div>
           
           <!-- Card 2: Library Cleaner -->
@@ -1847,6 +2108,15 @@
               <p>Combines scattered music folders into a single folder, removes duplicates, and updates your library XML file.</p>
             </div>
             <button id="open-cleaner-btn" class="launcher-card-btn">OPEN</button>
+          </div>
+          
+          <!-- Card 3: Quality Upgrader -->
+          <div class="launcher-card">
+            <div>
+              <h2>Quality upgrader</h2>
+              <p>Scans your playlists, checks the audio quality, and replaces low-quality tracks with high-quality files from Deezer.</p>
+            </div>
+            <button id="open-upgrader-btn" class="launcher-card-btn">OPEN</button>
           </div>
         </div>
       </div>
@@ -1862,7 +2132,7 @@
             </div>
             <div class="import-btn" id="rekordbox-mode-card">
               <span class="btn-icon">🎛</span>
-              <span>Import from Rekordbox XML</span>
+              <span>Import from Rekordbox</span>
               <span id="rekordbox-mode-btn" style="display: none;"></span>
             </div>
           </div>
@@ -1987,34 +2257,31 @@
                   <div class="rebuilder-setting-group">
                     <label>File Operation Mode</label>
                     <select id="rebuilder-op-mode">
-                      <option value="copy">Safe Clone (Copy)</option>
-                      <option value="hardlink">Space-Saving Link (Hardlink)</option>
-                      <option value="move">Hard Relocate (Move)</option>
+                      <option value="copy">Copy files</option>
+                      <option value="move">Move files</option>
+                      <option value="link">Hardlink</option>
                     </select>
                   </div>
                   <div class="rebuilder-setting-group">
-                    <label>Target Folder Architecture</label>
-                    <select id="rebuilder-folder-arch">
-                      <option value="consolidated">Single Consolidated Directory</option>
-                      <option value="key">Organized by Key Matrix</option>
-                      <option value="bpm">Organized by BPM Range</option>
-                      <option value="year">Organized by Release Year</option>
+                    <label>Cross-Format</label>
+                    <select id="rebuilder-cross-format">
+                      <option value="smart">Merge different format</option>
+                      <option value="strict">Keep format separated</option>
                     </select>
                   </div>
                   <div class="rebuilder-setting-group">
-                    <label>Deduplication Scan Depth</label>
+                    <label>Deduplication Mode</label>
                     <select id="rebuilder-dedup-depth">
-                      <option value="strict">Tier 1: Strict (Exact Byte Checksums Only)</option>
-                      <option value="standard">Tier 2: Standard (Same Artist, Title, & Track Length)</option>
-                      <option value="fuzzy">Tier 3: Fuzzy Smart Scan (Flag Close Variation Matches)</option>
+                      <option value="strict">Exact same file</option>
+                      <option value="standard">Same Artist and Title</option>
+                      <option value="fuzzy">Audio comparison (&gt;90%)</option>
                     </select>
                   </div>
                   <div class="rebuilder-setting-group">
-                    <label>Physical File Renaming Rules</label>
+                    <label>Renaming Rules</label>
                     <select id="rebuilder-rename-rules">
-                      <option value="preserve">Preserve Native Filenames</option>
-                      <option value="clean">Clean Metadata Format (Artist - Title)</option>
-                      <option value="performance">Performance Metric Prepend (BPM - Key - Artist - Title)</option>
+                      <option value="preserve">Native Filenames</option>
+                      <option value="clean">Artist - Title</option>
                     </select>
                   </div>
                 </div>
@@ -2032,24 +2299,29 @@
           
           <!-- Metrics Row -->
           <div class="rebuilder-summary-metrics" style="display: flex; gap: 16px; justify-content: center; width: 100%;">
-            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+            <div id="rebuilder-tab-processed" class="rebuilder-metric-card active" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05); cursor: pointer; transition: var(--transition);">
               <div style="font-size: 32px; color: #2e7d32; margin-bottom: 8px;">✓</div>
               <div id="rebuilder-summary-healthy" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 tracks successfully cloned</div>
             </div>
-            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+            <div id="rebuilder-tab-duplicates" class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05); cursor: pointer; transition: var(--transition);">
               <div style="font-size: 32px; color: var(--accent); margin-bottom: 8px;">⧉</div>
               <div id="rebuilder-summary-duplicates" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 duplicate tracks found</div>
             </div>
-            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+            <div id="rebuilder-tab-missing" class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05); cursor: pointer; transition: var(--transition);">
               <div style="font-size: 32px; color: #c62828; margin-bottom: 8px;">⚠</div>
               <div id="rebuilder-summary-missing" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 missing tracks skipped</div>
             </div>
           </div>
 
-          <!-- Missing Tracks Scrollable Log -->
-          <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 576px; margin: 0 auto; box-sizing: border-box;">
-            <label style="font-size: 12px; font-weight: 700; color: var(--espresso); text-transform: uppercase; letter-spacing: 1px;">Skipped Missing Tracks Log</label>
-            <div id="rebuilder-summary-log" style="max-height: 200px; overflow-y: auto; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--espresso); line-height: 1.5; white-space: pre-wrap; box-sizing: border-box; width: 100%;">None</div>
+          <!-- Clickable Metric Inspector Tabs Panel -->
+          <div id="rebuilder-summary-inspector" style="display: flex; flex-direction: column; width: 100%; max-width: 872px; margin: 0 auto; box-sizing: border-box; background-color: var(--paper-dark); border: 1px solid var(--border-color); border-radius: var(--card-radius); overflow: hidden; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+            <div class="inspector-header" style="display: flex; justify-content: space-between; align-items: center; background-color: var(--espresso); padding: 12px 20px; border-bottom: 1px solid var(--border-color); color: var(--gold);">
+              <span id="inspector-title" style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Processed Tracks Migration Ledger</span>
+              <span id="inspector-tally" style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;">0 items</span>
+            </div>
+            <div id="inspector-scroll-content" class="inspector-content mono" style="max-height: 240px; overflow-y: auto; padding: 16px; font-size: 12px; line-height: 1.6; color: var(--espresso); white-space: pre-wrap; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; width: 100%;">
+              None
+            </div>
           </div>
 
           <!-- DB Post-flight validation recommendation -->
@@ -2091,7 +2363,157 @@
 
       </div>
 
+      <!-- Playlist Ingestion Panel -->
+      <div id="playlist-ingestion-panel" class="hidden" style="display: flex; flex-direction: column; gap: 24px; padding: 16px 0 0 0; box-sizing: border-box; width: 100%; height: 100%; overflow-y: auto;">
+        <div class="workspace-panel" id="ingest-workbench">
 
+          <!-- Main Workspace Grid -->
+          <div class="workspace-grid" style="min-height: 0;">
+            
+            <!-- Left Side Column: Asset Workbench -->
+            <div class="ingest-deck-side" style="min-height: 0;">
+              
+              <!-- Interactive Drop Zone -->
+              <div class="drop-zone" id="ingest-drop-zone">
+                <div class="drop-zone-icon" id="ingest-drop-zone-icon">📥</div>
+                <h4 id="ingest-drop-zone-headline">Drag & Drop track files here</h4>
+                <p id="ingest-drop-zone-subtext">Supports MP3, WAV, FLAC, AIFF, M4A raw files or click to scan system filesystem</p>
+              </div>
+
+              <!-- Live Ingestion Preview Ledger -->
+              <div class="preview-ledger-container" id="ingest-ledger-view">
+                <div class="ledger-header">
+                  <span>Staged Compilation Queue</span>
+                  <div style="display: flex; gap: 12px; align-items: center;">
+                    <span class="reset-link" id="ingest-reset-trigger" style="display: none; font-size: 0.75rem; color: var(--accent); margin-right: 8px; font-weight: bold; cursor: pointer; text-transform: uppercase;">↺ Reset Workspace</span>
+                    <span id="ingest-ledger-counter">0 Tracks Loaded</span>
+                  </div>
+                </div>
+                <ul class="ledger-list" id="ingest-ledger-list">
+                  <!-- Dynamic Rows Populated via JS -->
+                </ul>
+              </div>
+            </div>
+
+            <!-- Right Side Column: Semantic Control Sidebar -->
+            <div class="command-control-side">
+              
+              <!-- Playlist Destination Properties -->
+              <div class="section-group">
+                <div class="group-title">Playlist Properties</div>
+                
+                <div class="input-wrapper">
+                  <label for="ingest-playlist-name">Playlist Target Name</label>
+                  <input type="text" id="ingest-playlist-name" placeholder="E.g., Winter Club Cuts 2026...">
+                </div>
+                
+                <div class="input-wrapper">
+                  <label for="ingest-dest-path">Target Destination Folder</label>
+                  <div class="path-picker-row">
+                    <input type="text" id="ingest-dest-path" placeholder="Link repository directory..." readonly>
+                    <button type="button" class="btn-browse" id="ingest-dest-browse-btn">Browse OS</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Automation Pipeline Modifiers -->
+              <div class="section-group modifiers">
+                <div class="group-title">Automation Pipelines Modifiers</div>
+                
+                <div class="input-wrapper">
+                  <label for="ingest-op-mode">File Operation Mode</label>
+                  <select id="ingest-op-mode">
+                    <option value="copy">Copy files</option>
+                    <option value="move">Move files</option>
+                    <option value="link">Hardlink</option>
+                  </select>
+                </div>
+
+                <div class="input-wrapper">
+                  <label for="ingest-cross-format">Cross-Format</label>
+                  <select id="ingest-cross-format">
+                    <option value="smart">Merge different format</option>
+                    <option value="strict">Keep format separated</option>
+                  </select>
+                </div>
+
+                <div class="input-wrapper">
+                  <label for="ingest-dup-depth">Deduplication Mode</label>
+                  <select id="ingest-dup-depth">
+                    <option value="strict">Exact same file</option>
+                    <option value="standard">Same Artist and Title</option>
+                    <option value="fuzzy">Audio comparison (&gt;90%)</option>
+                  </select>
+                </div>
+
+                <div class="input-wrapper">
+                  <label for="ingest-rename-rule">Renaming Rules</label>
+                  <select id="ingest-rename-rule">
+                    <option value="preserve">Native Filenames</option>
+                    <option value="clean">Artist - Title</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Primary Execution Button -->
+              <button class="btn-execute-pipeline" id="ingest-run-btn" disabled>Run Playlist Ingestion</button>
+
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Ingestion Post-Flight Success Screen -->
+        <div id="ingest-summary-screen" style="display: none; flex-direction: column; gap: 24px; width: 100%; box-sizing: border-box; padding: 0 16px 24px 16px;">
+          <h2 style="font-family: 'Playfair Display', serif; font-size: 28px; color: var(--espresso); margin: 0; text-align: center;">Playlist Ingestion Complete</h2>
+          
+          <!-- Metrics Row -->
+          <div class="rebuilder-summary-metrics" style="display: flex; gap: 16px; justify-content: center; width: 100%;">
+            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+              <div style="font-size: 32px; color: #2e7d32; margin-bottom: 8px;">✓</div>
+              <div id="ingest-summary-healthy" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 tracks successfully ingested</div>
+            </div>
+            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+              <div style="font-size: 32px; color: var(--accent); margin-bottom: 8px;">⧉</div>
+              <div id="ingest-summary-duplicates" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 duplicate tracks filtered</div>
+            </div>
+            <div class="rebuilder-metric-card" style="flex: 1; max-width: 280px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--card-radius); padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(44,34,30,0.05);">
+              <div style="font-size: 32px; color: #c62828; margin-bottom: 8px;">⚠</div>
+              <div id="ingest-summary-missing" style="font-size: 16px; font-weight: 600; color: var(--espresso);">0 missing tracks skipped</div>
+            </div>
+          </div>
+
+          <!-- Playlist Details Box -->
+          <div style="display: flex; flex-direction: column; gap: 12px; background-color: var(--paper-3); border: 1px solid var(--border-color); padding: 20px; border-radius: var(--card-radius); max-width: 576px; margin: 0 auto; box-sizing: border-box; text-align: left; width: 100%;">
+            <h4 style="margin: 0; color: var(--espresso); font-size: 14px; display: flex; align-items: center; gap: 8px; font-weight: 700;">
+              <span>📁</span> Export Details
+            </h4>
+            <div style="font-size: 12px; color: var(--tan); line-height: 1.6; display: flex; flex-direction: column; gap: 4px;">
+              <div><strong>Target Folder:</strong> <span id="ingest-summary-dest-path" style="word-break: break-all;">/path/to/music</span></div>
+              <div><strong>Saved XML Playlist:</strong> <span id="ingest-summary-xml-path" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; word-break: break-all;">/path/to/playlist.xml</span></div>
+            </div>
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--tan); line-height: 1.5; font-style: italic;">
+              💡 <strong>Next Step:</strong> Open Rekordbox, right-click on Playlists, select "Import Playlist", and pick the generated XML file above to import your playlist with all tracks matched.
+            </p>
+            <div style="display: flex; gap: 12px; margin-top: 12px; justify-content: center;">
+              <button type="button" id="ingest-summary-done-btn" class="launcher-card-btn" style="background-color: var(--accent); color: white; padding: 8px 24px; font-size: 12px; border: none; margin: 0; width: auto; height: auto; line-height: normal;">Done</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress Overlay for Ingestion -->
+        <div id="ingest-progress-overlay" class="rebuilder-progress-overlay">
+          <div class="rebuilder-progress-box">
+            <h4 class="rebuilder-progress-title">Running Playlist Ingestion</h4>
+            <div id="ingest-progress-percent" class="rebuilder-progress-percent">0%</div>
+            <div id="ingest-progress-counter" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--espresso); font-weight: 600; margin-bottom: 4px;">0 / 0 tracks</div>
+            <div class="rebuilder-progress-bar-track">
+              <div id="ingest-progress-fill" class="rebuilder-progress-bar-fill"></div>
+            </div>
+            <div id="ingest-progress-status" class="rebuilder-progress-subtext">Preparing processing streams...</div>
+          </div>
+        </div>
+      </div>
 
       <!-- Run Pipeline Panel -->
       <div class="pipeline-panel hidden" id="pipeline-panel" style="height: 100%; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box;">
@@ -2099,7 +2521,7 @@
           <h3 style="margin: 0;">Run Pipeline</h3>
           <p style="color: var(--text-muted); font-size: 14px; margin: 6px 0 0;">No progress ledger found in this directory. Set up and start a new scan and download pipeline.</p>
           
-          <div style="display: flex; gap: 20px; align-items: flex-end; margin-top: 20px;">
+          <div style="display: flex; gap: 20px; align-items: flex-end; margin-top: 20px; flex-wrap: wrap;">
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 12px; color: var(--text-muted);">Output Format</label>
               <select id="pipeline-format-select" class="mono" style="background-color: var(--bg-darker); border: 0.5px solid var(--border-color); color: var(--text-main); padding: 0 12px; border-radius: 4px; font-size: 12px; height: 35px; box-sizing: border-box; outline: none; cursor: pointer; width: 240px;">
@@ -2108,6 +2530,10 @@
                 <option value="aiff">AIFF (Lossless)</option>
                 <option value="wav">WAV (Lossless)</option>
               </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; height: 35px; padding-bottom: 2px;">
+              <input type="checkbox" id="pipeline-skip-high-quality" style="accent-color: var(--gold); cursor: pointer;" />
+              <label for="pipeline-skip-high-quality" style="font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none;">Skip files &gt; 320 kbps (or lossless)</label>
             </div>
             <button class="apply-btn" id="start-pipeline-btn" style="padding: 0 20px; font-size: 12px; height: 35px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; width: auto;">
               <span>Start Scan & Download</span>
@@ -2296,6 +2722,92 @@
     </div>
   </div>
 
+  <!-- Modal 1.8: Commit Settings Selection -->
+  <div class="modal-backdrop" id="commit-config-backdrop">
+    <div class="modal" style="max-width: 550px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px;">
+      <div class="modal-title" style="color: var(--accent);">
+        <span>⚙</span> Commit Settings
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px; text-align: left; padding: 0; box-sizing: border-box;">
+        
+        <!-- Output Mode Selection -->
+        <div class="input-wrapper">
+          <label style="font-weight: 600; font-size: 13px; color: var(--text-main); margin-bottom: 6px; display: block;">Output Location Strategy</label>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; padding: 8px; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box;">
+              <input type="radio" name="commit-output-strategy" value="replace" checked />
+              <div>
+                <strong style="color: var(--text-main);">Replace original files (In-place)</strong>
+                <p style="margin: 2px 0 0; font-size: 11px; color: var(--text-muted);">Deletes original files and moves upgraded files to their exact locations. Forces Rekordbox DB update.</p>
+              </div>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; padding: 8px; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box;">
+              <input type="radio" name="commit-output-strategy" value="consolidate" />
+              <div>
+                <strong style="color: var(--text-main);">Put all in main music folder (Deduplicated)</strong>
+                <p style="margin: 2px 0 0; font-size: 11px; color: var(--text-muted);">Puts all upgraded tracks into a single folder, resolving collisions and duplicate copies.</p>
+              </div>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; padding: 8px; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box;">
+              <input type="radio" name="commit-output-strategy" value="custom" />
+              <div>
+                <strong style="color: var(--text-main);">Export to custom folder (Playlist folders)</strong>
+                <p style="margin: 2px 0 0; font-size: 11px; color: var(--text-muted);">Exports upgraded files preserving the original folder/playlist hierarchy.</p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Custom Destination Directory Selector -->
+        <div id="commit-destination-container" class="input-wrapper hidden" style="box-sizing: border-box;">
+          <label style="font-weight: 600; font-size: 13px; color: var(--text-main); margin-bottom: 6px; display: block;">Destination Folder</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" id="commit-destination-input" placeholder="Select destination directory..." style="flex: 1; padding: 8px 12px; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 12px;" readonly />
+            <button class="picker-btn" id="commit-destination-browse-btn" style="margin: 0; padding: 8px 16px; font-size: 12px; height: 34px;">Browse...</button>
+          </div>
+        </div>
+
+        <!-- Rekordbox Action Selection -->
+        <div class="input-wrapper">
+          <label style="font-weight: 600; font-size: 13px; color: var(--text-main); margin-bottom: 6px; display: block;">Rekordbox Library Action</label>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; padding: 8px; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box;">
+              <input type="radio" name="commit-rekordbox-action" value="db" checked />
+              <div>
+                <strong style="color: var(--text-main);">Update Rekordbox Library Directly (master.db)</strong>
+                <p style="margin: 2px 0 0; font-size: 11px; color: var(--text-muted);">Directly updates track locations in your collection database copy (closed Rekordbox required to save).</p>
+              </div>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; padding: 8px; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box;">
+              <input type="radio" name="commit-rekordbox-action" value="xml" />
+              <div>
+                <strong style="color: var(--text-main);">Generate XML Import Package</strong>
+                <p style="margin: 2px 0 0; font-size: 11px; color: var(--text-muted);">Outputs a rekordbox_upgraded_YYYY-MM-DD.xml file to import manually.</p>
+              </div>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; padding: 8px; background-color: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box;">
+              <input type="radio" name="commit-rekordbox-action" value="none" />
+              <div>
+                <strong style="color: var(--text-main);">None (Files only)</strong>
+                <p style="margin: 2px 0 0; font-size: 11px; color: var(--text-muted);">Do not update your Rekordbox library collection metadata.</p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Rekordbox Lock Warning -->
+        <div id="commit-rekordbox-lock-warning" class="hidden" style="background-color: rgba(239, 68, 68, 0.08); border: 1px solid var(--red); color: var(--red); font-size: 12px; padding: 10px; border-radius: 6px; box-sizing: border-box;">
+          ⚠️ <strong>Rekordbox is open.</strong> Please close it to apply database changes directly.
+        </div>
+
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 10px; box-sizing: border-box;">
+        <button class="picker-btn" id="commit-config-cancel" style="padding: 10px 20px; font-size: 13px;">Cancel</button>
+        <button class="apply-btn" id="commit-config-confirm" style="padding: 10px 20px; font-size: 13px; background-color: var(--accent); color: white;">Apply Changes</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal 2: Commit Results -->
   <div class="modal-backdrop" id="commit-results-backdrop">
     <div class="modal" style="max-width: 550px; box-sizing: border-box;">
@@ -2434,8 +2946,10 @@
     let libraryOutputPath = null;
     let progressLedgerPath = null;
     let selectedPlaylistName = null;
+    let selectedPlaylistId = null;
     let selectedNodeType = null;
     let loadedXmlPath = null;
+    let isDatabaseMode = false;
     let selectedXmlPath = null;
     let selectedDestinationPath = null;
     let explicitFileList = null;
@@ -2483,6 +2997,7 @@
       document.getElementById('pipeline-panel').classList.add('hidden');
       document.getElementById('deck-workspace').classList.add('hidden');
       document.getElementById('rebuilder-panel').classList.add('hidden');
+      document.getElementById('playlist-ingestion-panel').classList.add('hidden');
       
       // Enforce Page Isolation for Shortcuts button
       const shortcutsBtn = document.getElementById('shortcuts-toggle-btn');
@@ -2514,6 +3029,9 @@
         showSidebar(true);
       } else if (viewName === 'rebuilder') {
         document.getElementById('rebuilder-panel').classList.remove('hidden');
+        showSidebar(false);
+      } else if (viewName === 'ingestion') {
+        document.getElementById('playlist-ingestion-panel').classList.remove('hidden');
         showSidebar(false);
       }
 
@@ -2632,6 +3150,31 @@
       const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
       const cleanRel = rel.startsWith('/') ? rel : '/' + rel;
       return cleanBase + cleanRel;
+    }
+
+    // Helper: calculate relative path for ledger reconciliation
+    function getRelativePath(from, to) {
+      const fromParts = from.replace(/\\/g, '/').split('/').filter(Boolean);
+      const toParts = to.replace(/\\/g, '/').split('/').filter(Boolean);
+      
+      let commonLength = 0;
+      while (
+        commonLength < fromParts.length &&
+        commonLength < toParts.length &&
+        fromParts[commonLength] === toParts[commonLength]
+      ) {
+        commonLength++;
+      }
+      
+      const upCount = fromParts.length - commonLength;
+      const upParts = Array(upCount).fill('..');
+      const downParts = toParts.slice(commonLength);
+      
+      let rel = upParts.concat(downParts).join('/');
+      if (!rel.startsWith('/')) {
+        rel = '/' + rel;
+      }
+      return rel;
     }
 
     // Close WAV Warning Modal
@@ -3308,10 +3851,10 @@
     rebuilderConsolidateBtn.addEventListener('click', async () => {
       console.log("CONSOLIDATE LIBRARY clicked. Strategy:", rebuilderStrategy, "Destination Path:", selectedDestinationPath);
       const opMode = document.getElementById('rebuilder-op-mode').value;
-      const folderArch = document.getElementById('rebuilder-folder-arch').value;
+      const crossFormat = document.getElementById('rebuilder-cross-format').value;
       const dedupDepth = document.getElementById('rebuilder-dedup-depth').value;
       const renameRules = document.getElementById('rebuilder-rename-rules').value;
-      console.log("Configuration Settings: OpMode:", opMode, "FolderArch:", folderArch, "DedupDepth:", dedupDepth, "RenameRules:", renameRules);
+      console.log("Configuration Settings: OpMode:", opMode, "CrossFormat:", crossFormat, "DedupDepth:", dedupDepth, "RenameRules:", renameRules);
       
       // Show progress overlay
       isRebuilderOverlayActive = true;
@@ -3329,7 +3872,7 @@
               xmlPath: selectedXmlPath,
               destinationPath: selectedDestinationPath,
               fileMode: opMode,
-              folderArch: folderArch,
+              crossFormat: crossFormat,
               dedupDepth: dedupDepth,
               renamingRule: renameRules
             });
@@ -3358,7 +3901,7 @@
             const summary = await window.__TAURI__.core.invoke("execute_db_consolidation", {
               destinationPath: selectedDestinationPath,
               fileMode: opMode,
-              folderArch: folderArch,
+              crossFormat: crossFormat,
               dedupDepth: dedupDepth,
               renamingRule: renameRules
             });
@@ -3388,12 +3931,114 @@
       document.getElementById('rebuilder-summary-duplicates').textContent = `⧉ ${summary.duplicate_count} duplicate tracks found`;
       document.getElementById('rebuilder-summary-missing').textContent = `⚠ ${summary.missing_count} missing tracks skipped`;
       
-      const logBox = document.getElementById('rebuilder-summary-log');
-      if (summary.missing_list && summary.missing_list.length > 0) {
-        logBox.textContent = summary.missing_list.join('\n');
-      } else {
-        logBox.textContent = 'None';
+      const processedTab = document.getElementById('rebuilder-tab-processed');
+      const duplicatesTab = document.getElementById('rebuilder-tab-duplicates');
+      const missingTab = document.getElementById('rebuilder-tab-missing');
+      const inspectorTitle = document.getElementById('inspector-title');
+      const inspectorTally = document.getElementById('inspector-tally');
+      const inspectorContent = document.getElementById('inspector-scroll-content');
+      
+      // Store local collections
+      const processedList = summary.processed_list || [];
+      const duplicateList = summary.duplicate_list || [];
+      const missingList = summary.missing_list || [];
+
+      function selectTab(activeTabId) {
+        // Toggle active visuals on dynamic DOM elements
+        const currentProcessedTab = document.getElementById('rebuilder-tab-processed');
+        const currentDuplicatesTab = document.getElementById('rebuilder-tab-duplicates');
+        const currentMissingTab = document.getElementById('rebuilder-tab-missing');
+
+        [currentProcessedTab, currentDuplicatesTab, currentMissingTab].forEach(tab => {
+          if (tab && tab.id === activeTabId) {
+            tab.classList.add('active');
+          } else if (tab) {
+            tab.classList.remove('active');
+          }
+        });
+
+        // Clear contents
+        inspectorContent.innerHTML = '';
+
+        if (activeTabId === 'rebuilder-tab-processed') {
+          inspectorTitle.textContent = "Processed Tracks Migration Ledger";
+          inspectorTally.textContent = `${processedList.length} items`;
+          if (processedList.length > 0) {
+            processedList.forEach(path => {
+              const div = document.createElement('div');
+              div.textContent = `➡️ Wrote: ${path}`;
+              inspectorContent.appendChild(div);
+            });
+          } else {
+            inspectorContent.textContent = 'None';
+          }
+        } else if (activeTabId === 'rebuilder-tab-duplicates') {
+          inspectorTitle.textContent = "Deduplication Merge Breakdown Reports";
+          inspectorTally.textContent = `${duplicateList.length} items`;
+          if (duplicateList.length > 0) {
+            duplicateList.forEach(pair => {
+              const keptPath = pair[0];
+              const skippedPath = pair[1];
+              
+              const block = document.createElement('div');
+              block.style.display = 'flex';
+              block.style.flexDirection = 'column';
+              block.style.gap = '2px';
+              block.style.marginBottom = '8px';
+              block.style.borderBottom = '1px solid rgba(26, 15, 5, 0.1)';
+              block.style.paddingBottom = '6px';
+              
+              const line1 = document.createElement('div');
+              line1.style.color = '#2e7d32'; // project green color
+              line1.textContent = `🟢 Kept: ${keptPath} [Active File]`;
+              
+              const line2 = document.createElement('div');
+              line2.style.color = '#c62828'; // project red/accent warning color
+              line2.textContent = `🔴 Skipped: ${skippedPath} [Remapped to Kept]`;
+              
+              block.appendChild(line1);
+              block.appendChild(line2);
+              inspectorContent.appendChild(block);
+            });
+          } else {
+            inspectorContent.textContent = 'None';
+          }
+        } else if (activeTabId === 'rebuilder-tab-missing') {
+          inspectorTitle.textContent = "Skipped Missing Tracks Error Log";
+          inspectorTally.textContent = `${missingList.length} items`;
+          if (missingList.length > 0) {
+            missingList.forEach(path => {
+              const div = document.createElement('div');
+              div.style.color = '#c62828'; // project error accent warning color
+              div.textContent = `⚠️ File Missing: ${path}`;
+              inspectorContent.appendChild(div);
+            });
+          } else {
+            inspectorContent.textContent = 'None';
+          }
+        }
       }
+
+      // Remove any previous listener clones by resetting listeners
+      const newProcessedTab = processedTab.cloneNode(true);
+      const newDuplicatesTab = duplicatesTab.cloneNode(true);
+      const newMissingTab = missingTab.cloneNode(true);
+
+      processedTab.parentNode.replaceChild(newProcessedTab, processedTab);
+      duplicatesTab.parentNode.replaceChild(newDuplicatesTab, duplicatesTab);
+      missingTab.parentNode.replaceChild(newMissingTab, missingTab);
+
+      // Re-get elements after replacement
+      const pTab = document.getElementById('rebuilder-tab-processed');
+      const dTab = document.getElementById('rebuilder-tab-duplicates');
+      const mTab = document.getElementById('rebuilder-tab-missing');
+
+      pTab.addEventListener('click', () => selectTab('rebuilder-tab-processed'));
+      dTab.addEventListener('click', () => selectTab('rebuilder-tab-duplicates'));
+      mTab.addEventListener('click', () => selectTab('rebuilder-tab-missing'));
+
+      // Default active tab to Processed upon initialization
+      selectTab('rebuilder-tab-processed');
 
       // Handle DB Mode safety validation recommendations
       const recBox = document.getElementById('rebuilder-db-summary-recommendation');
@@ -3427,11 +4072,20 @@
             healthy_count: Math.max(0, total - 4),
             duplicate_count: 2,
             missing_count: total - Math.max(0, total - 4) - 2,
-            missing_list: ['/Users/mock/missing_track_1.mp3', '/Users/mock/missing_track_2.mp3']
+            missing_list: ['/Users/mock/missing_track_1.mp3', '/Users/mock/missing_track_2.mp3'],
+            processed_list: [
+              '/Users/mock/destination/ABBA - Money, Money, Money.mp3',
+              '/Users/mock/destination/a-ha - Take On Me.mp3',
+              '/Users/mock/destination/Amel Bent - Ma philosophie.mp3'
+            ],
+            duplicate_list: [
+              ['/Users/mock/destination/ABBA - Money, Money, Money.mp3', '/Users/mock/original/ABBA - Money, Money, Money (1).mp3'],
+              ['/Users/mock/destination/Amel Bent - Ma philosophie.mp3', '/Users/mock/original/Amel Bent - Ma philosophie (1).mp3']
+            ]
           });
         } else {
-          const pct = Math.round((current * 100) / total);
-          document.getElementById('rebuilder-progress-percent').textContent = `${pct}%`;
+          const pct = (current * 100) / total;
+          document.getElementById('rebuilder-progress-percent').textContent = `${Math.round(pct)}%`;
           document.getElementById('rebuilder-progress-fill').style.width = `${pct}%`;
           document.getElementById('rebuilder-progress-counter').textContent = `${current} / ${total} tracks`;
           document.getElementById('rebuilder-progress-status').textContent = `Processing: track${current}.mp3`;
@@ -3616,6 +4270,40 @@
     }
 
     // Settings Persistence (Save & Load between sessions)
+    function syncSetting(field, value) {
+      if (isLoadingSettings) return;
+      isLoadingSettings = true;
+      try {
+        if (field === 'op_mode') {
+          const el1 = document.getElementById('rebuilder-op-mode');
+          const el2 = document.getElementById('ingest-op-mode');
+          if (el1) el1.value = value;
+          if (el2) el2.value = value;
+          localStorage.setItem('rebuilder_op_mode', value);
+        } else if (field === 'cross_format') {
+          const el1 = document.getElementById('rebuilder-cross-format');
+          const el2 = document.getElementById('ingest-cross-format');
+          if (el1) el1.value = value;
+          if (el2) el2.value = value;
+          localStorage.setItem('rebuilder_cross_format', value);
+        } else if (field === 'dedup_depth') {
+          const el1 = document.getElementById('rebuilder-dedup-depth');
+          const el2 = document.getElementById('ingest-dup-depth');
+          if (el1) el1.value = value;
+          if (el2) el2.value = value;
+          localStorage.setItem('rebuilder_dedup_depth', value);
+        } else if (field === 'rename_rules') {
+          const el1 = document.getElementById('rebuilder-rename-rules');
+          const el2 = document.getElementById('ingest-rename-rule');
+          if (el1) el1.value = value;
+          if (el2) el2.value = value;
+          localStorage.setItem('rebuilder_rename_rules', value);
+        }
+      } finally {
+        isLoadingSettings = false;
+      }
+    }
+
     function saveRebuilderSettings() {
       if (isLoadingSettings) return;
       localStorage.setItem('rebuilder_strategy', rebuilderStrategy || '');
@@ -3623,12 +4311,12 @@
       localStorage.setItem('rebuilder_destination_path', selectedDestinationPath || '');
       
       const opModeEl = document.getElementById('rebuilder-op-mode');
-      const folderArchEl = document.getElementById('rebuilder-folder-arch');
+      const crossFormatEl = document.getElementById('rebuilder-cross-format');
       const dedupDepthEl = document.getElementById('rebuilder-dedup-depth');
       const renameRulesEl = document.getElementById('rebuilder-rename-rules');
       
       if (opModeEl) localStorage.setItem('rebuilder_op_mode', opModeEl.value);
-      if (folderArchEl) localStorage.setItem('rebuilder_folder_arch', folderArchEl.value);
+      if (crossFormatEl) localStorage.setItem('rebuilder_cross_format', crossFormatEl.value);
       if (dedupDepthEl) localStorage.setItem('rebuilder_dedup_depth', dedupDepthEl.value);
       if (renameRulesEl) localStorage.setItem('rebuilder_rename_rules', renameRulesEl.value);
       console.log("[Settings] Saved Library Cleaner settings to localStorage.");
@@ -3703,23 +4391,31 @@
       // 4. Dropdowns
       const savedOpMode = localStorage.getItem('rebuilder_op_mode');
       if (savedOpMode) {
-        const el = document.getElementById('rebuilder-op-mode');
-        if (el) el.value = savedOpMode;
+        const el1 = document.getElementById('rebuilder-op-mode');
+        const el2 = document.getElementById('ingest-op-mode');
+        if (el1) el1.value = savedOpMode;
+        if (el2) el2.value = savedOpMode;
       }
-      const savedFolderArch = localStorage.getItem('rebuilder_folder_arch');
-      if (savedFolderArch) {
-        const el = document.getElementById('rebuilder-folder-arch');
-        if (el) el.value = savedFolderArch;
+      const savedCrossFormat = localStorage.getItem('rebuilder_cross_format');
+      if (savedCrossFormat) {
+        const el1 = document.getElementById('rebuilder-cross-format');
+        const el2 = document.getElementById('ingest-cross-format');
+        if (el1) el1.value = savedCrossFormat;
+        if (el2) el2.value = savedCrossFormat;
       }
       const savedDedupDepth = localStorage.getItem('rebuilder_dedup_depth');
       if (savedDedupDepth) {
-        const el = document.getElementById('rebuilder-dedup-depth');
-        if (el) el.value = savedDedupDepth;
+        const el1 = document.getElementById('rebuilder-dedup-depth');
+        const el2 = document.getElementById('ingest-dup-depth');
+        if (el1) el1.value = savedDedupDepth;
+        if (el2) el2.value = savedDedupDepth;
       }
       const savedRenameRules = localStorage.getItem('rebuilder_rename_rules');
       if (savedRenameRules) {
-        const el = document.getElementById('rebuilder-rename-rules');
-        if (el) el.value = savedRenameRules;
+        const el1 = document.getElementById('rebuilder-rename-rules');
+        const el2 = document.getElementById('ingest-rename-rule');
+        if (el1) el1.value = savedRenameRules;
+        if (el2) el2.value = savedRenameRules;
       }
       
       isLoadingSettings = false;
@@ -3728,16 +4424,30 @@
 
     // Register dropdown change events to auto-save choices
     try {
-      ['rebuilder-op-mode', 'rebuilder-folder-arch', 'rebuilder-dedup-depth', 'rebuilder-rename-rules'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-          el.addEventListener('change', () => {
-            console.log(`[Event] Dropdown ${id} changed to:`, el.value);
-            saveRebuilderSettings();
-          });
-          console.log(`Successfully bound change listener to ${id}`);
-        }
-      });
+      const opModeEl = document.getElementById('rebuilder-op-mode');
+      if (opModeEl) {
+        opModeEl.addEventListener('change', () => {
+          syncSetting('op_mode', opModeEl.value);
+        });
+      }
+      const dedupEl = document.getElementById('rebuilder-dedup-depth');
+      if (dedupEl) {
+        dedupEl.addEventListener('change', () => {
+          syncSetting('dedup_depth', dedupEl.value);
+        });
+      }
+      const renameEl = document.getElementById('rebuilder-rename-rules');
+      if (renameEl) {
+        renameEl.addEventListener('change', () => {
+          syncSetting('rename_rules', renameEl.value);
+        });
+      }
+      const crossFormatEl = document.getElementById('rebuilder-cross-format');
+      if (crossFormatEl) {
+        crossFormatEl.addEventListener('change', () => {
+          syncSetting('cross_format', crossFormatEl.value);
+        });
+      }
     } catch (e) {
       console.error("Error binding rebuilder dropdown change listeners:", e);
     }
@@ -3943,12 +4653,12 @@
     document.getElementById('rekordbox-mode-card').addEventListener('click', (e) => {
       if (e.target.tagName === 'BUTTON') return;
       if (!checkArlFilled()) return;
-      loadXmlFlow();
+      loadDbFlow();
     });
     document.getElementById('rekordbox-mode-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       if (!checkArlFilled()) return;
-      loadXmlFlow();
+      loadDbFlow();
     });
 
     // Cancel Rekordbox Playlist Selector Modal
@@ -3971,7 +4681,9 @@
 
       // Reset Rekordbox variables
       loadedXmlPath = null;
+      isDatabaseMode = false;
       selectedPlaylistName = null;
+      selectedPlaylistId = null;
       selectedNodeType = null;
       explicitFileList = null;
 
@@ -4078,6 +4790,74 @@
       }
     }
 
+    // Handle Rekordbox direct database playlist selection
+    async function loadDbFlow() {
+      if (!window.__TAURI__) {
+        alert("Tauri API is not available.");
+        return;
+      }
+      
+      isDatabaseMode = true;
+      loadedXmlPath = null;
+      selectedPlaylistName = null;
+      selectedPlaylistId = null;
+      explicitFileList = null;
+      
+      // Clear selection state
+      document.getElementById('process-playlist-btn').setAttribute('disabled', 'true');
+      document.getElementById('process-playlist-btn').querySelector('span').textContent = 'Upgrade Selected (0 tracks)';
+      
+      // Deselect Select All
+      document.getElementById('select-all-option-container').classList.remove('selected-playlist');
+      
+      const backdrop = document.getElementById('playlist-selector-backdrop');
+      backdrop.classList.add('show');
+      
+      const container = document.getElementById('playlist-tree-container');
+      container.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">Loading playlists from Rekordbox database...</div>';
+      
+      try {
+        const treeJson = await window.__TAURI__.core.invoke('parse_playlists_from_db');
+        const tree = JSON.parse(treeJson);
+        if (!tree || tree.length === 0) {
+          container.innerHTML = '<div style="color: var(--red); font-size: 14px;">No playlists found in database.</div>';
+        } else {
+          renderPlaylistTree(tree, container);
+          
+          // Count total tracks for Select All
+          const totalTracks = sumTracks(tree);
+          document.getElementById('select-all-track-count').textContent = `(${totalTracks})`;
+          
+          // Wire up Select All click
+          const selectAllContainer = document.getElementById('select-all-option-container');
+          selectAllContainer.onclick = (e) => {
+            e.stopPropagation();
+            
+            // Un-select tree items
+            const activeNodes = container.querySelectorAll('.tree-node-header.selected-playlist');
+            activeNodes.forEach(an => {
+              an.classList.remove('selected-playlist');
+              const cs = an.querySelector('.mono');
+              if (cs) cs.style.color = 'var(--text-muted)';
+            });
+            
+            selectAllContainer.classList.add('selected-playlist');
+            
+            selectedPlaylistName = 'ROOT'; // "ROOT" folder node maps to entire collection
+            selectedPlaylistId = 'ROOT';
+            selectedNodeType = 'folder';
+            
+            const confirmBtn = document.getElementById('process-playlist-btn');
+            confirmBtn.removeAttribute('disabled');
+            confirmBtn.querySelector('span').textContent = `Upgrade Selected (${totalTracks} tracks)`;
+          };
+        }
+      } catch (err) {
+        console.error("Failed to parse playlists from database:", err);
+        container.innerHTML = `<div style="color: var(--red); font-size: 14px;">Error parsing playlists: ${err}</div>`;
+      }
+    }
+
     // Handle Rekordbox XML Selection
     async function loadXmlFlow() {
       if (!window.__TAURI__) {
@@ -4094,6 +4874,7 @@
       
       loadedXmlPath = selectedXml;
       selectedPlaylistName = null;
+      selectedPlaylistId = null;
       explicitFileList = null;
       
       // Clear selection state
@@ -4137,6 +4918,7 @@
             selectAllContainer.classList.add('selected-playlist');
             
             selectedPlaylistName = 'ROOT'; // "ROOT" folder node maps to entire collection
+            selectedPlaylistId = 'ROOT';
             selectedNodeType = 'folder';
             
             const confirmBtn = document.getElementById('process-playlist-btn');
@@ -4263,6 +5045,7 @@
             header.classList.add('selected-playlist');
             
             selectedPlaylistName = node.name;
+            selectedPlaylistId = node.id || null;
             selectedNodeType = node.type;
             
             const confirmBtn = document.getElementById('process-playlist-btn');
@@ -4324,15 +5107,23 @@
 
     // Handle "Process This Playlist" Button Click
     document.getElementById('process-playlist-btn').addEventListener('click', async () => {
-      if (!selectedPlaylistName || !loadedXmlPath) return;
+      if (!selectedPlaylistName || (!loadedXmlPath && !isDatabaseMode)) return;
       
       // Hide modal first
       document.getElementById('playlist-selector-backdrop').classList.remove('show');
       
-      const invokeCommand = selectedNodeType === 'folder' ? 'get_folder_tracks' : 'get_playlist_tracks';
-      const invokeParams = selectedNodeType === 'folder' 
-        ? { xmlPath: loadedXmlPath, folderName: selectedPlaylistName }
-        : { xmlPath: loadedXmlPath, playlistName: selectedPlaylistName };
+      let invokeCommand, invokeParams;
+      if (isDatabaseMode) {
+        invokeCommand = selectedNodeType === 'folder' ? 'get_folder_tracks_from_db' : 'get_playlist_tracks_from_db';
+        invokeParams = selectedNodeType === 'folder'
+          ? { folderName: selectedPlaylistName }
+          : { playlistName: selectedPlaylistName };
+      } else {
+        invokeCommand = selectedNodeType === 'folder' ? 'get_folder_tracks' : 'get_playlist_tracks';
+        invokeParams = selectedNodeType === 'folder' 
+          ? { xmlPath: loadedXmlPath, folderName: selectedPlaylistName }
+          : { xmlPath: loadedXmlPath, playlistName: selectedPlaylistName };
+      }
       
       const paths = await window.__TAURI__.core.invoke(invokeCommand, invokeParams).catch(err => {
         console.error(`${invokeCommand} failed:`, err);
@@ -4356,11 +5147,26 @@
       if (window.__TAURI__) {
         try {
           const appDataDir = await window.__TAURI__.core.invoke('get_app_data_dir');
-          const sanitizedName = selectedPlaylistName.replace(/[^a-zA-Z0-9_\-]/g, '_');
-          const now = new Date();
-          const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_` +
-                            `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-          const sessionDir = `${appDataDir}/sessions/${sanitizedName}_${timestamp}`;
+          let sessionDir;
+          if (isDatabaseMode) {
+            if (selectedPlaylistId === 'ROOT') {
+              sessionDir = `${appDataDir}/sessions/database_root`;
+            } else if (selectedPlaylistId) {
+              sessionDir = `${appDataDir}/sessions/playlist_${selectedPlaylistId}`;
+            } else {
+              const sanitizedName = selectedPlaylistName.replace(/[^a-zA-Z0-9_\-]/g, '_');
+              const now = new Date();
+              const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_` +
+                                `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+              sessionDir = `${appDataDir}/sessions/${sanitizedName}_${timestamp}`;
+            }
+          } else {
+            const sanitizedName = selectedPlaylistName.replace(/[^a-zA-Z0-9_\-]/g, '_');
+            const now = new Date();
+            const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_` +
+                              `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+            sessionDir = `${appDataDir}/sessions/${sanitizedName}_${timestamp}`;
+          }
           rootPathToUse = sessionDir;
         } catch (err) {
           console.error("Failed to get app data directory, falling back to common ancestor:", err);
@@ -4398,6 +5204,47 @@
         try {
           const content = await window.__TAURI__.core.invoke('read_ledger_file', { ledgerPath: progressLedgerPath });
           ledger = JSON.parse(content);
+          
+          // Reconcile tracks
+          const currentRelPaths = new Set();
+          const relToAbsMap = new Map();
+          for (const absPath of explicitFileList) {
+            const relPath = getRelativePath(libraryRootPath, absPath);
+            currentRelPaths.add(relPath);
+            relToAbsMap.set(relPath, absPath);
+          }
+          
+          let changed = false;
+          
+          // 1. Remove files that are no longer in the explicit file list
+          for (const relPath in ledger.files) {
+            if (!currentRelPaths.has(relPath)) {
+              delete ledger.files[relPath];
+              changed = true;
+            }
+          }
+          
+          // 2. Add files that are new
+          for (const relPath of currentRelPaths) {
+            if (!ledger.files[relPath]) {
+              ledger.files[relPath] = {
+                status: "pending",
+                deezer_id: null,
+                staged_path: null,
+                proxy_path: null,
+                original_abs_path: relToAbsMap.get(relPath)
+              };
+              changed = true;
+            }
+          }
+          
+          if (changed) {
+            log("Ledger has changed during track reconciliation. Saving updated ledger...");
+            await window.__TAURI__.core.invoke('write_ledger_file', { 
+              ledgerPath: progressLedgerPath, 
+              content: JSON.stringify(ledger, null, 2) 
+            });
+          }
           
           const filesObj = ledger.files || {};
           let total = 0;
@@ -4532,9 +5379,9 @@
     function updatePipelineProgress(processed, total) {
       if (total === 0) return;
       document.getElementById('pipeline-progress-section').classList.remove('hidden');
-      const percent = Math.min(100, Math.round((processed / total) * 100));
+      const percent = Math.min(100, (processed / total) * 100);
       document.getElementById('pipeline-progress-text').textContent = `Processing: ${processed} / ${total} files`;
-      document.getElementById('pipeline-progress-percent').textContent = `${percent}%`;
+      document.getElementById('pipeline-progress-percent').textContent = `${Math.round(percent)}%`;
       document.getElementById('pipeline-progress-bar').style.width = `${percent}%`;
     }
 
@@ -4557,10 +5404,13 @@
 
       await listenToPipeline();
 
+      const skipHighQuality = document.getElementById('pipeline-skip-high-quality').checked;
+
       await window.__TAURI__.core.invoke('start_pipeline', {
         rootPath: libraryRootPath,
         outputFormat: selectedFormat,
-        fileList: explicitFileList
+        fileList: explicitFileList,
+        skipHighQuality: skipHighQuality
       }).catch(err => {
         console.error("Failed to start pipeline:", err);
         alert("Failed to start pipeline: " + err);
@@ -5525,11 +6375,15 @@
       }
     });
 
-    // Apply Changes: Commit changes via Rust tauri command
-    applyBtn.addEventListener('click', async () => {
+    let lockCheckInterval = null;
+
+    // Apply Changes: Open Commit Configuration Modal
+    applyBtn.addEventListener('click', () => {
       if (!window.__TAURI__) return;
 
-      // Calculate default suggestion
+      const configBackdrop = document.getElementById('commit-config-backdrop');
+      
+      // Calculate default suggestion for destination path
       let defaultSuggestion = null;
       if (libraryRootPath) {
         const parts = libraryRootPath.split(/[/\\]/);
@@ -5539,8 +6393,93 @@
           defaultSuggestion = `${parentPath}/${folderName}-upgraded`;
         }
       }
+      
+      // Reset inputs to default values
+      const replaceRadio = document.querySelector('input[name="commit-output-strategy"][value="replace"]');
+      if (replaceRadio) replaceRadio.checked = true;
+      
+      const destInput = document.getElementById('commit-destination-input');
+      if (destInput) destInput.value = defaultSuggestion || '';
+      
+      const destContainer = document.getElementById('commit-destination-container');
+      if (destContainer) destContainer.classList.add('hidden'); // hidden for replace mode
 
-      // Show folder picker to choose output folder for upgraded files
+      // Configure Rekordbox options based on isDatabaseMode
+      const dbRadio = document.querySelector('input[name="commit-rekordbox-action"][value="db"]');
+      const xmlRadio = document.querySelector('input[name="commit-rekordbox-action"][value="xml"]');
+      const noneRadio = document.querySelector('input[name="commit-rekordbox-action"][value="none"]');
+      
+      if (isDatabaseMode) {
+        if (dbRadio) {
+          dbRadio.disabled = false;
+          dbRadio.checked = true;
+          dbRadio.closest('label').style.opacity = '1';
+          dbRadio.closest('label').style.pointerEvents = 'auto';
+        }
+      } else {
+        if (dbRadio) {
+          dbRadio.disabled = true;
+          dbRadio.checked = false;
+          dbRadio.closest('label').style.opacity = '0.5';
+          dbRadio.closest('label').style.pointerEvents = 'none';
+        }
+        if (xmlRadio) xmlRadio.checked = true;
+      }
+
+      configBackdrop.classList.add('show');
+
+      // Clear any existing interval just in case
+      if (lockCheckInterval) clearInterval(lockCheckInterval);
+
+      // Start lock polling status immediately
+      updateLockWarning();
+      lockCheckInterval = setInterval(updateLockWarning, 1000);
+    });
+
+    // Helper to dynamically check Rekordbox running status & toggle warning/button
+    async function updateLockWarning() {
+      const actionValEl = document.querySelector('input[name="commit-rekordbox-action"]:checked');
+      if (!actionValEl) return;
+      const actionVal = actionValEl.value;
+      const confirmBtn = document.getElementById('commit-config-confirm');
+      const warningEl = document.getElementById('commit-rekordbox-lock-warning');
+      
+      if (actionVal === 'db' && isDatabaseMode) {
+        const status = await window.__TAURI__.core.invoke('check_rekordbox_status').catch(() => null);
+        if (status && status.running) {
+          warningEl.classList.remove('hidden');
+          confirmBtn.disabled = true;
+          return;
+        }
+      }
+      warningEl.classList.add('hidden');
+      confirmBtn.disabled = false;
+    }
+
+    // Toggle destination folder container based on output strategy
+    document.querySelectorAll('input[name="commit-output-strategy"]').forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        const destContainer = document.getElementById('commit-destination-container');
+        if (e.target.value === 'replace') {
+          destContainer.classList.add('hidden');
+        } else {
+          destContainer.classList.remove('hidden');
+        }
+      });
+    });
+
+    // Handle strategy change check for rekordbox options too
+    document.querySelectorAll('input[name="commit-rekordbox-action"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        updateLockWarning();
+      });
+    });
+
+    // Browse Destination Folder
+    document.getElementById('commit-destination-browse-btn').addEventListener('click', async () => {
+      const destInput = document.getElementById('commit-destination-input');
+      let defaultSuggestion = destInput.value || null;
+      
       const chosenOutputDir = await window.__TAURI__.core.invoke('select_output_directory', {
         defaultDir: defaultSuggestion
       }).catch(err => {
@@ -5548,13 +6487,39 @@
         return null;
       });
 
-      if (!chosenOutputDir) {
-        log("No output directory chosen. Aborting commit.");
+      if (chosenOutputDir) {
+        destInput.value = chosenOutputDir;
+      }
+    });
+
+    // Cancel Commit Config Modal
+    document.getElementById('commit-config-cancel').addEventListener('click', () => {
+      document.getElementById('commit-config-backdrop').classList.remove('show');
+      if (lockCheckInterval) {
+        clearInterval(lockCheckInterval);
+        lockCheckInterval = null;
+      }
+    });
+
+    // Confirm Commit Config Modal
+    document.getElementById('commit-config-confirm').addEventListener('click', async () => {
+      const outputStrategy = document.querySelector('input[name="commit-output-strategy"]:checked').value;
+      const outputPath = document.getElementById('commit-destination-input').value.trim();
+      const rekordboxAction = document.querySelector('input[name="commit-rekordbox-action"]:checked').value;
+
+      if (outputStrategy !== 'replace' && !outputPath) {
+        alert("Please select a destination folder.");
         return;
       }
 
-      libraryOutputPath = chosenOutputDir;
-      log("Selected output folder: " + libraryOutputPath);
+      // Hide config modal and stop polling
+      document.getElementById('commit-config-backdrop').classList.remove('show');
+      if (lockCheckInterval) {
+        clearInterval(lockCheckInterval);
+        lockCheckInterval = null;
+      }
+
+      libraryOutputPath = outputStrategy === 'replace' ? '' : outputPath;
 
       const modal = document.getElementById('commit-results-backdrop');
       const title = document.getElementById('commit-modal-title');
@@ -5562,36 +6527,53 @@
       const closeBtn = document.getElementById('commit-modal-close');
       const rekordboxSection = document.getElementById('rekordbox-upgrade-section');
       const rekordboxResult = document.getElementById('rekordbox-result-text');
-      
+
       title.innerHTML = '<span>⚙</span> Committing Upgrades';
       title.style.color = 'var(--cyan)';
       body.innerHTML = `
         <div style="text-align: center; padding: 20px; box-sizing: border-box;">
           <div style="width: 40px; height: 40px; border: 3px solid rgba(181, 65, 14, 0.1); border-top-color: var(--cyan); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px;"></div>
-          <p style="margin: 0; font-size: 14px;">Applying high-quality replacements to your library files. Please do not close the app.</p>
+          <p id="commit-loading-text" style="margin: 0; font-size: 14px;">Applying high-quality replacements to your library files. Please do not close the app.</p>
         </div>
       `;
       closeBtn.classList.add('hidden');
       rekordboxSection.classList.add('hidden');
       rekordboxResult.classList.add('hidden');
-      
+
       modal.classList.add('show');
-      
+
       const decisionsMap = {};
       reviewQueue.forEach(item => {
         decisionsMap[item.relPath] = ledger.files[item.relPath].decision || 'skipped';
       });
-      
+
       try {
+        // Step 1: Run the files copy commit
         const result = await window.__TAURI__.core.invoke('commit_changes', {
           ledgerPath: progressLedgerPath,
           decisions: decisionsMap,
-          outputPath: libraryOutputPath
+          outputPath: libraryOutputPath,
+          outputStrategy: outputStrategy
         });
-        
+
+        // Step 2: Handle Rekordbox sync directly if requested
+        if (rekordboxAction === 'db' && isDatabaseMode) {
+          const loadingText = document.getElementById('commit-loading-text');
+          if (loadingText) {
+            loadingText.textContent = "Updating Rekordbox library directly... Please do not close the app.";
+          }
+          await window.__TAURI__.core.invoke('update_rekordbox_db_directly', {
+            ledgerPath: progressLedgerPath,
+            decisions: decisionsMap,
+            outputPath: libraryOutputPath,
+            outputStrategy: outputStrategy
+          });
+        }
+
+        // Render success UI
         title.innerHTML = '<span>✓</span> Upgrades Applied';
         title.style.color = 'var(--green)';
-        
+
         let bodyHtml = `
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; margin-bottom: 20px; box-sizing: border-box;">
             <div style="background-color: var(--bg-darker); padding: 12px; border-radius: 6px; border: 1px solid var(--border-color); box-sizing: border-box;">
@@ -5608,7 +6590,15 @@
             </div>
           </div>
         `;
-        
+
+        if (rekordboxAction === 'db' && isDatabaseMode) {
+          bodyHtml += `
+            <div style="padding: 10px; background-color: rgba(16, 185, 129, 0.08); border: 1px solid var(--green); border-radius: 6px; font-size: 12px; color: var(--green); margin-bottom: 20px; box-sizing: border-box; text-align: left;">
+              ✅ <strong>Rekordbox library updated successfully!</strong> The changes have been synced directly to your collection database.
+            </div>
+          `;
+        }
+
         if (result.failed.length > 0) {
           bodyHtml += `
             <div style="max-height: 120px; overflow-y: auto; text-align: left; padding: 12px; background-color: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; font-size: 11px; color: var(--red); font-family: 'JetBrains Mono', monospace; margin-bottom: 20px; box-sizing: border-box;">
@@ -5619,24 +6609,31 @@
             </div>
           `;
         }
-        
+
         body.innerHTML = bodyHtml;
         closeBtn.classList.remove('hidden');
-        rekordboxSection.classList.remove('hidden');
-        
+
+        // Toggle Rekordbox XML section visibility
+        if (rekordboxAction === 'xml') {
+          rekordboxSection.classList.remove('hidden');
+        } else {
+          rekordboxSection.classList.add('hidden');
+        }
+
       } catch (err) {
-        console.error("commit_changes failed:", err);
+        console.error("Commit failed:", err);
         title.innerHTML = '<span>❌</span> Commit Failed';
         title.style.color = 'var(--red)';
         body.innerHTML = `
           <div style="padding: 12px; background-color: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; font-size: 12px; color: var(--red); font-family: 'JetBrains Mono', monospace; box-sizing: border-box;">
-            Error during commit: ${err}
+            Error during commit/database sync: ${err}
           </div>
         `;
         closeBtn.classList.remove('hidden');
+        rekordboxSection.classList.add('hidden');
       }
     });
- 
+
     // Optional Rekordbox XML upgrade button
     document.getElementById('rekordbox-select-btn').addEventListener('click', async () => {
       const selectBtn = document.getElementById('rekordbox-select-btn');
@@ -5690,8 +6687,15 @@
     });
 
     // Close commit results and reload app state
-    document.getElementById('commit-modal-close').addEventListener('click', () => {
+    document.getElementById('commit-modal-close').addEventListener('click', async () => {
       document.getElementById('commit-results-backdrop').classList.remove('show');
+      if (window.__TAURI__ && libraryRootPath) {
+        try {
+          await window.__TAURI__.core.invoke('reset_session', { rootPath: libraryRootPath, isSessionDir: isSessionDirActive });
+        } catch (e) {
+          console.error("Failed to delete ledger file on finish:", e);
+        }
+      }
       window.location.reload();
     });
 
@@ -5702,6 +6706,7 @@
       reviewQueue = [];
       currentIndex = -1;
       selectedPlaylistName = null;
+      selectedPlaylistId = null;
       selectedNodeType = null;
       loadedXmlPath = null;
       selectedXmlPath = null;
@@ -5801,6 +6806,10 @@
       if (document.getElementById('rebuilder-progress-overlay')) {
         document.getElementById('rebuilder-progress-overlay').classList.remove('show');
       }
+      if (document.getElementById('ingest-progress-overlay')) {
+        document.getElementById('ingest-progress-overlay').classList.remove('show');
+      }
+      resetIngestWorkspaceUI();
       
       const backupBtnContainer = document.getElementById('rebuilder-backup-cleanup-container');
       if (backupBtnContainer) {
@@ -5881,21 +6890,25 @@
         console.log("xml-scan-progress event received:", event.payload);
         const { track_name, processed, total, percentage } = event.payload;
         
-        document.getElementById('rebuilder-progress-percent').textContent = `${percentage}%`;
+        document.getElementById('rebuilder-progress-percent').textContent = `${Math.round(percentage)}%`;
         document.getElementById('rebuilder-progress-fill').style.width = `${percentage}%`;
         document.getElementById('rebuilder-progress-counter').textContent = `${processed} / ${total} tracks`;
         document.getElementById('rebuilder-progress-status').textContent = `Scanning: ${track_name}`;
       });
 
-      await window.__TAURI__.event.listen('consolidation-progress', (event) => {
+      await window.__TAURI__.event.listen('rebuilder-consolidation-progress', (event) => {
         if (!isRebuilderOverlayActive) return;
-        console.log("consolidation-progress event received:", event.payload);
+        console.log("rebuilder-consolidation-progress event received:", event.payload);
         const { filename, processed, total, percentage } = event.payload;
         
-        document.getElementById('rebuilder-progress-percent').textContent = `${percentage}%`;
+        document.getElementById('rebuilder-progress-percent').textContent = `${Math.round(percentage)}%`;
         document.getElementById('rebuilder-progress-fill').style.width = `${percentage}%`;
         document.getElementById('rebuilder-progress-counter').textContent = `${processed} / ${total} tracks`;
-        document.getElementById('rebuilder-progress-status').textContent = `Copying: ${filename}`;
+        let statusText = filename;
+        if (!filename.startsWith("Acoustic Analysis:") && !filename.startsWith("Scanning:")) {
+          statusText = `Copying: ${filename}`;
+        }
+        document.getElementById('rebuilder-progress-status').textContent = statusText;
       });
     }
 
@@ -5910,7 +6923,7 @@
       if (status === 'downloaded') {
         if (bitIdentical) {
           return 'identical';
-        } else if (score >= 0.95) {
+        } else if (score >= 0.90) {
           return 'almost_identical';
         } else if (score >= 0.75) {
           return 'close_enough';
@@ -5945,11 +6958,11 @@
       const pct = Math.round(score * 100);
       let color, bgColor;
       
-      if (pct >= 95) {
+      if (pct >= 90) {
         color = '#22c55e'; bgColor = 'rgba(34, 197, 94, 0.12)';
-      } else if (pct >= 90) {
-        color = '#65a30d'; bgColor = 'rgba(101, 163, 13, 0.12)';
       } else if (pct >= 85) {
+        color = '#65a30d'; bgColor = 'rgba(101, 163, 13, 0.12)';
+      } else if (pct >= 80) {
         color = '#b45309'; bgColor = 'rgba(180, 83, 9, 0.15)';
       } else if (pct >= 75) {
         color = '#c2410c'; bgColor = 'rgba(194, 65, 12, 0.15)';
@@ -6107,6 +7120,499 @@
     initARL();
     initSidebarResizer();
     
+    // Ingestion state
+    let stagedIngestFiles = [];
+    let isIngestOverlayActive = false;
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+     function initIngestionHub() {
+      const dropZone = document.getElementById('ingest-drop-zone');
+      const playlistNameInput = document.getElementById('ingest-playlist-name');
+      const destPathInput = document.getElementById('ingest-dest-path');
+      const browseBtn = document.getElementById('ingest-dest-browse-btn');
+      const runBtn = document.getElementById('ingest-run-btn');
+      const resetLink = document.getElementById('ingest-reset-trigger');
+      
+      // Load saved settings
+      loadIngestSettings();
+      
+      // Setup drag-and-drop
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      });
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+      });
+      dropZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          const paths = [];
+          for (let i = 0; i < e.dataTransfer.files.length; i++) {
+            const file = e.dataTransfer.files[i];
+            const path = file.path || file.name;
+            paths.push(path);
+          }
+          
+          if (window.__TAURI__) {
+            try {
+              const res = await window.__TAURI__.core.invoke('expand_audio_paths', { paths });
+              if (res && res.files.length > 0) {
+                for (const path of res.files) {
+                  const filename = path.substring(path.lastIndexOf('/') + 1).substring(path.lastIndexOf('\\') + 1);
+                  const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+                  let sizeBytes = 0;
+                  try {
+                    const sz = await window.__TAURI__.core.invoke('get_file_size', { path });
+                    if (sz !== null) sizeBytes = sz;
+                  } catch (err) {
+                    console.error("get_file_size failed:", err);
+                  }
+                  stagedIngestFiles.push({
+                    path: path,
+                    name: filename,
+                    size: formatBytes(sizeBytes),
+                    format: ext.replace('.', '')
+                  });
+                }
+                if (res.suggested_playlist_name && !playlistNameInput.value.trim()) {
+                  playlistNameInput.value = res.suggested_playlist_name;
+                }
+                updateIngestUI();
+              }
+            } catch (err) {
+              console.error("expand_audio_paths failed:", err);
+            }
+          } else {
+            // Simulation
+            const simulated = [
+              { path: "/Simulated/Laurent Garnier - The Man With The Red Face.mp3", name: "Laurent Garnier - The Man With The Red Face.mp3", size: "22.4 MB", format: "mp3" },
+              { path: "/Simulated/Slam - Positive Education (Original Mix).flac", name: "Slam - Positive Education (Original Mix).flac", size: "54.2 MB", format: "flac" }
+            ];
+            stagedIngestFiles.push(...simulated);
+            playlistNameInput.value = "Simulated Playlist";
+            updateIngestUI();
+          }
+        }
+      });
+      
+      // Click trigger for file picker
+      dropZone.addEventListener('click', async (e) => {
+        if (dropZone.classList.contains('mini-state')) return;
+        
+        if (window.__TAURI__) {
+          try {
+            const paths = await window.__TAURI__.core.invoke('select_audio_files');
+            if (paths && paths.length > 0) {
+              const res = await window.__TAURI__.core.invoke('expand_audio_paths', { paths });
+              if (res && res.files.length > 0) {
+                for (const path of res.files) {
+                  const filename = path.substring(path.lastIndexOf('/') + 1).substring(path.lastIndexOf('\\') + 1);
+                  const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+                  let sizeBytes = 0;
+                  try {
+                    const sz = await window.__TAURI__.core.invoke('get_file_size', { path });
+                    if (sz !== null) sizeBytes = sz;
+                  } catch (err) {
+                    console.error("get_file_size failed:", err);
+                  }
+                  stagedIngestFiles.push({
+                    path: path,
+                    name: filename,
+                    size: formatBytes(sizeBytes),
+                    format: ext.replace('.', '')
+                  });
+                }
+                if (res.suggested_playlist_name && !playlistNameInput.value.trim()) {
+                  playlistNameInput.value = res.suggested_playlist_name;
+                }
+                updateIngestUI();
+              }
+            }
+          } catch (err) {
+            console.error("Ingestion click import failed:", err);
+          }
+        } else {
+          // simulation
+          const simulated = [
+            { path: "/Simulated/Laurent Garnier - The Man With The Red Face.mp3", name: "Laurent Garnier - The Man With The Red Face.mp3", size: "22.4 MB", format: "mp3" },
+            { path: "/Simulated/Slam - Positive Education (Original Mix).flac", name: "Slam - Positive Education (Original Mix).flac", size: "54.2 MB", format: "flac" }
+          ];
+          stagedIngestFiles.push(...simulated);
+          playlistNameInput.value = "Simulated Playlist";
+          updateIngestUI();
+        }
+      });
+      
+      playlistNameInput.addEventListener('input', () => {
+        validateIngestInputs();
+      });
+      
+      browseBtn.addEventListener('click', async () => {
+        if (window.__TAURI__) {
+          try {
+            const selectedDir = await window.__TAURI__.core.invoke('select_directory');
+            if (selectedDir) {
+              destPathInput.value = selectedDir;
+              saveIngestSettings();
+              validateIngestInputs();
+            }
+          } catch (err) {
+            console.error("select_directory failed:", err);
+          }
+        } else {
+          destPathInput.value = "/Users/hugues/Music/Consolidated_Library_2026";
+          saveIngestSettings();
+          validateIngestInputs();
+        }
+      });
+      
+      resetLink.addEventListener('click', () => {
+        resetIngestWorkspaceUI();
+      });
+      
+      document.getElementById('ingest-op-mode').addEventListener('change', (e) => {
+        syncSetting('op_mode', e.target.value);
+      });
+      document.getElementById('ingest-cross-format').addEventListener('change', (e) => {
+        syncSetting('cross_format', e.target.value);
+      });
+      document.getElementById('ingest-dup-depth').addEventListener('change', (e) => {
+        syncSetting('dedup_depth', e.target.value);
+      });
+      document.getElementById('ingest-rename-rule').addEventListener('change', (e) => {
+        syncSetting('rename_rules', e.target.value);
+      });
+ 
+      runBtn.addEventListener('click', async () => {
+        const playlistName = playlistNameInput.value.trim();
+        const destPath = destPathInput.value.trim();
+        const fileMode = document.getElementById('ingest-op-mode').value;
+        const crossFormat = document.getElementById('ingest-cross-format').value;
+        const dedupDepth = document.getElementById('ingest-dup-depth').value;
+        const renameRule = document.getElementById('ingest-rename-rule').value;
+        
+        const filePaths = stagedIngestFiles.map(t => t.path);
+        
+        let xmlSavePath = null;
+        if (window.__TAURI__) {
+          try {
+            const defaultXmlName = `${playlistName.replace(/[\s]+/g, '_')}_import.xml`;
+            xmlSavePath = await window.__TAURI__.core.invoke('select_save_xml_file', { defaultName: defaultXmlName });
+            if (!xmlSavePath) {
+              // Cancelled
+              return;
+            }
+          } catch (err) {
+            console.error("select_save_xml_file failed:", err);
+            alert("Export cancelled or failed: " + err);
+            return;
+          }
+        } else {
+          xmlSavePath = `/Simulated/${playlistName.replace(/[\s]+/g, '_')}_import.xml`;
+        }
+        
+        document.getElementById('ingest-progress-overlay').classList.add('show');
+        document.getElementById('ingest-progress-percent').textContent = '0%';
+        document.getElementById('ingest-progress-fill').style.width = '0%';
+        document.getElementById('ingest-progress-counter').textContent = `0 / ${filePaths.length} tracks`;
+        document.getElementById('ingest-progress-status').textContent = 'Preparing ingestion pipeline...';
+        
+        isIngestOverlayActive = true;
+        
+        if (window.__TAURI__) {
+          try {
+            const result = await window.__TAURI__.core.invoke('execute_playlist_ingestion', {
+              stagedFiles: filePaths,
+              playlistName,
+              destinationPath: destPath,
+              fileMode,
+              crossFormat,
+              dedupDepth,
+              renamingRule: renameRule,
+              xmlSavePath
+            });
+            
+            isIngestOverlayActive = false;
+            document.getElementById('ingest-progress-overlay').classList.remove('show');
+            
+            if (result.success) {
+              showIngestSummary(result, destPath, xmlSavePath);
+            } else {
+              alert("Playlist Ingestion failed: Unknown error.");
+            }
+          } catch (err) {
+            isIngestOverlayActive = false;
+            document.getElementById('ingest-progress-overlay').classList.remove('show');
+            console.error("execute_playlist_ingestion failed:", err);
+            alert("Playlist Ingestion failed: " + err);
+          }
+        } else {
+          let count = 0;
+          const totalCount = filePaths.length;
+          const interval = setInterval(() => {
+            count++;
+            const pct = Math.round((count * 100) / totalCount);
+            document.getElementById('ingest-progress-percent').textContent = `${pct}%`;
+            document.getElementById('ingest-progress-fill').style.width = `${pct}%`;
+            document.getElementById('ingest-progress-counter').textContent = `${count} / ${totalCount} tracks`;
+            document.getElementById('ingest-progress-status').textContent = `Processing: ${stagedIngestFiles[count-1].name}`;
+            
+            if (count >= totalCount) {
+              clearInterval(interval);
+              isIngestOverlayActive = false;
+              document.getElementById('ingest-progress-overlay').classList.remove('show');
+              
+              showIngestSummary({
+                success: true,
+                healthy_count: totalCount,
+                duplicate_count: 0,
+                missing_count: 0
+              }, destPath, xmlSavePath);
+            }
+          }, 400);
+        }
+      });
+      
+      document.getElementById('ingest-summary-done-btn').addEventListener('click', () => {
+        document.getElementById('ingest-summary-screen').style.display = 'none';
+        document.getElementById('ingest-workbench').style.display = 'flex';
+        resetIngestWorkspaceUI();
+        showView('home');
+      });
+      
+      listenToIngestion();
+    }
+ 
+    function saveIngestSettings() {
+      const destPath = document.getElementById('ingest-dest-path').value;
+      const crossFormat = document.getElementById('ingest-cross-format').value;
+      
+      localStorage.setItem('ingest_dest_path', destPath);
+      localStorage.setItem('rebuilder_cross_format', crossFormat);
+    }
+ 
+    function loadIngestSettings() {
+      const destPath = localStorage.getItem('ingest_dest_path');
+      const crossFormat = localStorage.getItem('rebuilder_cross_format');
+      const fileMode = localStorage.getItem('rebuilder_op_mode');
+      const dedupDepth = localStorage.getItem('rebuilder_dedup_depth');
+      const renameRule = localStorage.getItem('rebuilder_rename_rules');
+      
+      if (destPath) document.getElementById('ingest-dest-path').value = destPath;
+      if (crossFormat) document.getElementById('ingest-cross-format').value = crossFormat;
+      if (fileMode) document.getElementById('ingest-op-mode').value = fileMode;
+      if (dedupDepth) document.getElementById('ingest-dup-depth').value = dedupDepth;
+      if (renameRule) document.getElementById('ingest-rename-rule').value = renameRule;
+    }
+
+    function showIngestSummary(result, destPath, xmlSavePath) {
+      document.getElementById('ingest-workbench').style.display = 'none';
+      const summaryScreen = document.getElementById('ingest-summary-screen');
+      summaryScreen.style.display = 'flex';
+      
+      document.getElementById('ingest-summary-healthy').textContent = `${result.healthy_count} tracks successfully ingested`;
+      document.getElementById('ingest-summary-duplicates').textContent = `${result.duplicate_count} duplicate tracks filtered`;
+      document.getElementById('ingest-summary-missing').textContent = `${result.missing_count} missing tracks skipped`;
+      document.getElementById('ingest-summary-dest-path').textContent = destPath;
+      document.getElementById('ingest-summary-xml-path').textContent = xmlSavePath;
+    }
+
+    function resetIngestWorkspaceUI() {
+      stagedIngestFiles = [];
+      isIngestOverlayActive = false;
+      
+      document.getElementById('ingest-playlist-name').value = "";
+      loadIngestSettings();
+      updateIngestUI();
+    }
+
+    function validateIngestInputs() {
+      const playlistName = document.getElementById('ingest-playlist-name').value.trim();
+      const destPath = document.getElementById('ingest-dest-path').value.trim();
+      const hasFiles = stagedIngestFiles.length > 0;
+      const isNamed = playlistName.length > 0;
+      const isLinked = destPath.length > 0;
+      
+      const runBtn = document.getElementById('ingest-run-btn');
+      if (hasFiles && isNamed && isLinked) {
+        runBtn.removeAttribute('disabled');
+      } else {
+        runBtn.setAttribute('disabled', 'true');
+      }
+    }
+
+    function updateIngestUI() {
+      const dropZone = document.getElementById('ingest-drop-zone');
+      const icon = document.getElementById('ingest-drop-zone-icon');
+      const headline = document.getElementById('ingest-drop-zone-headline');
+      const resetLink = document.getElementById('ingest-reset-trigger');
+      const ledgerView = document.getElementById('ingest-ledger-view');
+      const ledgerList = document.getElementById('ingest-ledger-list');
+      const ledgerCounter = document.getElementById('ingest-ledger-counter');
+      
+      if (stagedIngestFiles.length > 0) {
+        dropZone.classList.add('mini-state');
+        icon.innerText = "✅";
+        headline.innerHTML = `Staged <span style="color:var(--accent); font-weight:bold;">${stagedIngestFiles.length} tracks</span> inside compilation workspace queue.`;
+        
+        resetLink.style.display = 'block';
+        ledgerView.style.display = 'flex';
+        ledgerCounter.innerText = `${stagedIngestFiles.length} Tracks Detected`;
+        
+        ledgerList.innerHTML = "";
+        stagedIngestFiles.forEach(track => {
+          const li = document.createElement('li');
+          li.className = "ledger-row";
+          li.innerHTML = `
+            <div class="track-info-cell">
+              <span>🎵</span>
+              <span class="track-name-string" title="${track.name}">${track.name}</span>
+            </div>
+            <div class="track-meta-cell">
+              <span class="badge ${track.format}">${track.format}</span>
+              <span class="size-text">${track.size}</span>
+            </div>
+          `;
+          ledgerList.appendChild(li);
+        });
+      } else {
+        dropZone.classList.remove('mini-state');
+        icon.innerText = "📥";
+        headline.innerText = "Drag & Drop track files here";
+        resetLink.style.display = 'none';
+        ledgerView.style.display = 'none';
+        ledgerList.innerHTML = "";
+      }
+      
+      validateIngestInputs();
+    }
+
+    async function listenToIngestion() {
+      if (!window.__TAURI__) return;
+      await window.__TAURI__.event.listen('ingest-consolidation-progress', (event) => {
+        if (!isIngestOverlayActive) return;
+        const { filename, processed, total, percentage } = event.payload;
+        document.getElementById('ingest-progress-percent').textContent = `${Math.round(percentage)}%`;
+        document.getElementById('ingest-progress-fill').style.width = `${percentage}%`;
+        document.getElementById('ingest-progress-counter').textContent = `${processed} / ${total} tracks`;
+        let statusText = filename;
+        if (!filename.startsWith("Acoustic Analysis:") && !filename.startsWith("Scanning:")) {
+          statusText = `Processing: ${filename}`;
+        }
+        document.getElementById('ingest-progress-status').textContent = statusText;
+      });
+    }
+
+    // App Ingestion Click Bindings
+    document.getElementById('open-ingestion-btn').addEventListener('click', () => {
+      showView('ingestion');
+      resetIngestWorkspaceUI();
+    });
+
+    // Global Tauri file drop event listeners for macOS desktop app integration (Tauri v2)
+    if (window.__TAURI__) {
+      try {
+        window.__TAURI__.event.listen('tauri://drag-enter', () => {
+          const ingestPanel = document.getElementById('playlist-ingestion-panel');
+          if (ingestPanel && !ingestPanel.classList.contains('hidden')) {
+            const dropZone = document.getElementById('ingest-drop-zone');
+            if (dropZone) dropZone.classList.add('dragover');
+          }
+          const rebuilderPanel = document.getElementById('rebuilder-panel');
+          if (rebuilderPanel && !rebuilderPanel.classList.contains('hidden')) {
+            const rebuilderXmlDropZone = document.getElementById('rebuilder-xml-drop-zone');
+            if (rebuilderXmlDropZone && rebuilderXmlDropZone.style.display !== 'none') {
+              rebuilderXmlDropZone.classList.add('dragover');
+            }
+          }
+        });
+
+        window.__TAURI__.event.listen('tauri://drag-leave', () => {
+          const dropZone = document.getElementById('ingest-drop-zone');
+          if (dropZone) dropZone.classList.remove('dragover');
+          const rebuilderXmlDropZone = document.getElementById('rebuilder-xml-drop-zone');
+          if (rebuilderXmlDropZone) rebuilderXmlDropZone.classList.remove('dragover');
+        });
+
+        window.__TAURI__.event.listen('tauri://drag-drop', async (event) => {
+          const dropZone = document.getElementById('ingest-drop-zone');
+          if (dropZone) dropZone.classList.remove('dragover');
+          const rebuilderXmlDropZone = document.getElementById('rebuilder-xml-drop-zone');
+          if (rebuilderXmlDropZone) rebuilderXmlDropZone.classList.remove('dragover');
+
+          const paths = event.payload && event.payload.paths;
+          if (!paths || paths.length === 0) return;
+          
+          console.log("[Global Drop] Dropped files:", paths);
+          
+          // Route 1: Ingestion Hub
+          const ingestPanel = document.getElementById('playlist-ingestion-panel');
+          if (ingestPanel && !ingestPanel.classList.contains('hidden')) {
+            const res = await window.__TAURI__.core.invoke('expand_audio_paths', { paths });
+            if (res && res.files.length > 0) {
+              const playlistNameInput = document.getElementById('ingest-playlist-name');
+              for (const path of res.files) {
+                const filename = path.substring(path.lastIndexOf('/') + 1).substring(path.lastIndexOf('\\') + 1);
+                const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+                let sizeBytes = 0;
+                try {
+                  const sz = await window.__TAURI__.core.invoke('get_file_size', { path });
+                  if (sz !== null) sizeBytes = sz;
+                } catch (err) {
+                  console.error("get_file_size failed:", err);
+                }
+                stagedIngestFiles.push({
+                  path: path,
+                  name: filename,
+                  size: formatBytes(sizeBytes),
+                  format: ext.replace('.', '')
+                });
+              }
+              if (res.suggested_playlist_name && playlistNameInput && !playlistNameInput.value.trim()) {
+                playlistNameInput.value = res.suggested_playlist_name;
+              }
+              updateIngestUI();
+            }
+            return;
+          }
+          
+          // Route 2: Library Cleaner XML Drop Zone
+          const rebuilderPanel = document.getElementById('rebuilder-panel');
+          if (rebuilderPanel && !rebuilderPanel.classList.contains('hidden')) {
+            const rebuilderXmlDropZone = document.getElementById('rebuilder-xml-drop-zone');
+            if (rebuilderXmlDropZone && rebuilderXmlDropZone.style.display !== 'none') {
+              const xmlPath = paths[0];
+              if (xmlPath.toLowerCase().endsWith('.xml')) {
+                selectedXmlPath = xmlPath;
+                const filename = xmlPath.substring(xmlPath.lastIndexOf('/') + 1).substring(xmlPath.lastIndexOf('\\') + 1);
+                const trackCount = await getXmlTrackCount(xmlPath);
+                showXmlLoadedState(filename, trackCount);
+                checkStep2Ready();
+                triggerQuietXmlPreScan(selectedXmlPath);
+                saveRebuilderSettings();
+              } else {
+                alert("Please drop a valid Rekordbox XML file.");
+              }
+            }
+            return;
+          }
+        });
+      } catch (err) {
+        console.error("Failed to setup global Tauri native file drop listener:", err);
+      }
+    }
+
+    initIngestionHub();
+
     // Global click listener for debugging
     document.addEventListener('click', (e) => {
       console.log("[Global Click] target:", e.target, "id:", e.target.id, "class:", e.target.className);

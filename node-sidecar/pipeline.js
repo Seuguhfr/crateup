@@ -138,7 +138,7 @@ function saveLedger(rootPath, ledger) {
   fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf8');
 }
 
-async function runPipeline(rootPath, outputFormat, fileList = null) {
+async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQuality = false) {
   log(`Starting pipeline for root: ${rootPath}, format: ${outputFormat}`);
   
   // 1. Scan directory and initialize/load ledger
@@ -181,6 +181,22 @@ async function runPipeline(rootPath, outputFormat, fileList = null) {
     
     for (const relPath of pendingFiles) {
       const absPath = path.join(rootPath, relPath);
+      
+      if (skipHighQuality) {
+        const ext = path.extname(relPath).toLowerCase();
+        const isLossless = ['.flac', '.wav', '.aiff', '.aif'].includes(ext);
+        const originalBitrate = ledger.files[relPath].original_bitrate;
+        const isHighBitrate = originalBitrate && originalBitrate >= 320;
+        
+        if (isLossless || isHighBitrate) {
+          const reason = isLossless ? 'lossless' : `${originalBitrate} kbps`;
+          log(`Skipping high quality track: ${relPath} (${reason})`);
+          ledger.files[relPath].status = 'skipped';
+          saveLedger(rootPath, ledger);
+          continue;
+        }
+      }
+      
       log(`Processing: ${relPath}`);
       
       // Step A: Fingerprint (Shazam)
@@ -357,21 +373,27 @@ if (require.main === module) {
     });
   } else if (args.length >= 2) {
     let fileList = null;
-    if (args[2]) {
-      try {
-        fileList = JSON.parse(args[2]);
-      } catch (err) {
-        console.error("Failed to parse fileList argument:", err);
+    let skipHighQuality = false;
+    
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === '--skip-high-quality') {
+        skipHighQuality = true;
+      } else {
+        try {
+          fileList = JSON.parse(args[i]);
+        } catch (err) {
+          console.error("Failed to parse fileList argument:", err);
+        }
       }
     }
-    runPipeline(args[0], args[1], fileList)
+    runPipeline(args[0], args[1], fileList, skipHighQuality)
       .then(() => process.exit(0))
       .catch(err => {
         console.error("Pipeline run failed:", err);
         process.exit(1);
       });
   } else {
-    console.error("Usage: node pipeline.js <rootPath> <outputFormat> [fileListJson]");
+    console.error("Usage: node pipeline.js <rootPath> <outputFormat> [fileListJson] [--skip-high-quality]");
     process.exit(1);
   }
 }

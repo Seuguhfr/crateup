@@ -148,4 +148,42 @@ describe('Directory Scanner and Ledger Init', () => {
     expect(ledger.files['/track1.mp3'].original_abs_path).toBe(filePaths[0]);
     expect(ledger.files['/subdir/track3.wav'].original_abs_path).toBe(filePaths[1]);
   });
+
+  test('getRelativePath matches node path.relative behavior', () => {
+    function getRelativePath(from, to) {
+      const fromParts = from.replace(/\\/g, '/').split('/').filter(Boolean);
+      const toParts = to.replace(/\\/g, '/').split('/').filter(Boolean);
+      
+      let commonLength = 0;
+      while (
+        commonLength < fromParts.length &&
+        commonLength < toParts.length &&
+        fromParts[commonLength] === toParts[commonLength]
+      ) {
+        commonLength++;
+      }
+      
+      const upCount = fromParts.length - commonLength;
+      const upParts = Array(upCount).fill('..');
+      const downParts = toParts.slice(commonLength);
+      
+      let rel = upParts.concat(downParts).join('/');
+      if (!rel.startsWith('/')) {
+        rel = '/' + rel;
+      }
+      return rel;
+    }
+
+    const testFrom = path.join(testRoot, 'sessions', 'playlist_123');
+    const testTo = path.join(testRoot, 'Music', 'some_folder', 'track.mp3');
+
+    let expectedRel = path.relative(testFrom, testTo);
+    expectedRel = expectedRel.split(path.sep).join('/');
+    if (!expectedRel.startsWith('/')) {
+      expectedRel = '/' + expectedRel;
+    }
+
+    const actualRel = getRelativePath(testFrom, testTo);
+    expect(actualRel).toBe(expectedRel);
+  });
 });

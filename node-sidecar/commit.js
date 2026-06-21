@@ -179,16 +179,35 @@ function findStagedFileOnDisk(deezerId, rootPath, files) {
 }
 
 /**
+ * Helper to ensure a file path is unique by appending suffix index if it exists
+ */
+function getUniquePath(targetPath) {
+  let attempt = 0;
+  let ext = path.extname(targetPath);
+  let base = path.join(path.dirname(targetPath), path.basename(targetPath, ext));
+  let finalPath = targetPath;
+  while (fs.existsSync(finalPath)) {
+    attempt++;
+    finalPath = `${base} (${attempt})${ext}`;
+  }
+  return finalPath;
+}
+
+/**
  * Commit Phase Orchestration
  * @param {string} ledgerPath - Path to .crateup-progress.json
  * @param {Map<string, string>} decisions - Map of relativePath -> 'approved' | 'skipped'
- * @param {string} outputPath - Path to copy files into
+ * @param {string} outputPath - Path to copy files into (optional if replace strategy chosen)
+ * @param {string} outputStrategy - 'replace' | 'consolidate' | 'custom'
+ * @param {boolean} keepLedger - Whether to keep the ledger/log files on success
  */
-async function commit(ledgerPath, decisions, outputPath) {
+async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLedger) {
   if (!fs.existsSync(ledgerPath)) {
     throw new Error(`Ledger file not found at ${ledgerPath}`);
   }
-  if (!outputPath) {
+  
+  const strategy = outputStrategy || 'custom';
+  if (strategy !== 'replace' && !outputPath) {
     throw new Error(`Output folder path must be specified`);
   }
 
@@ -212,11 +231,13 @@ async function commit(ledgerPath, decisions, outputPath) {
     }
   }
 
-  // Ensure output directory exists
-  try {
-    fs.mkdirSync(outputPath, { recursive: true });
-  } catch (err) {
-    throw new Error(`Failed to create output folder: ${err.message}`);
+  // Ensure output directory exists if not replacing in-place
+  if (strategy !== 'replace') {
+    try {
+      fs.mkdirSync(outputPath, { recursive: true });
+    } catch (err) {
+      throw new Error(`Failed to create output folder: ${err.message}`);
+    }
   }
 
   const relPaths = Object.keys(files);
@@ -243,12 +264,24 @@ async function commit(ledgerPath, decisions, outputPath) {
         }
       }
 
-      const targetAbsPath = path.join(
-        outputPath,
-        path.dirname(relClean),
-        targetBasename
-      );
-      const newRelPath = path.relative(outputPath, targetAbsPath).split(path.sep).join('/');
+      let targetAbsPath;
+      if (strategy === 'replace') {
+        const ext = path.extname(relPath);
+        const newExt = (entry.status === 'downloaded' && entry.staged_path) 
+          ? path.extname(entry.staged_path) 
+          : ext;
+        const parentDir = path.dirname(originalAbsPath);
+        targetAbsPath = path.join(parentDir, path.basename(relPath, ext) + newExt);
+      } else if (strategy === 'consolidate') {
+        targetAbsPath = getUniquePath(path.join(outputPath, targetBasename));
+      } else {
+        // custom
+        targetAbsPath = getUniquePath(path.join(outputPath, path.dirname(relClean), targetBasename));
+      }
+
+      const newRelPath = (strategy !== 'replace') 
+        ? path.relative(outputPath, targetAbsPath).split(path.sep).join('/') 
+        : path.basename(targetAbsPath);
 
       // Extract metadata before file operations
       const meta = getFileMetadata(originalAbsPath);
@@ -262,10 +295,15 @@ async function commit(ledgerPath, decisions, outputPath) {
             // Duplicate / clone handling
             const sourceCommittedPath = committedPaths.get(deezerId);
             
+            if (strategy === 'replace') {
+              if (fs.existsSync(originalAbsPath)) {
+                fs.unlinkSync(originalAbsPath);
+              }
+            }
             fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
             fs.copyFileSync(sourceCommittedPath, targetAbsPath);
 
-            writeLog('DUPLICATE', `${artistTitle}  →  cloned from committed copy in output folder`);
+            writeLog('DUPLICATE', `${artistTitle}  →  cloned from committed copy`);
             entry.status = 'committed';
             entry.output_path = targetAbsPath;
           } else {
@@ -280,7 +318,11 @@ async function commit(ledgerPath, decisions, outputPath) {
               throw new Error(`Staged file not found for Deezer ID ${deezerId}`);
             }
 
-            // Leave original file untouched, just copy staged file to output folder
+            if (strategy === 'replace') {
+              if (fs.existsSync(originalAbsPath)) {
+                fs.unlinkSync(originalAbsPath);
+              }
+            }
             fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
             fs.copyFileSync(stagedAbsPath, targetAbsPath);
 
@@ -300,40 +342,67 @@ async function commit(ledgerPath, decisions, outputPath) {
               committedPaths.set(deezerId, targetAbsPath);
             }
 
-            writeLog('COMMITTED', `${artistTitle}  →  ${newRelPath} (copied to output folder)`);
+            writeLog('COMMITTED', `${artistTitle}  →  ${newRelPath}`);
             entry.status = 'committed';
             entry.output_path = targetAbsPath;
           }
         } else {
           // Unresolved/failed track but approved to copy original and write metadata tags
-          fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
-
           const hasShazamMeta = entry.artist && entry.title;
-          if (hasShazamMeta) {
-            // Copy original file and write metadata tags using ffmpeg
-            const spawnResult = child_process.spawnSync('ffmpeg', [
-              '-y',
-              '-i', originalAbsPath,
-              '-metadata', `artist=${entry.artist}`,
-              '-metadata', `title=${entry.title}`,
-              '-codec', 'copy',
-              targetAbsPath
-            ]);
+          if (strategy === 'replace') {
+            if (hasShazamMeta) {
+              const tempTarget = originalAbsPath + '.temp-tagged';
+              const spawnResult = child_process.spawnSync('ffmpeg', [
+                '-y',
+                '-i', originalAbsPath,
+                '-metadata', `artist=${entry.artist}`,
+                '-metadata', `title=${entry.title}`,
+                '-codec', 'copy',
+                tempTarget
+              ]);
 
-            if (spawnResult.status !== 0) {
-              // Fallback to simple copy if ffmpeg fails
-              fs.copyFileSync(originalAbsPath, targetAbsPath);
-              writeLog('COMMITTED_WARN', `${artistTitle}  →  ${newRelPath} (copied without tags due to ffmpeg error)`);
+              if (spawnResult.status === 0) {
+                fs.unlinkSync(originalAbsPath);
+                fs.renameSync(tempTarget, originalAbsPath);
+                writeLog('COMMITTED_TAGGED', `${artistTitle}  →  (tagged in-place)`);
+              } else {
+                if (fs.existsSync(tempTarget)) fs.unlinkSync(tempTarget);
+                writeLog('COMMITTED_WARN', `${artistTitle}  →  (kept original due to tag error)`);
+              }
             } else {
-              writeLog('COMMITTED_TAGGED', `${artistTitle}  →  ${newRelPath} (original copied & metadata tagged)`);
+              writeLog('COMMITTED', `${artistTitle}  →  (kept original unchanged)`);
             }
+            entry.status = 'committed';
+            entry.output_path = originalAbsPath;
           } else {
-            fs.copyFileSync(originalAbsPath, targetAbsPath);
-            writeLog('COMMITTED', `${artistTitle}  →  ${newRelPath} (copied original without changes)`);
-          }
+            // Output to separate folder
+            fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
 
-          entry.status = 'committed';
-          entry.output_path = targetAbsPath;
+            if (hasShazamMeta) {
+              // Copy original file and write metadata tags using ffmpeg
+              const spawnResult = child_process.spawnSync('ffmpeg', [
+                '-y',
+                '-i', originalAbsPath,
+                '-metadata', `artist=${entry.artist}`,
+                '-metadata', `title=${entry.title}`,
+                '-codec', 'copy',
+                targetAbsPath
+              ]);
+
+              if (spawnResult.status !== 0) {
+                fs.copyFileSync(originalAbsPath, targetAbsPath);
+                writeLog('COMMITTED_WARN', `${artistTitle}  →  ${newRelPath} (copied without tags due to ffmpeg error)`);
+              } else {
+                writeLog('COMMITTED_TAGGED', `${artistTitle}  →  ${newRelPath} (original copied & metadata tagged)`);
+              }
+            } else {
+              fs.copyFileSync(originalAbsPath, targetAbsPath);
+              writeLog('COMMITTED', `${artistTitle}  →  ${newRelPath} (copied original without changes)`);
+            }
+
+            entry.status = 'committed';
+            entry.output_path = targetAbsPath;
+          }
         }
       } catch (err) {
         failures.push({ relPath, error: err.message });
@@ -350,7 +419,6 @@ async function commit(ledgerPath, decisions, outputPath) {
 
     const originalAbsPath = path.join(rootPath, relPath);
     const relClean = relPath.replace(/^\/+/, '');
-    const targetAbsPath = path.join(outputPath, relClean);
     const meta = getFileMetadata(originalAbsPath);
     const artistTitle = `${meta.artist || 'Unknown Artist'} - ${meta.name || 'Unknown Title'}`;
 
@@ -369,15 +437,25 @@ async function commit(ledgerPath, decisions, outputPath) {
         }
       }
 
-      // Copy original file to output folder so output folder is a complete library
-      if (fs.existsSync(originalAbsPath)) {
-        fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
-        fs.copyFileSync(originalAbsPath, targetAbsPath);
+      if (strategy !== 'replace') {
+        const targetAbsPath = getUniquePath(
+          strategy === 'consolidate' 
+            ? path.join(outputPath, path.basename(relPath)) 
+            : path.join(outputPath, relClean)
+        );
+        // Copy original file to output folder so output folder is a complete library
+        if (fs.existsSync(originalAbsPath)) {
+          fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
+          fs.copyFileSync(originalAbsPath, targetAbsPath);
+        }
+        entry.output_path = targetAbsPath;
+        writeLog('SKIPPED', `${artistTitle}  →  original copied to output folder`);
+      } else {
+        entry.output_path = originalAbsPath;
+        writeLog('SKIPPED', `${artistTitle}  →  retained original in-place`);
       }
 
       entry.status = 'skipped';
-      entry.output_path = targetAbsPath;
-      writeLog('SKIPPED', `${artistTitle}  →  original copied to output folder`);
     } catch (err) {
       failures.push({ relPath, error: err.message });
     }
@@ -396,8 +474,9 @@ async function commit(ledgerPath, decisions, outputPath) {
     }
   }
 
-  // If successful commit (i.e. no failures), clean up ledger and log files
-  if (failures.length === 0) {
+  // If successful commit (i.e. no failures), clean up ledger and log files (unless keepLedger is requested)
+  // Note: ledger file deletion is deferred to the frontend's reset_session call on finish/close if keepLedger is true.
+  if (failures.length === 0 && !keepLedger) {
     if (fs.existsSync(ledgerPath)) {
       try {
         fs.unlinkSync(ledgerPath);
@@ -435,5 +514,5 @@ async function commit(ledgerPath, decisions, outputPath) {
 
 module.exports = {
   commit,
-  getFileMetadata // exported for reuse in tests or other modules
+  getFileMetadata
 };
