@@ -1,0 +1,112 @@
+/* CrateUp design tokens — native macOS.
+   Mirrors the approved native mockup (ui/mockups/direction-native-mac.html):
+   system fonts, Apple palette for light/dark, compact 24-28px rows,
+   tabular numerals for data, radius 5-9px cards, 1px hairlines.
+
+   Theme is set on <html data-theme="dark|light"> (defaults dark). */
+
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* fixed brand/macOS system colors (same in both themes) */
+  --accent-light: #007aff;
+  --accent-dark: #0a84ff;
+  --green: #34c759;
+  --orange: #ff9500;
+  --red: #ff3b30;
+
+  --radius-card: 9px;
+  --radius-ctrl: 5px;
+  --radius-seg: 6px;
+
+  /* chrome metrics */
+  --toolbar-h: 52px;
+  --dock-h: 46px;
+  --traffic-w: 96px;
+  --sidebar-w: 198px;
+  --insp-w: 286px;
+
+  /* type scale (11-13pt app font, tabular data) */
+  --fs-micro: 10.5px;
+  --fs-caption: 11.5px;
+  --fs-body: 12.5px;
+  --fs-label: 12px;
+  --fs-data: 12px;
+  --fs-result: 17px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+}
+
+:root[data-theme="dark"] {
+  --accent: var(--accent-dark);
+  --accent-hi: #409cff;
+  --accent-dim: rgba(10, 132, 255, 0.25);
+
+  --winBg: #1e1e20;
+  --contentBg: #212124;
+  --canvasBg: #121214;
+  --cardBg: #2a2a2d;
+  --sidebarBg: #2b2b2d;
+
+  --line: rgba(255, 255, 255, 0.12);
+  --line2: rgba(255, 255, 255, 0.2);
+
+  --text: #f5f5f7;
+  --text2: #c2c2c7;
+  --text3: #8e8e93;
+  --text4: #5c5c61;
+
+  --selBg: rgba(10, 132, 255, 0.25);
+  --segOn: #636366;
+  --btnBg: linear-gradient(180deg, #3a3a3d, #343437);
+  --btnBgHi: linear-gradient(180deg, #434347, #3d3d41);
+  --btnBorder: #4e4e52;
+  --segBg: rgba(118, 118, 128, 0.2);
+  --fieldBg: #353538;
+  --menubarBg: rgba(28, 28, 30, 0.85);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  --green-bg: rgba(52, 199, 89, 0.14);
+  --orange-bg: rgba(255, 149, 0, 0.16);
+  --red-bg: rgba(255, 59, 48, 0.12);
+}
+
+:root[data-theme="light"] {
+  --accent: var(--accent-light);
+  --accent-hi: #3395ff;
+  --accent-dim: rgba(0, 122, 255, 0.12);
+
+  --winBg: #ececec;
+  --contentBg: #ffffff;
+  --canvasBg: #f0f0f2;
+  --cardBg: #ffffff;
+  --sidebarBg: #f2f2f2;
+
+  --line: rgba(0, 0, 0, 0.12);
+  --line2: rgba(0, 0, 0, 0.2);
+
+  --text: #1d1d1f;
+  --text2: #515154;
+  --text3: #78787d;
+  --text4: #a5a5aa;
+
+  --selBg: rgba(0, 122, 255, 0.12);
+  --segOn: #ffffff;
+  --btnBg: linear-gradient(180deg, #ffffff, #f2f2f3);
+  --btnBgHi: linear-gradient(180deg, #ffffff, #e9e9eb);
+  --btnBorder: #c7c7cb;
+  --segBg: rgba(118, 118, 128, 0.12);
+  --fieldBg: #ffffff;
+  --menubarBg: rgba(244, 244, 244, 0.88);
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+
+  --green-bg: rgba(52, 199, 89, 0.14);
+  --orange-bg: rgba(255, 149, 0, 0.16);
+  --red-bg: rgba(255, 59, 48, 0.1);
+}

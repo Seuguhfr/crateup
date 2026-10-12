@@ -4,9 +4,7 @@
   "version": "3.1.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
+    "build:ui": "tsc -p ui/tsconfig.json",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -15,7 +13,6 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "vite": "^6.0.3",
     "typescript": "~5.6.2"
   }
 }

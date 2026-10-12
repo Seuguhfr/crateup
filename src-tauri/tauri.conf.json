@@ -13,9 +13,13 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "CrateUp",
-        "width": 800,
-        "height": 600
+        "title": "",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 920,
+        "minHeight": 620,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 20, "y": 23 }
       }
     ],
     "security": {
@@ -44,6 +48,7 @@
     ],
     "resources": [
       "../node-sidecar/**/*",
+      "../python-sidecar/**/*",
       "binaries/ffmpeg*",
       "binaries/ffprobe*",
       "binaries/fpcalc*"

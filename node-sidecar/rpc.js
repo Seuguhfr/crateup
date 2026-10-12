@@ -12,9 +12,20 @@ class PythonBridge {
   }
 
   start() {
-    const pythonScript = path.join(__dirname, '..', 'python-sidecar', 'main.py');
-    const venvPython = path.join(__dirname, '..', '.venv', 'bin', 'python');
-    const pythonExec = fs.existsSync(venvPython) ? venvPython : 'python3';
+    const candidateScripts = [
+      path.join(__dirname, '..', 'python-sidecar', 'main.py'),
+      path.join(__dirname, '..', 'Resources', 'python-sidecar', 'main.py'),
+      path.join(path.dirname(process.execPath), '..', 'Resources', 'python-sidecar', 'main.py'),
+      path.join(path.dirname(process.execPath), '..', 'Resources', '_up_', 'python-sidecar', 'main.py'),
+    ];
+    const pythonScript = candidateScripts.find(p => fs.existsSync(p)) || candidateScripts[0];
+
+    const candidatePythons = [
+      path.join(__dirname, '..', '.venv', 'bin', 'python'),
+      path.join(path.dirname(process.execPath), '..', '.venv', 'bin', 'python'),
+    ];
+    const venvPython = candidatePythons.find(p => fs.existsSync(p));
+    const pythonExec = venvPython || 'python3';
     
     this.pyProcess = spawn(pythonExec, [pythonScript]);
 

@@ -2,67 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const resourcesPath = path.join(path.dirname(process.execPath), '../Resources');
-process.env.PATH = `${resourcesPath}:${process.env.PATH}`;
-
-function setupBinaries() {
-  try {
-    const arch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'arm64' ? 'aarch64' : process.arch);
-    let platformStr = '';
-    if (process.platform === 'darwin') platformStr = 'apple-darwin';
-    else if (process.platform === 'win32') platformStr = 'pc-windows-msvc';
-    else if (process.platform === 'linux') platformStr = 'unknown-linux-gnu';
-
-    const suffix = `-${arch}-${platformStr}`;
-    const binDir = path.join(os.tmpdir(), 'crateup-bin');
-    
-    if (!fs.existsSync(binDir)) {
-      fs.mkdirSync(binDir, { recursive: true });
-    }
-
-    const prodBinDir = path.join(resourcesPath, 'binaries');
-    const devBinDir = path.join(__dirname, '..', 'src-tauri', 'binaries');
-    
-    let activeBinDir = fs.existsSync(prodBinDir) ? prodBinDir : devBinDir;
-
-    const binaries = ['ffmpeg', 'ffprobe', 'fpcalc'];
-    for (const bin of binaries) {
-      const targetLinkPath = path.join(binDir, bin);
-      const sourceFilePath = path.join(activeBinDir, `${bin}${suffix}`);
-      
-      if (!fs.existsSync(targetLinkPath)) {
-        if (fs.existsSync(sourceFilePath)) {
-          try {
-            fs.symlinkSync(sourceFilePath, targetLinkPath);
-            fs.chmodSync(targetLinkPath, 0o755);
-            console.log(`[NODE] Created symlink: ${targetLinkPath} -> ${sourceFilePath}`);
-          } catch (e) {
-            try {
-              fs.copyFileSync(sourceFilePath, targetLinkPath);
-              fs.chmodSync(targetLinkPath, 0o755);
-              console.log(`[NODE] Copied fallback: ${targetLinkPath} -> ${sourceFilePath}`);
-            } catch (copyErr) {
-              console.error(`[NODE] Failed to copy fallback for ${bin}: ${copyErr.message}`);
-            }
-          }
-        } else {
-          console.error(`[NODE] Source binary not found: ${sourceFilePath}`);
-        }
-      } else if (activeBinDir === prodBinDir) {
-        try {
-          fs.chmodSync(targetLinkPath, 0o755);
-        } catch (e) {}
-      }
-    }
-
-    process.env.PATH = `${binDir}:${process.env.PATH}`;
-  } catch (err) {
-    console.error(`[NODE] Error setting up binaries: ${err.message}`);
-  }
-}
-setupBinaries();
+require('./bin-setup');
 
 const { initLedger, getBitrate } = require('./scanner');
+const { saveLedger } = require('./ledger');
 const PythonBridge = require('./rpc');
 const { compareAudioFiles } = require('./similarity');
 
@@ -130,15 +73,28 @@ class ThrottleQueue {
   }
 }
 
-function saveLedger(rootPath, ledger) {
-  const isProdDir = fs.existsSync(path.join(__dirname, '../../Resources/binaries')) || fs.existsSync(path.join(path.dirname(process.execPath), '../Resources/binaries'));
-  const isTestMode = process.env.NODE_ENV === 'test';
-  const ledgerFilename = (isProdDir || isTestMode) ? '.crateup-progress.json' : '.crateup-progress-dev.json';
-  const ledgerPath = path.join(rootPath, ledgerFilename);
-  fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf8');
+function shouldSkipDeezerMax(relPath, outputFormat, entry) {
+  if (!entry.deezer_origin) {
+    return false;
+  }
+
+  const ext = path.extname(relPath).toLowerCase();
+  const isLossless = ['.flac', '.wav', '.aiff', '.aif'].includes(ext);
+  const targetFormat = outputFormat.toLowerCase();
+  const isTargetLossless = ['flac', 'aiff', 'wav'].includes(targetFormat);
+
+  if (isTargetLossless) {
+    return isLossless;
+  } else {
+    if (isLossless) {
+      return true;
+    }
+    const originalBitrate = entry.original_bitrate;
+    return originalBitrate && originalBitrate >= 320;
+  }
 }
 
-async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQuality = false) {
+async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQuality = false, skipDeezerMax = false) {
   log(`Starting pipeline for root: ${rootPath}, format: ${outputFormat}`);
   
   // 1. Scan directory and initialize/load ledger
@@ -191,6 +147,15 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
         if (isLossless || isHighBitrate) {
           const reason = isLossless ? 'lossless' : `${originalBitrate} kbps`;
           log(`Skipping high quality track: ${relPath} (${reason})`);
+          ledger.files[relPath].status = 'skipped';
+          saveLedger(rootPath, ledger);
+          continue;
+        }
+      }
+      
+      if (skipDeezerMax) {
+        if (shouldSkipDeezerMax(relPath, outputFormat, ledger.files[relPath])) {
+          log(`Skipping track already at max Deezer quality: ${relPath}`);
           ledger.files[relPath].status = 'skipped';
           saveLedger(rootPath, ledger);
           continue;
@@ -374,10 +339,13 @@ if (require.main === module) {
   } else if (args.length >= 2) {
     let fileList = null;
     let skipHighQuality = false;
+    let skipDeezerMax = false;
     
     for (let i = 2; i < args.length; i++) {
       if (args[i] === '--skip-high-quality') {
         skipHighQuality = true;
+      } else if (args[i] === '--skip-deezer-max') {
+        skipDeezerMax = true;
       } else {
         try {
           fileList = JSON.parse(args[i]);
@@ -386,7 +354,7 @@ if (require.main === module) {
         }
       }
     }
-    runPipeline(args[0], args[1], fileList, skipHighQuality)
+    runPipeline(args[0], args[1], fileList, skipHighQuality, skipDeezerMax)
       .then(() => process.exit(0))
       .catch(err => {
         console.error("Pipeline run failed:", err);
@@ -399,5 +367,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  runPipeline
+  runPipeline,
+  shouldSkipDeezerMax
 };

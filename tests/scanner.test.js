@@ -50,7 +50,8 @@ describe('Directory Scanner and Ledger Init', () => {
       deezer_id: null,
       staged_path: null,
       proxy_path: null,
-      original_bitrate: null
+      original_bitrate: null,
+      deezer_origin: false
     });
 
     const ledgerPath = path.join(testRoot, '.crateup-progress.json');
@@ -85,7 +86,8 @@ describe('Directory Scanner and Ledger Init', () => {
       deezer_id: 99999,
       staged_path: 'crateup-staging/track1.mp3',
       proxy_path: null,
-      original_bitrate: null
+      original_bitrate: null,
+      deezer_origin: false
     });
 
     expect(mergedLedger.files['/track2.FLAC']).toEqual({
@@ -93,7 +95,8 @@ describe('Directory Scanner and Ledger Init', () => {
       deezer_id: null,
       staged_path: null,
       proxy_path: null,
-      original_bitrate: null
+      original_bitrate: null,
+      deezer_origin: false
     });
   });
 
@@ -185,5 +188,83 @@ describe('Directory Scanner and Ledger Init', () => {
 
     const actualRel = getRelativePath(testFrom, testTo);
     expect(actualRel).toBe(expectedRel);
+  });
+
+  test('shouldSkipDeezerMax handles quality skip rules correctly', () => {
+    const { shouldSkipDeezerMax } = require('../node-sidecar/pipeline');
+
+    // 1. Lossless target (FLAC): lossless original from Deezer -> SKIP
+    expect(shouldSkipDeezerMax('/path/track.flac', 'flac', {
+      deezer_origin: true,
+      original_bitrate: 1411
+    })).toBe(true);
+
+    // 2. Lossless target (FLAC): lossy original from Deezer -> DO NOT SKIP
+    expect(shouldSkipDeezerMax('/path/track.mp3', 'flac', {
+      deezer_origin: true,
+      original_bitrate: 320
+    })).toBe(false);
+
+    // 3. Lossy target (MP3): lossless original from Deezer -> SKIP (higher quality)
+    expect(shouldSkipDeezerMax('/path/track.flac', 'mp3', {
+      deezer_origin: true,
+      original_bitrate: 1411
+    })).toBe(true);
+
+    // 4. Lossy target (MP3): 320kbps MP3 from Deezer -> SKIP (matches target quality)
+    expect(shouldSkipDeezerMax('/path/track.mp3', 'mp3', {
+      deezer_origin: true,
+      original_bitrate: 320
+    })).toBe(true);
+
+    // 5. Lossy target (MP3): 192kbps MP3 from Deezer -> DO NOT SKIP (needs upgrade)
+    expect(shouldSkipDeezerMax('/path/track.mp3', 'mp3', {
+      deezer_origin: true,
+      original_bitrate: 192
+    })).toBe(false);
+
+    // 6. Non-Deezer file: FLAC -> DO NOT SKIP (needs checking/identification)
+    expect(shouldSkipDeezerMax('/path/track.flac', 'flac', {
+      deezer_origin: false,
+      original_bitrate: 1411
+    })).toBe(false);
+  });
+
+  test('getFileDetails correctly identifies Deezer retail source using BARCODE and TSRC/ISRC', () => {
+    const { getFileDetails } = require('../node-sidecar/scanner');
+    const child_process = require('child_process');
+    
+    const originalExec = child_process.execSync;
+    
+    // Stub execSync to return JSON with BARCODE and TSRC
+    child_process.execSync = jest.fn().mockReturnValue(JSON.stringify({
+      streams: [{ codec_type: 'audio', bit_rate: '320000' }],
+      format: {
+        tags: {
+          BARCODE: '1234567890',
+          TSRC: 'USRC17607839'
+        }
+      }
+    }));
+    
+    const details = getFileDetails('mock-file.mp3');
+    expect(details.bitrate).toBe(320);
+    expect(details.deezerOrigin).toBe(true);
+    
+    // Stub execSync to return JSON with BARCODE but no TSRC/ISRC
+    child_process.execSync = jest.fn().mockReturnValue(JSON.stringify({
+      streams: [{ codec_type: 'audio', bit_rate: '320000' }],
+      format: {
+        tags: {
+          BARCODE: '1234567890'
+        }
+      }
+    }));
+    
+    const detailsNoIsrc = getFileDetails('mock-file.mp3');
+    expect(detailsNoIsrc.deezerOrigin).toBe(false);
+
+    // Restore original execSync
+    child_process.execSync = originalExec;
   });
 });

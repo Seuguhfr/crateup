@@ -3,65 +3,7 @@ const path = require('path');
 const os = require('os');
 const child_process = require('child_process');
 
-const resourcesPath = path.join(path.dirname(process.execPath), '../Resources');
-process.env.PATH = `${resourcesPath}:${process.env.PATH}`;
-
-function setupBinaries() {
-  try {
-    const arch = process.arch === 'x64' ? 'x86_64' : (process.arch === 'arm64' ? 'aarch64' : process.arch);
-    let platformStr = '';
-    if (process.platform === 'darwin') platformStr = 'apple-darwin';
-    else if (process.platform === 'win32') platformStr = 'pc-windows-msvc';
-    else if (process.platform === 'linux') platformStr = 'unknown-linux-gnu';
-
-    const suffix = `-${arch}-${platformStr}`;
-    const binDir = path.join(os.tmpdir(), 'crateup-bin');
-    
-    if (!fs.existsSync(binDir)) {
-      fs.mkdirSync(binDir, { recursive: true });
-    }
-
-    const prodBinDir = path.join(resourcesPath, 'binaries');
-    const devBinDir = path.join(__dirname, '..', 'src-tauri', 'binaries');
-    
-    let activeBinDir = fs.existsSync(prodBinDir) ? prodBinDir : devBinDir;
-
-    const binaries = ['ffmpeg', 'ffprobe', 'fpcalc'];
-    for (const bin of binaries) {
-      const targetLinkPath = path.join(binDir, bin);
-      const sourceFilePath = path.join(activeBinDir, `${bin}${suffix}`);
-      
-      if (!fs.existsSync(targetLinkPath)) {
-        if (fs.existsSync(sourceFilePath)) {
-          try {
-            fs.symlinkSync(sourceFilePath, targetLinkPath);
-            fs.chmodSync(targetLinkPath, 0o755);
-            console.log(`[NODE] Created symlink: ${targetLinkPath} -> ${sourceFilePath}`);
-          } catch (e) {
-            try {
-              fs.copyFileSync(sourceFilePath, targetLinkPath);
-              fs.chmodSync(targetLinkPath, 0o755);
-              console.log(`[NODE] Copied fallback: ${targetLinkPath} -> ${sourceFilePath}`);
-            } catch (copyErr) {
-              console.error(`[NODE] Failed to copy fallback for ${bin}: ${copyErr.message}`);
-            }
-          }
-        } else {
-          console.error(`[NODE] Source binary not found: ${sourceFilePath}`);
-        }
-      } else if (activeBinDir === prodBinDir) {
-        try {
-          fs.chmodSync(targetLinkPath, 0o755);
-        } catch (e) {}
-      }
-    }
-
-    process.env.PATH = `${binDir}:${process.env.PATH}`;
-  } catch (err) {
-    console.error(`[NODE] Error setting up binaries: ${err.message}`);
-  }
-}
-setupBinaries();
+require('./bin-setup');
 
 
 /**
@@ -123,9 +65,8 @@ function getFileMetadata(filePath) {
   if (fs.existsSync(filePath)) {
     try {
       // Run ffmpeg -i and capture stderr since information is printed to stderr
-      child_process.execSync(`ffmpeg -i "${filePath}"`, { stdio: 'pipe' });
-    } catch (err) {
-      const stderrStr = err.stderr ? err.stderr.toString() : '';
+      const res = child_process.spawnSync('ffmpeg', ['-i', filePath], { stdio: 'pipe' });
+      const stderrStr = res.stderr ? res.stderr.toString() : (res.error?.stderr ? res.error.stderr.toString() : '');
 
       // Parse duration
       const durMatch = stderrStr.match(/Duration:\s*(\d+):(\d+):(\d+\.\d+|\d+)/);
@@ -147,6 +88,8 @@ function getFileMetadata(filePath) {
       if (artistMatch) {
         result.artist = artistMatch[1].trim();
       }
+    } catch {
+      // Best-effort metadata extraction
     }
   }
 
@@ -156,9 +99,22 @@ function getFileMetadata(filePath) {
 function getStagedAbsPath(entry, rootPath) {
   if (!entry || !entry.staged_path) return null;
   if (path.isAbsolute(entry.staged_path)) {
+    if (fs.existsSync(entry.staged_path)) {
+      return entry.staged_path;
+    }
+    const normalized = entry.staged_path.replace(/\\/g, '/');
+    const idx = normalized.indexOf('crateup-staging/');
+    if (idx !== -1) {
+      const candidate = path.join(rootPath, normalized.slice(idx));
+      if (fs.existsSync(candidate)) return candidate;
+    }
     return entry.staged_path;
   }
-  return path.join(rootPath, 'crateup-staging', path.basename(entry.staged_path));
+  const normalized = entry.staged_path.replace(/\\/g, '/');
+  if (normalized.startsWith('crateup-staging/') || normalized.startsWith('.crateup-staging/')) {
+    return path.join(rootPath, entry.staged_path);
+  }
+  return path.join(rootPath, 'crateup-staging', entry.staged_path);
 }
 
 /**
@@ -294,14 +250,24 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
           if (deezerId && committedPaths.has(deezerId)) {
             // Duplicate / clone handling
             const sourceCommittedPath = committedPaths.get(deezerId);
-            
-            if (strategy === 'replace') {
-              if (fs.existsSync(originalAbsPath)) {
-                fs.unlinkSync(originalAbsPath);
-              }
-            }
+
+            // Clone to a temp file first, then swap into place. Never delete
+            // the original before the clone is fully on disk.
+            const tmpClonePath = path.join(
+              path.dirname(targetAbsPath),
+              `.crateup-tmp-${process.pid}-${Date.now()}`,
+            );
             fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
-            fs.copyFileSync(sourceCommittedPath, targetAbsPath);
+            try {
+              fs.copyFileSync(sourceCommittedPath, tmpClonePath);
+            } catch (err) {
+              if (fs.existsSync(tmpClonePath)) fs.unlinkSync(tmpClonePath);
+              throw err;
+            }
+            if (strategy === 'replace' && fs.existsSync(originalAbsPath)) {
+              fs.unlinkSync(originalAbsPath);
+            }
+            fs.renameSync(tmpClonePath, targetAbsPath);
 
             writeLog('DUPLICATE', `${artistTitle}  →  cloned from committed copy`);
             entry.status = 'committed';
@@ -318,13 +284,23 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
               throw new Error(`Staged file not found for Deezer ID ${deezerId}`);
             }
 
-            if (strategy === 'replace') {
-              if (fs.existsSync(originalAbsPath)) {
-                fs.unlinkSync(originalAbsPath);
-              }
-            }
+            // Copy to a temp file first, then swap into place. Never delete
+            // the original before the replacement is fully on disk.
+            const tmpPath = path.join(
+              path.dirname(targetAbsPath),
+              `.crateup-tmp-${process.pid}-${Date.now()}`,
+            );
             fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
-            fs.copyFileSync(stagedAbsPath, targetAbsPath);
+            try {
+              fs.copyFileSync(stagedAbsPath, tmpPath);
+            } catch (err) {
+              if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+              throw err;
+            }
+            if (strategy === 'replace' && fs.existsSync(originalAbsPath)) {
+              fs.unlinkSync(originalAbsPath);
+            }
+            fs.renameSync(tmpPath, targetAbsPath);
 
             // Delete the staged file from crateup-staging/ after copying
             if (fs.existsSync(stagedAbsPath)) {
@@ -444,13 +420,17 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
             : path.join(outputPath, relClean)
         );
         // Copy original file to output folder so output folder is a complete library
-        if (fs.existsSync(originalAbsPath)) {
-          fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
-          fs.copyFileSync(originalAbsPath, targetAbsPath);
+        if (!fs.existsSync(originalAbsPath)) {
+          throw new Error(`Original file missing on disk: ${relPath}`);
         }
+        fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
+        fs.copyFileSync(originalAbsPath, targetAbsPath);
         entry.output_path = targetAbsPath;
         writeLog('SKIPPED', `${artistTitle}  →  original copied to output folder`);
       } else {
+        if (!fs.existsSync(originalAbsPath)) {
+          throw new Error(`Original file missing on disk: ${relPath}`);
+        }
         entry.output_path = originalAbsPath;
         writeLog('SKIPPED', `${artistTitle}  →  retained original in-place`);
       }
@@ -464,13 +444,15 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
   // Save the modified ledger back to disk
   fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
 
-  // Phase C: Clean up staging folder in its entirety
-  const stagingAbsDir = path.join(rootPath, 'crateup-staging');
-  if (fs.existsSync(stagingAbsDir)) {
-    try {
-      fs.rmSync(stagingAbsDir, { recursive: true, force: true });
-    } catch (err) {
-      failures.push({ relPath: 'crateup-staging', error: `Staging clean up failed: ${err.message}` });
+  // Phase C: Clean up staging folder in its entirety (only on successful commit)
+  if (failures.length === 0) {
+    const stagingAbsDir = path.join(rootPath, 'crateup-staging');
+    if (fs.existsSync(stagingAbsDir)) {
+      try {
+        fs.rmSync(stagingAbsDir, { recursive: true, force: true });
+      } catch (err) {
+        failures.push({ relPath: 'crateup-staging', error: `Staging clean up failed: ${err.message}` });
+      }
     }
   }
 

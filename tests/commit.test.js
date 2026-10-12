@@ -180,4 +180,82 @@ describe('Commit Phase Module', () => {
     expect(fs.existsSync(proxyPath)).toBe(false); // proxy deleted
     expect(fs.existsSync(path.join(outputPath, 'Artist D - Track 4.aiff'))).toBe(true);
   });
+
+  test('replace strategy preserves original when copy to target fails', async () => {
+    const stagingDir = path.join(testRoot, 'crateup-staging');
+    fs.mkdirSync(stagingDir);
+    const outputPath = path.join(testRoot, 'upgraded-output');
+    fs.mkdirSync(outputPath, { recursive: true });
+
+    const origPath = path.join(testRoot, 'Artist E - Track 5.mp3');
+    fs.writeFileSync(origPath, 'original track 5 content');
+
+    const stagedPath = path.join(stagingDir, 'Artist E - Track 5.flac');
+    fs.writeFileSync(stagedPath, 'upgraded track 5 content');
+
+    const ledger = {
+      session_id: 'test-uuid-replace-fail',
+      root_path: testRoot,
+      output_format: 'flac',
+      files: {
+        '/Artist E - Track 5.mp3': {
+          status: 'downloaded',
+          deezer_id: 55555,
+          staged_path: 'crateup-staging/Artist E - Track 5.flac',
+          proxy_path: null
+        }
+      }
+    };
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const decisions = new Map([
+      ['/Artist E - Track 5.mp3', 'approved']
+    ]);
+
+    // Make the parent directory non-writable so copyFileSync to the temp
+    // path fails, while leaving the staged file readable.
+    const origMode = fs.statSync(testRoot).mode;
+    fs.chmodSync(testRoot, 0o555);
+    try {
+      const result = await commit(ledgerPath, decisions, outputPath, 'replace', false);
+      expect(result.success).toBe(false);
+      expect(result.failures.length).toBe(1);
+      // The original must still be intact on disk despite the replace strategy
+      expect(fs.existsSync(origPath)).toBe(true);
+      expect(fs.readFileSync(origPath, 'utf8')).toBe('original track 5 content');
+    } finally {
+      fs.chmodSync(testRoot, origMode);
+    }
+  });
+
+  test('reports failure when skipped original file is missing from disk', async () => {
+    const outputPath = path.join(testRoot, 'upgraded-output');
+    fs.mkdirSync(outputPath, { recursive: true });
+
+    // No original file is created on disk — it is missing
+    const ledger = {
+      session_id: 'test-uuid-missing-orig',
+      root_path: testRoot,
+      output_format: 'flac',
+      files: {
+        '/Missing Artist - Ghost Track.mp3': {
+          status: 'unidentified',
+          deezer_id: null,
+          staged_path: null,
+          proxy_path: null
+        }
+      }
+    };
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const decisions = new Map([
+      ['/Missing Artist - Ghost Track.mp3', 'skipped']
+    ]);
+
+    const result = await commit(ledgerPath, decisions, outputPath, 'custom', false);
+    expect(result.success).toBe(false);
+    expect(result.failures.length).toBe(1);
+    expect(result.failures[0].relPath).toBe('/Missing Artist - Ghost Track.mp3');
+    expect(result.failures[0].error).toMatch(/missing|not found/i);
+  });
 });
