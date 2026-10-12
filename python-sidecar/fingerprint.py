@@ -71,7 +71,7 @@ async def extract_sample(input_path: str, start_time: float, output_path: str) -
     if proc.returncode != 0:
         raise Exception(f"ffmpeg extraction failed: {stderr.decode('utf-8', errors='ignore')}")
 
-async def search_deezer(title: str, artist: str) -> Optional[int]:
+async def search_deezer(title: str, artist: str, target_duration: Optional[float] = None) -> Optional[int]:
     # URL encode parameters
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -98,11 +98,23 @@ async def search_deezer(title: str, artist: str) -> Optional[int]:
                         data = await resp.json()
                         tracks = data.get('data', [])
                         if tracks:
-                            # Found a match, return the first track's ID
-                            deezer_id = tracks[0].get('id')
-                            if deezer_id:
-                                log(f"Deezer match found: ID {deezer_id} for '{clean_artist} - {clean_title}' (query: {q})")
-                                return int(deezer_id)
+                            valid_tracks = [t for t in tracks if t.get('id')]
+                            if valid_tracks:
+                                # Multi-release duration matching (§3.5 SPEC.md)
+                                if target_duration is not None and target_duration > 0:
+                                    best_track = min(
+                                        valid_tracks,
+                                        key=lambda t: abs(float(t.get('duration', target_duration)) - target_duration)
+                                    )
+                                else:
+                                    best_track = valid_tracks[0]
+
+                                deezer_id = best_track.get('id')
+                                if deezer_id:
+                                    track_dur = best_track.get('duration')
+                                    dur_str = f" (duration {track_dur}s vs target {target_duration:.1f}s)" if (target_duration and track_dur) else ""
+                                    log(f"Deezer match found: ID {deezer_id}{dur_str} for '{clean_artist} - {clean_title}' (query: {q})")
+                                    return int(deezer_id)
             except Exception as e:
                 log(f"Deezer search error: {e}")
                 
@@ -157,8 +169,8 @@ async def fingerprint_file(file_path: str) -> Dict[str, Any]:
                 
             log(f"[Attempt {attempt}/{attempts}] Shazam match: '{artist} - {title}'")
             
-            # Search Deezer
-            deezer_id = await search_deezer(title, artist)
+            # Search Deezer with target duration matching (§3.5 SPEC.md)
+            deezer_id = await search_deezer(title, artist, target_duration=duration)
             
             return {
                 "deezer_id": deezer_id,

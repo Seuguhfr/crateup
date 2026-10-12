@@ -291,13 +291,29 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
       
       const finalAbsoluteStaged = (fs.existsSync(finalAbsPath) ? finalAbsPath : stagedAbsPath).split(path.sep).join('/');
 
+      let finalProxyPath = null;
+      if (downloadResult.proxy_path) {
+        const candidateProxy = path.join(stagedDir, `${combined}.proxy.mp3`);
+        if (fs.existsSync(downloadResult.proxy_path) && downloadResult.proxy_path !== candidateProxy) {
+          try {
+            fs.renameSync(downloadResult.proxy_path, candidateProxy);
+            finalProxyPath = candidateProxy;
+          } catch (proxyRenameErr) {
+            log(`Failed to rename proxy file: ${proxyRenameErr.message}`);
+            finalProxyPath = downloadResult.proxy_path;
+          }
+        } else {
+          finalProxyPath = downloadResult.proxy_path;
+        }
+      }
+
       ledger.files[relPath].status = 'downloaded';
       ledger.files[relPath].deezer_id = deezerId;
       ledger.files[relPath].staged_path = finalAbsoluteStaged;
       ledger.files[relPath].staged_bitrate = getBitrate(fs.existsSync(finalAbsPath) ? finalAbsPath : stagedAbsPath);
       
-      if (downloadResult.proxy_path) {
-        const absoluteProxy = downloadResult.proxy_path.split(path.sep).join('/');
+      if (finalProxyPath) {
+        const absoluteProxy = finalProxyPath.split(path.sep).join('/');
         ledger.files[relPath].proxy_path = absoluteProxy;
       } else {
         ledger.files[relPath].proxy_path = null;

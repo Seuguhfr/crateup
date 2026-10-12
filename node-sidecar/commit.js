@@ -96,6 +96,78 @@ function getFileMetadata(filePath) {
   return result;
 }
 
+/**
+ * Extract comments, genres, and rating from an existing audio file for merging (§5.1 SPEC.md)
+ */
+function getAudioTags(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  try {
+    const stdout = child_process.execFileSync(
+      'ffprobe',
+      ['-v', 'quiet', '-print_format', 'json', '-show_format', filePath],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+    const data = JSON.parse(stdout);
+    const rawTags = (data && data.format && data.format.tags) || {};
+    const norm = {};
+    for (const [k, v] of Object.entries(rawTags)) {
+      norm[k.toLowerCase()] = String(v);
+    }
+    return {
+      comment: norm['comment'] || norm['description'] || norm['comments'] || null,
+      genre: norm['genre'] || norm['genres'] || null,
+      rating: norm['rating'] || norm['popm'] || norm['popularimeter'] || null
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
+/**
+ * Merge comments, genres, and rating from original track into the replacement track (§5.1 SPEC.md)
+ */
+function mergeOriginalTags(originalPath, targetPath) {
+  if (!fs.existsSync(originalPath) || !fs.existsSync(targetPath)) return;
+  const originalTags = getAudioTags(originalPath);
+  const metadataArgs = [];
+
+  if (originalTags.comment) {
+    metadataArgs.push('-metadata', `comment=${originalTags.comment}`);
+    metadataArgs.push('-metadata', `description=${originalTags.comment}`);
+  }
+  if (originalTags.genre) {
+    metadataArgs.push('-metadata', `genre=${originalTags.genre}`);
+  }
+  if (originalTags.rating) {
+    metadataArgs.push('-metadata', `rating=${originalTags.rating}`);
+  }
+
+  if (metadataArgs.length === 0) {
+    return;
+  }
+
+  const tmpTagged = targetPath + '.tagmerge-' + process.pid + '-' + Date.now();
+  try {
+    const ext = path.extname(targetPath).toLowerCase();
+    const args = ['-y', '-i', targetPath, '-c', 'copy'];
+    if (ext === '.aiff' || ext === '.aif' || ext === '.wav') {
+      args.push('-write_id3v2', '1');
+    }
+    args.push(...metadataArgs, tmpTagged);
+
+    const res = child_process.spawnSync('ffmpeg', args, { stdio: 'pipe' });
+    if (res.status === 0 && fs.existsSync(tmpTagged)) {
+      fs.renameSync(tmpTagged, targetPath);
+    } else {
+      if (fs.existsSync(tmpTagged)) fs.unlinkSync(tmpTagged);
+    }
+  } catch (_) {
+    if (fs.existsSync(tmpTagged)) {
+      try { fs.unlinkSync(tmpTagged); } catch (_) {}
+    }
+  }
+}
+
 function getStagedAbsPath(entry, rootPath) {
   if (!entry || !entry.staged_path) return null;
   if (path.isAbsolute(entry.staged_path)) {
@@ -304,6 +376,7 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
             fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
             try {
               fs.copyFileSync(sourceCommittedPath, tmpClonePath);
+              mergeOriginalTags(originalAbsPath, tmpClonePath);
             } catch (err) {
               if (fs.existsSync(tmpClonePath)) fs.unlinkSync(tmpClonePath);
               throw err;
@@ -337,6 +410,7 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
             fs.mkdirSync(path.dirname(targetAbsPath), { recursive: true });
             try {
               fs.copyFileSync(stagedAbsPath, tmpPath);
+              mergeOriginalTags(originalAbsPath, tmpPath);
             } catch (err) {
               if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
               throw err;
@@ -532,5 +606,7 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
 
 module.exports = {
   commit,
-  getFileMetadata
+  getFileMetadata,
+  getAudioTags,
+  mergeOriginalTags
 };

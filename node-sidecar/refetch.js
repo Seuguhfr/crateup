@@ -137,7 +137,17 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
 
     let absoluteProxy = null;
     if (downloadResult.proxy_path) {
-      absoluteProxy = downloadResult.proxy_path.split(path.sep).join('/');
+      const candidateProxy = path.join(stagedDir, `${combined}.proxy.mp3`);
+      if (fs.existsSync(downloadResult.proxy_path) && downloadResult.proxy_path !== candidateProxy) {
+        try {
+          fs.renameSync(downloadResult.proxy_path, candidateProxy);
+          absoluteProxy = candidateProxy.split(path.sep).join('/');
+        } catch (_) {
+          absoluteProxy = downloadResult.proxy_path.split(path.sep).join('/');
+        }
+      } else {
+        absoluteProxy = downloadResult.proxy_path.split(path.sep).join('/');
+      }
     }
 
     const stagedBitrate = getBitrate(fs.existsSync(finalAbsPath) ? finalAbsPath : stagedAbsPath);

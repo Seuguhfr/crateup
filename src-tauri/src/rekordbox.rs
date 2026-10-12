@@ -1381,17 +1381,64 @@ pub async fn update_rekordbox_db_directly(
                 (new_abs_path.to_string_lossy().to_string(), fname)
             };
 
-            let rows_affected = tx.execute(
-                "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE FolderPath = ?",
-                [&new_abs_path_str, &new_filename, &original_abs_path_str]
-            ).map_err(|e| format!("Failed to update database record for {}: {}", rel_path, e))?;
+            let file_size_opt = std::fs::metadata(&new_abs_path_str).map(|m| m.len() as i64).ok();
+            let staged_bitrate_opt = entry.get("staged_bitrate").and_then(|v| v.as_i64());
+
+            let rows_affected = if let (Some(sz), Some(br)) = (file_size_opt, staged_bitrate_opt) {
+                tx.execute(
+                    "UPDATE djmdContent SET FolderPath = ?, FileNameL = ?, FileSize = ?, BitRate = ? WHERE FolderPath = ?",
+                    rusqlite::params![&new_abs_path_str, &new_filename, sz, br, &original_abs_path_str],
+                ).unwrap_or_else(|_| {
+                    tx.execute(
+                        "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE FolderPath = ?",
+                        rusqlite::params![&new_abs_path_str, &new_filename, &original_abs_path_str],
+                    ).unwrap_or(0)
+                })
+            } else if let Some(sz) = file_size_opt {
+                tx.execute(
+                    "UPDATE djmdContent SET FolderPath = ?, FileNameL = ?, FileSize = ? WHERE FolderPath = ?",
+                    rusqlite::params![&new_abs_path_str, &new_filename, sz, &original_abs_path_str],
+                ).unwrap_or_else(|_| {
+                    tx.execute(
+                        "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE FolderPath = ?",
+                        rusqlite::params![&new_abs_path_str, &new_filename, &original_abs_path_str],
+                    ).unwrap_or(0)
+                })
+            } else {
+                tx.execute(
+                    "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE FolderPath = ?",
+                    rusqlite::params![&new_abs_path_str, &new_filename, &original_abs_path_str],
+                ).map_err(|e| format!("Failed to update database record for {}: {}", rel_path, e))?
+            };
 
             if rows_affected == 0 {
                 // Fallback: Case or Unicode normalization difference
-                let _ = tx.execute(
-                    "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE lower(FolderPath) = lower(?)",
-                    [&new_abs_path_str, &new_filename, &original_abs_path_str]
-                );
+                if let (Some(sz), Some(br)) = (file_size_opt, staged_bitrate_opt) {
+                    let _ = tx.execute(
+                        "UPDATE djmdContent SET FolderPath = ?, FileNameL = ?, FileSize = ?, BitRate = ? WHERE lower(FolderPath) = lower(?)",
+                        rusqlite::params![&new_abs_path_str, &new_filename, sz, br, &original_abs_path_str],
+                    ).or_else(|_| {
+                        tx.execute(
+                            "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE lower(FolderPath) = lower(?)",
+                            rusqlite::params![&new_abs_path_str, &new_filename, &original_abs_path_str],
+                        )
+                    });
+                } else if let Some(sz) = file_size_opt {
+                    let _ = tx.execute(
+                        "UPDATE djmdContent SET FolderPath = ?, FileNameL = ?, FileSize = ? WHERE lower(FolderPath) = lower(?)",
+                        rusqlite::params![&new_abs_path_str, &new_filename, sz, &original_abs_path_str],
+                    ).or_else(|_| {
+                        tx.execute(
+                            "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE lower(FolderPath) = lower(?)",
+                            rusqlite::params![&new_abs_path_str, &new_filename, &original_abs_path_str],
+                        )
+                    });
+                } else {
+                    let _ = tx.execute(
+                        "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE lower(FolderPath) = lower(?)",
+                        rusqlite::params![&new_abs_path_str, &new_filename, &original_abs_path_str],
+                    );
+                }
             }
         }
 
@@ -1400,4 +1447,118 @@ pub async fn update_rekordbox_db_directly(
 
         Ok(())
     }).await.map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_merge_duplicate_content_id() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE djmdContent (ID TEXT PRIMARY KEY, FolderPath TEXT, FileNameL TEXT);
+             CREATE TABLE djmdActiveCues (ID TEXT PRIMARY KEY, ContentID TEXT);
+             CREATE TABLE djmdCue (ID TEXT PRIMARY KEY, ContentID TEXT);
+             CREATE TABLE djmdSongPlaylist (ID TEXT PRIMARY KEY, ContentID TEXT);
+             INSERT INTO djmdContent VALUES ('keep1', '/music/a.flac', 'a.flac');
+             INSERT INTO djmdContent VALUES ('dup1', '/music/a.mp3', 'a.mp3');
+             INSERT INTO djmdCue VALUES ('c1', 'dup1');
+             INSERT INTO djmdSongPlaylist VALUES ('sp1', 'dup1');"
+        ).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        merge_duplicate_content_id(&tx, "keep1", "dup1").unwrap();
+        tx.commit().unwrap();
+
+        let count_dup: i64 = conn
+            .query_row("SELECT count(*) FROM djmdContent WHERE ID = 'dup1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count_dup, 0);
+
+        let count_keep: i64 = conn
+            .query_row("SELECT count(*) FROM djmdContent WHERE ID = 'keep1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count_keep, 1);
+
+        let cue_content: String = conn
+            .query_row("SELECT ContentID FROM djmdCue WHERE ID = 'c1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(cue_content, "keep1");
+
+        let sp_content: String = conn
+            .query_row("SELECT ContentID FROM djmdSongPlaylist WHERE ID = 'sp1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sp_content, "keep1");
+    }
+
+    #[test]
+    fn test_cleanup_master_db_duplicates() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE djmdContent (ID TEXT PRIMARY KEY, FolderPath TEXT, FileNameL TEXT);
+             CREATE TABLE djmdSongPlaylist (ID TEXT PRIMARY KEY, ContentID TEXT);
+             INSERT INTO djmdContent VALUES ('id1', '/music/a.mp3', 'a.mp3');
+             INSERT INTO djmdContent VALUES ('id2', '/music/a.mp3', 'a.mp3');
+             INSERT INTO djmdSongPlaylist VALUES ('1', 'id2');"
+        ).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let merged = cleanup_master_db_duplicates(&tx).unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(merged, 1);
+        let count_content: i64 = conn
+            .query_row("SELECT count(*) FROM djmdContent", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count_content, 1);
+
+        let remaining_id: String = conn
+            .query_row("SELECT ID FROM djmdContent", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining_id, "id2");
+
+        let sp_content: String = conn
+            .query_row("SELECT ContentID FROM djmdSongPlaylist WHERE ID = '1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sp_content, "id2");
+    }
+
+    #[test]
+    fn test_create_master_db_backup() {
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let live_db = temp_dir.join(format!("test_live_{}.db", pid));
+        let backup_db = temp_dir.join(format!("test_backup_{}.db", pid));
+
+        if live_db.exists() {
+            let _ = std::fs::remove_file(&live_db);
+        }
+        if backup_db.exists() {
+            let _ = std::fs::remove_file(&backup_db);
+        }
+
+        let conn = rusqlite::Connection::open(&live_db).unwrap();
+        conn.execute_batch("CREATE TABLE test_data (id INT, val TEXT); INSERT INTO test_data VALUES (1, 'hello');")
+            .unwrap();
+
+        create_master_db_backup(&conn, &live_db, &backup_db).unwrap();
+        assert!(backup_db.exists());
+
+        let backup_conn = rusqlite::Connection::open(&backup_db).unwrap();
+        let val: String = backup_conn
+            .query_row("SELECT val FROM test_data WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, "hello");
+
+        let _ = std::fs::remove_file(live_db);
+        let _ = std::fs::remove_file(backup_db);
+    }
+
+    #[test]
+    fn test_get_backup_timestamp() {
+        let ts = get_backup_timestamp();
+        assert!(!ts.is_empty());
+        assert!(ts.len() >= 8);
+    }
 }

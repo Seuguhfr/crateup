@@ -5,7 +5,7 @@
 > session-by-session history. This file is the **current snapshot** — update
 > it whenever the state changes.
 
-Last updated: 2026-10-12 (embedded standalone Python runtime + critical data-safety complete)
+Last updated: 2026-10-12 (deep review remediation: duration matching, tag merging, proxy alignment, DB sync & tests)
 
 ## 1. What this project is
 
@@ -26,12 +26,12 @@ Library Audit (enforce folder-database invariants).
 |---|---|
 | UI typecheck + build | `npm run build:ui` (`tsc -p ui/tsconfig.json` → `ui/out/main.js`; no bundler) |
 | Setup Python runtime | `npm run setup:python` (bootstraps standalone CPython 3.12 for Apple Silicon) |
-| JS tests | `npx jest` (17 suites / 49 tests passed) |
+| JS tests | `npx jest` (17 suites / 51 tests passed) |
 | Rust check | `cargo check` (run in `src-tauri/`; 0 warnings) |
-| Rust tests | `cargo test` (in `src-tauri/`; 13 passed) |
+| Rust tests | `cargo test` (in `src-tauri/`; 17 passed) |
 | Dev app | `npm run tauri dev` |
 | Release bundle | `npm run tauri build` (produces self-contained `.app` and `.dmg`) |
-| Python tests | `python-runtime/bin/pytest tests/` (8 passed) |
+| Python tests | `python-runtime/bin/pytest tests/` (9 passed) |
 
 Screenshots can't be seen in chat — the workflow is: save to `screenshots/`
 (gitignored) and read via the Read tool.
@@ -79,8 +79,13 @@ mtime-checked read-through cache, `LEDGER_VERSION = 1`), `bin-setup.js`
 preserved. Per-track writes preserved (crash recovery). Node filename logic
 lives in exactly one place (`ledger.js`); commit.js resolves via caller.
 
-## 5. Done recently (hardening & stability sweep)
+## 5. Done recently (deep review remediation & stability sweep)
 
+- **Multi-release duration matching (§3.5 SPEC.md)**: Updated `search_deezer` in `python-sidecar/fingerprint.py` to compare candidate track durations against probed original duration and pick the release with minimal absolute delta, preventing radio edits from replacing extended club mixes. Added automated Pytest test suite.
+- **Original metadata tag merging (§5.1 SPEC.md)**: Implemented `getAudioTags` and `mergeOriginalTags` in `node-sidecar/commit.js` to extract original comments, genres, and ratings via FFprobe and transplant them into staged replacements before atomic swap into place. Added unit tests in `tests/commit.test.js`.
+- **AIFF proxy MP3 filename alignment**: Synchronously renamed `.proxy.mp3` waveform preview files alongside their main staged audio files in `node-sidecar/pipeline.js` and `node-sidecar/refetch.js`.
+- **Rekordbox technical audio properties sync**: Updated `update_rekordbox_db_directly` in `src-tauri/src/rekordbox.rs` to write actual replacement `FileSize` and `BitRate` to `djmdContent` with automatic fallback to path-only updates.
+- **Comprehensive SQLCipher unit test suite**: Implemented in-memory SQLCipher test suite in `src-tauri/src/rekordbox.rs` covering duplicate content merging, intelligent playlist-weighted duplicate cleanup, and database backup verification (17 Rust tests passed).
 - **Atomic in-place metadata tagging**: Removed `fs.unlinkSync` prior to `fs.renameSync` in `node-sidecar/commit.js`, ensuring atomic POSIX file replacement without intermediate deletion windows.
 - **Post-verification duplicate deletion**: Reordered duplicate swapping in `src-tauri/src/xml.rs` and `src-tauri/src/rekordbox.rs` so that `crate::safe_delete_file(p_path)` executes only after the replacement file has successfully written to disk, preventing data loss if disk operations fail.
 - **SQLite WAL checkpoint status verification & backup safety**: Implemented `create_master_db_backup()` in `src-tauri/src/rekordbox.rs` to verify the `PRAGMA wal_checkpoint(TRUNCATE)` return code. If the WAL cannot be truncated, automatically preserves `master.db.backup_<timestamp>-wal` alongside the main database backup, and restores or removes it accurately on rollback.

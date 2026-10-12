@@ -67,7 +67,8 @@ async def test_fingerprint_file_success(mock_search_deezer, mock_shazam_class, d
         'artist': 'Mock Artist'
     }
     mock_shazam_instance.recognize.assert_called_once()
-    mock_search_deezer.assert_called_with('Mock Title', 'Mock Artist')
+    assert mock_search_deezer.call_args[0] == ('Mock Title', 'Mock Artist')
+    assert abs(mock_search_deezer.call_args[1]['target_duration'] - 20.0) < 0.5
 
 @pytest.mark.asyncio
 @patch('fingerprint.Shazam')
@@ -104,3 +105,33 @@ async def test_fingerprint_file_retry_success(mock_search_deezer, mock_shazam_cl
         'artist': 'Mock Artist 2'
     }
     assert mock_shazam_instance.recognize.call_count == 2
+
+@pytest.mark.asyncio
+async def test_search_deezer_multi_release_duration_matching():
+    from unittest.mock import MagicMock
+    # Test that search_deezer picks the release with the closest duration delta (§3.5)
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.json = AsyncMock(return_value={
+        'data': [
+            {'id': 101, 'title': 'Song (Radio Edit)', 'duration': 180},
+            {'id': 202, 'title': 'Song (Club Mix)', 'duration': 420},
+            {'id': 303, 'title': 'Song (Extended Mix)', 'duration': 490},
+        ]
+    })
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=None)
+    
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_resp
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch('aiohttp.ClientSession', return_value=mock_session):
+        # Target duration 415s should pick ID 202 (delta 5s vs 235s and 75s)
+        chosen_id = await search_deezer('Song', 'Artist', target_duration=415.0)
+        assert chosen_id == 202
+
+        # Target duration 190s should pick ID 101 (delta 10s)
+        chosen_id_radio = await search_deezer('Song', 'Artist', target_duration=190.0)
+        assert chosen_id_radio == 101

@@ -132,6 +132,7 @@ All messages are newline-delimited JSON on stdio.
 - [x] Phase 19: Core stability & data-safety hardening: child process leak fix in Tauri RPC (`xml.rs`), staging directory escape prevention via path segment sanitization and absolute path preservation (`pipeline.js`, `refetch.js`, `identify.js`), data loss elimination on in-place replacement via POSIX atomic rename and post-rename safe trashing (`commit.js`), AIFF proxy MP3 cleanup (`commit.js`), deterministic backup timestamping with nanosecond fallback (`rekordbox.rs`), Rust Chromaprint similarity precision restoration without grid-skipping false negatives (`similarity.rs`), atomic ledger persistence via `.tmp` file and rename (`ledger.js`), instantaneous audio duration probing via ffprobe container headers (`fingerprint.py`), and URI decode safety (`rekordbox-parser.js`).
 - [x] Phase 20: Critical data-safety remediation: eliminate pre-rename unlink on in-place metadata tagging (`commit.js`), reorder duplicate swapping to delete old files only after new replacement verification (`xml.rs`, `rekordbox.rs`), and enforce SQLite WAL checkpoint status verification with `-wal` snapshotting on database backup & rollback (`rekordbox.rs`).
 - [x] Phase 21: Embedded standalone Python runtime (Option B): fully self-contained CPython 3.12 bundle for Apple Silicon (`aarch64-apple-darwin`), reproducible `scripts/setup-python-runtime.sh`, packaged in `CrateUp.app/Contents/Resources/_up_/python-runtime`, zero external Python / Homebrew / Xcode CLI dependency.
+- [x] Phase 22: Deep architectural review remediation: multi-release duration matching (§3.5 SPEC.md), original metadata tag merging (§5.1 SPEC.md), AIFF proxy MP3 filename alignment, Rekordbox technical audio properties sync, and SQLCipher test suite (17 Rust / 51 Jest / 9 Pytest passing).
 
 ## Session handoff protocol
 At the END of every session, before quitting:
@@ -139,6 +140,16 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Deep Architectural Review Remediation:
+- **Multi-Release Duration Matching (§3.5 SPEC.md)**: Updated `search_deezer` in `python-sidecar/fingerprint.py` to compare candidate track durations against probed original duration and pick the release with minimal absolute delta, preventing radio edits from replacing extended club mixes. Added `test_search_deezer_multi_release_duration_matching` in `tests/test_fingerprint.py`.
+- **Original Metadata Tag Merging (§5.1 SPEC.md)**: Implemented `getAudioTags` and `mergeOriginalTags` in `node-sidecar/commit.js` using FFprobe/FFmpeg to preserve comments, genres, and ratings from original files onto staged replacements before atomic swap into place. Added unit tests in `tests/commit.test.js`.
+- **AIFF Proxy MP3 Filename Alignment**: Synced `.proxy.mp3` waveform preview file renaming alongside staged replacement renaming in `node-sidecar/pipeline.js` and `node-sidecar/refetch.js`.
+- **Rekordbox Technical Audio Properties Sync**: Updated `update_rekordbox_db_directly` in `src-tauri/src/rekordbox.rs` to write actual replacement `FileSize` and `BitRate` to `djmdContent` with automatic fallback to path-only updates.
+- **SQLCipher Unit Test Suite**: Added comprehensive in-memory SQLCipher unit tests to `src-tauri/src/rekordbox.rs` verifying `merge_duplicate_content_id`, intelligent playlist-weighted `cleanup_master_db_duplicates`, `create_master_db_backup`, and `get_backup_timestamp`.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 51 tests pass, `cargo check` 0 warnings, `cargo test` 17 tests pass, `python-runtime/bin/pytest tests/` 9 tests pass.
+- **Next Task**: Field-test native tools with live Rekordbox database and audio files.
+
+## Previous session
 Embedded Standalone Python Runtime (Option B):
 - **Standalone Runtime Setup**: Downloaded relocatable CPython 3.12 (`cpython-3.12.15+20261009-aarch64-apple-darwin-install_only_stripped`) from `astral-sh/python-build-standalone`. Installed sidecar dependencies (`shazamio`, `deemix`, etc.) directly into `python-runtime/`.
 - **Reproducible Automation**: Created `scripts/setup-python-runtime.sh` and wired `"setup:python"` script in `package.json` to verify or automatically bootstrap the runtime. Added `python-runtime/` to `.gitignore`.

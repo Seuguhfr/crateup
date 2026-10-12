@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { commit } = require('../node-sidecar/commit');
+const { commit, getAudioTags, mergeOriginalTags } = require('../node-sidecar/commit');
 
 describe('Commit Phase Module', () => {
   const testRoot = path.join(__dirname, 'temp-commit-test');
@@ -257,5 +257,22 @@ describe('Commit Phase Module', () => {
     expect(result.failures.length).toBe(1);
     expect(result.failures[0].relPath).toBe('/Missing Artist - Ghost Track.mp3');
     expect(result.failures[0].error).toMatch(/missing|not found/i);
+  });
+
+  test('getAudioTags returns empty object safely for missing or non-audio files', () => {
+    expect(getAudioTags(path.join(testRoot, 'nonexistent.mp3'))).toEqual({});
+    const dummy = path.join(testRoot, 'dummy.txt');
+    fs.writeFileSync(dummy, 'hello');
+    expect(getAudioTags(dummy)).toEqual({});
+  });
+
+  test('mergeOriginalTags handles non-existent or dummy files without error', () => {
+    const dummyA = path.join(testRoot, 'dummyA.flac');
+    const dummyB = path.join(testRoot, 'dummyB.flac');
+    fs.writeFileSync(dummyA, 'test audio a');
+    fs.writeFileSync(dummyB, 'test audio b');
+
+    expect(() => mergeOriginalTags(dummyA, dummyB)).not.toThrow();
+    expect(fs.readFileSync(dummyB, 'utf8')).toBe('test audio b');
   });
 });
