@@ -141,6 +141,8 @@ export const startPipeline = (opts: StartPipelineOptions) =>
     skipDeezerMax: opts.skipDeezerMax ?? null,
   });
 
+export const cancelPipeline = () => invoke<boolean>("cancel_pipeline");
+
 export const downloadTrackById = (
   rootPath: string,
   outputFormat: string,

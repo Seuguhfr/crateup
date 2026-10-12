@@ -15,27 +15,36 @@ def log(message: str) -> None:
     sys.stderr.flush()
 
 async def get_audio_duration(file_path: str) -> float:
-    cmd = [
-        'ffmpeg', '-vn', '-i', file_path, '-f', 'null', '-'
-    ]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
+    # 1. Try instantaneous ffprobe duration read (no audio stream decoding)
+    try:
+        cmd_probe = [
+            'ffprobe', '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            file_path
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd_probe,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        out_str = stdout.decode('utf-8', errors='ignore').strip()
+        if out_str:
+            return float(out_str)
+    except Exception:
+        pass
+
+    # 2. Fallback: inspect ffmpeg Duration header without decoding full stream
+    cmd_fallback = ['ffmpeg', '-i', file_path]
+    proc_fb = await asyncio.create_subprocess_exec(
+        *cmd_fallback,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
-    _, stderr = await proc.communicate()
-    stderr_str = stderr.decode('utf-8', errors='ignore')
+    _, stderr_fb = await proc_fb.communicate()
+    stderr_str = stderr_fb.decode('utf-8', errors='ignore')
     
-    # Try to find duration from decoding progress time=
-    matches = re.findall(r'time=(\d+):(\d+):(\d+\.\d+)', stderr_str)
-    if matches:
-        last_match = matches[-1]
-        hours = int(last_match[0])
-        minutes = int(last_match[1])
-        seconds = float(last_match[2])
-        return hours * 3600 + minutes * 60 + seconds
-    
-    # Fallback to Duration: header
     match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', stderr_str)
     if match:
         hours = int(match.group(1))

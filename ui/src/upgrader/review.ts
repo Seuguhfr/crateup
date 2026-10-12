@@ -133,6 +133,7 @@ const readyState: Record<DeckId, { ready: boolean; decode: boolean }> = {
 };
 let lockInterval: number | null = null;
 let watchdogRetried = false;
+let watchdogTimer: number | null = null;
 
 function waveSurfer(): WaveSurferGlobal | null {
   const w = (window as { WaveSurfer?: WaveSurferGlobal }).WaveSurfer;
@@ -530,6 +531,10 @@ export function renderReviewScreen(
 export function leaveReview(): void {
   active = false;
   destroyPlayers();
+  if (watchdogTimer !== null) {
+    window.clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+  }
   if (lockInterval !== null) {
     window.clearInterval(lockInterval);
     lockInterval = null;
@@ -876,6 +881,10 @@ async function loadTrack(index: number): Promise<void> {
   // Watchdog: if the player never reports ready for THIS track (silent
   // fetch/decode stall), retry the load once instead of leaving the
   // play buttons dead.
+  if (watchdogTimer !== null) {
+    window.clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+  }
   watchdogRetried = false;
   const myIndex = index;
   const myOriginalUrl = isTauri() ? convertFileSrc(originalAbs) : "";
@@ -931,7 +940,8 @@ async function loadTrack(index: number): Promise<void> {
     setFocus("original");
   }
 
-  window.setTimeout(() => {
+  watchdogTimer = window.setTimeout(() => {
+    watchdogTimer = null;
     if (!active || !res || currentIndex !== myIndex || watchdogRetried) return;
     const needOrig = myOriginalUrl && !readyState.original.ready;
     const needStaged =

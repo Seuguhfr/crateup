@@ -149,6 +149,49 @@ function getUniquePath(targetPath) {
   return finalPath;
 }
 
+function safeTrashFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    const home = os.homedir();
+    const trashDir = path.join(home, '.Trash');
+    if (fs.existsSync(trashDir)) {
+      const base = path.basename(filePath);
+      const ext = path.extname(base);
+      const stem = path.basename(base, ext);
+      let trashTarget = path.join(trashDir, base);
+      let counter = 1;
+      while (fs.existsSync(trashTarget)) {
+        trashTarget = path.join(trashDir, `${stem} (${counter})${ext}`);
+        counter++;
+      }
+      fs.renameSync(filePath, trashTarget);
+      return;
+    }
+  } catch (e) {
+    // Cross-device or permission fallback
+  }
+  try {
+    fs.unlinkSync(filePath);
+  } catch (e) {}
+}
+
+function cleanProxyFile(entry, stagedAbsPath, rootPath) {
+  const candidates = [];
+  if (entry && entry.proxy_path) {
+    candidates.push(path.isAbsolute(entry.proxy_path) ? entry.proxy_path : path.join(rootPath, entry.proxy_path));
+  }
+  if (stagedAbsPath) {
+    const ext = path.extname(stagedAbsPath);
+    candidates.push(stagedAbsPath.slice(0, -ext.length) + '.proxy.mp3');
+    candidates.push(stagedAbsPath + '.proxy.mp3');
+  }
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) {
+      try { fs.unlinkSync(p); } catch (e) {}
+    }
+  }
+}
+
 /**
  * Commit Phase Orchestration
  * @param {string} ledgerPath - Path to .crateup-progress.json
@@ -204,7 +247,9 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
     const decision = decisions.get(relPath);
 
     if (decision === 'approved') {
-      const originalAbsPath = path.join(rootPath, relPath);
+      const originalAbsPath = (entry && entry.original_abs_path)
+        ? entry.original_abs_path
+        : path.join(rootPath, relPath.startsWith('/') ? relPath.substring(1) : relPath);
       const relClean = relPath.replace(/^\/+/, '');
       
       let targetBasename = path.basename(relPath);
@@ -251,8 +296,7 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
             // Duplicate / clone handling
             const sourceCommittedPath = committedPaths.get(deezerId);
 
-            // Clone to a temp file first, then swap into place. Never delete
-            // the original before the clone is fully on disk.
+            // Clone to a temp file first, then swap into place.
             const tmpClonePath = path.join(
               path.dirname(targetAbsPath),
               `.crateup-tmp-${process.pid}-${Date.now()}`,
@@ -264,10 +308,11 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
               if (fs.existsSync(tmpClonePath)) fs.unlinkSync(tmpClonePath);
               throw err;
             }
-            if (strategy === 'replace' && fs.existsSync(originalAbsPath)) {
-              fs.unlinkSync(originalAbsPath);
-            }
+            // Atomically replace targetAbsPath
             fs.renameSync(tmpClonePath, targetAbsPath);
+            if (strategy === 'replace' && originalAbsPath !== targetAbsPath && fs.existsSync(originalAbsPath)) {
+              safeTrashFile(originalAbsPath);
+            }
 
             writeLog('DUPLICATE', `${artistTitle}  →  cloned from committed copy`);
             entry.status = 'committed';
@@ -284,8 +329,7 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
               throw new Error(`Staged file not found for Deezer ID ${deezerId}`);
             }
 
-            // Copy to a temp file first, then swap into place. Never delete
-            // the original before the replacement is fully on disk.
+            // Copy to a temp file first, then swap into place.
             const tmpPath = path.join(
               path.dirname(targetAbsPath),
               `.crateup-tmp-${process.pid}-${Date.now()}`,
@@ -297,22 +341,18 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
               if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
               throw err;
             }
-            if (strategy === 'replace' && fs.existsSync(originalAbsPath)) {
-              fs.unlinkSync(originalAbsPath);
-            }
+            // Atomically replace targetAbsPath
             fs.renameSync(tmpPath, targetAbsPath);
+            if (strategy === 'replace' && originalAbsPath !== targetAbsPath && fs.existsSync(originalAbsPath)) {
+              safeTrashFile(originalAbsPath);
+            }
 
             // Delete the staged file from crateup-staging/ after copying
             if (fs.existsSync(stagedAbsPath)) {
               fs.unlinkSync(stagedAbsPath);
             }
 
-            if (outputFormat.toLowerCase() === 'aiff') {
-              const proxyStagedPath = stagedAbsPath + '.proxy.mp3';
-              if (fs.existsSync(proxyStagedPath)) {
-                fs.unlinkSync(proxyStagedPath);
-              }
-            }
+            cleanProxyFile(entry, stagedAbsPath, rootPath);
 
             if (deezerId) {
               committedPaths.set(deezerId, targetAbsPath);
@@ -338,7 +378,6 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
               ]);
 
               if (spawnResult.status === 0) {
-                fs.unlinkSync(originalAbsPath);
                 fs.renameSync(tempTarget, originalAbsPath);
                 writeLog('COMMITTED_TAGGED', `${artistTitle}  →  (tagged in-place)`);
               } else {
@@ -393,7 +432,9 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
 
     if (decision === 'approved') continue;
 
-    const originalAbsPath = path.join(rootPath, relPath);
+    const originalAbsPath = (entry && entry.original_abs_path)
+      ? entry.original_abs_path
+      : path.join(rootPath, relPath.startsWith('/') ? relPath.substring(1) : relPath);
     const relClean = relPath.replace(/^\/+/, '');
     const meta = getFileMetadata(originalAbsPath);
     const artistTitle = `${meta.artist || 'Unknown Artist'} - ${meta.name || 'Unknown Title'}`;
@@ -405,12 +446,7 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
         if (stagedAbsPath && fs.existsSync(stagedAbsPath)) {
           fs.unlinkSync(stagedAbsPath);
         }
-        if (outputFormat.toLowerCase() === 'aiff' && stagedAbsPath) {
-          const proxyStagedPath = stagedAbsPath + '.proxy.mp3';
-          if (fs.existsSync(proxyStagedPath)) {
-            fs.unlinkSync(proxyStagedPath);
-          }
-        }
+        cleanProxyFile(entry, stagedAbsPath, rootPath);
       }
 
       if (strategy !== 'replace') {

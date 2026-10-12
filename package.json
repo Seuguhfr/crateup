@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build:ui": "tsc -p ui/tsconfig.json",
+    "setup:python": "bash scripts/setup-python-runtime.sh",
     "tauri": "tauri"
   },
   "dependencies": {

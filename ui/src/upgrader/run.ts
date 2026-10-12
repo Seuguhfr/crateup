@@ -8,6 +8,7 @@ import {
   updateSession,
 } from "../store.js";
 import {
+  cancelPipeline,
   readLedgerFile,
   resetSession,
   showConfirmDialog,
@@ -264,7 +265,20 @@ export function renderRunning(el: HTMLElement): void {
     </div>`;
 
   renderUpgraderStage(1);
-  renderDock("Run · state is saved to the ledger as it goes", []);
+  renderDock("Run · state is saved to the ledger as it goes", [
+    {
+      id: "ug-cancel-run",
+      label: "Stop pipeline",
+      variant: "danger-ghost",
+      onClick: async () => {
+        try {
+          await cancelPipeline();
+        } catch (err) {
+          console.error("Failed to cancel pipeline:", err);
+        }
+      },
+    },
+  ]);
 
   const panel = el.querySelector("#ug-log");
   if (panel) {
@@ -363,23 +377,27 @@ async function finishRun(
   exitCode: number,
   onDone: (result: RunResult) => void,
 ): Promise<void> {
-  if (exitCode !== 0) {
-    onDone({
-      exitCode,
-      ledger: null,
-      counts: null,
-      alreadyComplete: false,
-      error: "Pipeline run failed. Check the logs above.",
-    });
-    return;
-  }
   try {
     const content = await readLedgerFile(res.ledgerPath);
     const ledger = JSON.parse(content) as Ledger;
+    const counts = countLedger(ledger);
+    if (exitCode !== 0) {
+      const isCancellation = exitCode === -1 || exitCode === 137 || exitCode === 143;
+      onDone({
+        exitCode,
+        ledger,
+        counts,
+        alreadyComplete: false,
+        error: isCancellation
+          ? "Pipeline was stopped. Progress has been preserved."
+          : "Pipeline stopped with an error. Progress up to that point was preserved.",
+      });
+      return;
+    }
     onDone({
       exitCode,
       ledger,
-      counts: countLedger(ledger),
+      counts,
       alreadyComplete: false,
       error: null,
     });
@@ -389,7 +407,10 @@ async function finishRun(
       ledger: null,
       counts: null,
       alreadyComplete: false,
-      error: `Pipeline finished but the ledger could not be read: ${err}`,
+      error:
+        exitCode !== 0
+          ? "Pipeline run stopped. Check the logs above."
+          : `Pipeline finished but the ledger could not be read: ${err}`,
     });
   }
 }
@@ -411,16 +432,21 @@ export function renderDone(
 ): void {
   el.className = "screen on";
   const counts = result.counts;
+  const isStopped = !!result.error && result.error.includes("stopped");
+  const hasProcessed = !!counts && counts.total - counts.pending > 0;
+
   setSession({
-    progressLabel: result.error
-      ? "run failed"
-      : counts
-        ? `${counts.downloaded}/${counts.total} upgraded`
-        : "run complete",
+    progressLabel: isStopped
+      ? "run stopped"
+      : result.error
+        ? "run failed"
+        : counts
+          ? `${counts.downloaded}/${counts.total} upgraded`
+          : "run complete",
   });
-  // A completed run parks the session as done: it stays in the sidebar
-  // while its follow-ups (review, apply, reset) are still available.
-  if (!result.error && counts && counts.total > 0) {
+  // A completed or stopped run with processed tracks parks the session as done:
+  // it stays in the sidebar while its follow-ups (review, apply, reset) are still available.
+  if (counts && counts.total > 0 && (!result.error || hasProcessed)) {
     const cur = getSession();
     if (cur) updateSession(cur.id, { status: "done", hasFollowUps: true });
   }
@@ -451,11 +477,13 @@ export function renderDone(
       </div>`
     : "";
 
-  const headline = result.error
-    ? "Run failed"
-    : result.alreadyComplete
-      ? "Session already complete"
-      : "Run complete";
+  const headline = isStopped
+    ? "Run stopped"
+    : result.error
+      ? "Run failed"
+      : result.alreadyComplete
+        ? "Session already complete"
+        : "Run complete";
   const sub = result.error
     ? result.error
     : `${counts?.total ?? 0} tracks processed. Review each pair next: approve or skip, then commit to disk and Rekordbox.`;
@@ -500,7 +528,7 @@ export function renderDone(
       id: "ug-review",
       label: "Review upgrades",
       variant: "primary",
-      disabled: !result.error && !!counts && counts.total > 0 ? false : true,
+      disabled: !hasProcessed,
       onClick: cb.onReview,
     },
   ]);

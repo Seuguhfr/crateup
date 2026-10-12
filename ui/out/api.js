@@ -47,6 +47,7 @@ export const startPipeline = (opts) => invoke("start_pipeline", {
     skipHighQuality: opts.skipHighQuality ?? null,
     skipDeezerMax: opts.skipDeezerMax ?? null,
 });
+export const cancelPipeline = () => invoke("cancel_pipeline");
 export const downloadTrackById = (rootPath, outputFormat, relativePath, deezerId, artist, title) => invoke("download_track_by_id", {
     rootPath,
     outputFormat,

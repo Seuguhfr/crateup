@@ -16,7 +16,7 @@ Full spec is in `SPEC.md`. Read it before touching any module.
 | Desktop shell | Tauri v2 (Rust) |
 | UI | HTML + CSS + TypeScript (in Tauri WebView) |
 | Backend logic | Node.js sidecar (spawned by Tauri) |
-| Python bridge | Python 3.x sidecar (spawned by Node via stdio JSON-RPC) |
+| Python bridge | Standalone CPython 3.12 bundle (Apple Silicon; spawned by Node via stdio JSON-RPC) |
 | Fingerprinting | shazamio (Python) |
 | Downloading | Deemix core (Python) |
 | Transcoding | FFmpeg (bundled binary) |
@@ -33,7 +33,7 @@ crateup/
 ├── node-sidecar/          ← Node.js pipeline orchestrator
 │   ├── index.js           ← entry point, spawns Python sidecar
 │   ├── scanner.js         ← directory traversal + ledger init
-│   ← pipeline.js          ← orchestrates fingerprint → download loop
+│   ├── pipeline.js        ← orchestrates fingerprint → download loop
 │   ├── commit.js          ← final file move + XML update
 │   └── rpc.js             ← JSON-RPC helpers (Node ↔ Python)
 ├── python-sidecar/        ← Python fingerprint + download engine
@@ -41,6 +41,8 @@ crateup/
 │   ├── fingerprint.py     ← shazamio wrapper
 │   ├── download.py        ← deemix wrapper
 │   └── throttle.py        ← rate limiting queues
+├── python-runtime/        ← standalone relocatable CPython 3.12 bundle
+├── scripts/               ← automation scripts (setup-python-runtime.sh)
 ├── test-library/          ← small folder of MP3s for manual testing
 └── tests/                 ← automated tests
 ```
@@ -87,7 +89,7 @@ All messages are newline-delimited JSON on stdio.
 - All file paths in the ledger are relative to `root_path`
 - Never hardcode paths — always derive from `root_path`
 - Every module must have a corresponding test file in `tests/`
-- Tests use: Jest (Node), pytest (Python)
+- Tests use: Jest (Node), pytest (Python via `python-runtime/bin/pytest` or `.venv/bin/pytest`)
 - Log format: `[YYYY-MM-DD HH:MM:SS] [MODULE] message`
 - Never run Git/GitHub commands (add, commit, checkout, merge, tag, push, etc.) without the user's explicit approval.
 
@@ -124,8 +126,12 @@ All messages are newline-delimited JSON on stdio.
 - [x] Phase 13 ingestion UI + sessions: `ui/src/ingestion/` (stage → configure → run → summary, full sessions, staged paths persist), `tests/ingestion-settings.test.js`
 - [x] Phase 14 ingestion library check: `list_library_entries` (`rekordbox.rs`) + tier-mirrored matching in `execute_playlist_ingestion` (exact path / filename+size / artist+title / fuzzy fp-confirm, stale-row + self-path guards); links reference the db file with zero file ops; `ResultPayload.library_matched_count`; UI toggle (default on) + summary stat
 - [x] Phase 15 library audit tool: `src-tauri/src/audit.rs` (`audit_library` with stat walk + narrowed MD5 matching + same-device stray-link sweep with found/total coverage, `delete_audit_paths` fail-closed, `remove_empty_folders`, `audit_suggested_roots`) + `ui/src/audit/` (pick → run → results, dupes pre-ticked / orphans unticked, confirmed delete + empty-folder step, full sessions) + registry/home/shell wiring; `tests/audit-settings.test.js`
-- [x] Phase 16: Comprehensive deep review & hardening: command injection fix (`commit.js`), safe deletions via macOS Trash (`trash` crate in `audit.rs` and `rekordbox.rs`), dynamic sidecar resource path resolution in dev & prod (`lib.rs`, `xml.rs`, `rpc.js`, `index.js`, `tauri.conf.json`), SQLCipher direct read-only connections (`rekordbox.rs`), strict `serde_json` serialization in Node sidecar invocations, XML entity unescaping (`xml.rs`), 0 Rust warnings, pytest config (`pytest.ini`), all suites passing across Rust, Node/TS, and Python.
-- [x] Phase 17: Deep review P0 hardening sweep: eliminated scanner command injection via `execFileSync` in `node-sidecar/scanner.js`, ported 20% length tolerance bound into `node-sidecar/similarity.js` to block short preview mismatch false-positives, preserved progress ledger and added safe exit without wipe on commit DB sync errors in `ui/src/upgrader/review.ts`, migrated `list_library_entries` and `execute_backup_cleanup` live queries to non-blocking `with_rekordbox_query_conn` in `src-tauri/src/rekordbox.rs`.
+- [x] Phase 16: Comprehensive hardening sweep: command injection fix (`commit.js`), safe deletions via macOS Trash (`trash` crate in `audit.rs` and `rekordbox.rs`), dynamic sidecar resource path resolution in dev & prod (`lib.rs`, `xml.rs`, `rpc.js`, `index.js`, `tauri.conf.json`), SQLCipher direct read-only connections (`rekordbox.rs`), strict `serde_json` serialization in Node sidecar invocations, XML entity unescaping (`xml.rs`), 0 Rust warnings, pytest config (`pytest.ini`), all suites passing across Rust, Node/TS, and Python.
+- [x] Phase 17: Core P0 hardening sweep: eliminated scanner command injection via `execFileSync` in `node-sidecar/scanner.js`, ported 20% length tolerance bound into `node-sidecar/similarity.js` to block short preview mismatch false-positives, preserved progress ledger and added safe exit without wipe on commit DB sync errors in `ui/src/upgrader/review.ts`, migrated `list_library_entries` and `execute_backup_cleanup` live queries to non-blocking `with_rekordbox_query_conn` in `src-tauri/src/rekordbox.rs`.
+- [x] Phase 18: Extended hardening remediation: unified dev/prod ledger resolution (`node-sidecar/ledger.js`), robust file extension replacements (`pipeline.js`, `refetch.js`), 180s Node-Python RPC request timeouts (`node-sidecar/rpc.js`), cross-filesystem `EXDEV` fallback (`safe_move_file` across `lib.rs`, `xml.rs`, `rekordbox.rs`), trash integration on duplicate swaps, Rekordbox DB commit path alignment & Unicode/case-insensitive fallback matching (`rekordbox.rs`), WAL truncation checkpointing & safe backup/rollback (`rekordbox.rs`), pipeline process lifecycle tracking & cancellation dock action (`src-tauri/src/lib.rs`, `ui/src/api.ts`, `ui/src/upgrader/run.ts`), deemix subprocess 180s timeout (`python-sidecar/download.py`), and review player watchdog timer cleanup (`ui/src/upgrader/review.ts`).
+- [x] Phase 19: Core stability & data-safety hardening: child process leak fix in Tauri RPC (`xml.rs`), staging directory escape prevention via path segment sanitization and absolute path preservation (`pipeline.js`, `refetch.js`, `identify.js`), data loss elimination on in-place replacement via POSIX atomic rename and post-rename safe trashing (`commit.js`), AIFF proxy MP3 cleanup (`commit.js`), deterministic backup timestamping with nanosecond fallback (`rekordbox.rs`), Rust Chromaprint similarity precision restoration without grid-skipping false negatives (`similarity.rs`), atomic ledger persistence via `.tmp` file and rename (`ledger.js`), instantaneous audio duration probing via ffprobe container headers (`fingerprint.py`), and URI decode safety (`rekordbox-parser.js`).
+- [x] Phase 20: Critical data-safety remediation: eliminate pre-rename unlink on in-place metadata tagging (`commit.js`), reorder duplicate swapping to delete old files only after new replacement verification (`xml.rs`, `rekordbox.rs`), and enforce SQLite WAL checkpoint status verification with `-wal` snapshotting on database backup & rollback (`rekordbox.rs`).
+- [x] Phase 21: Embedded standalone Python runtime (Option B): fully self-contained CPython 3.12 bundle for Apple Silicon (`aarch64-apple-darwin`), reproducible `scripts/setup-python-runtime.sh`, packaged in `CrateUp.app/Contents/Resources/_up_/python-runtime`, zero external Python / Homebrew / Xcode CLI dependency.
 
 ## Session handoff protocol
 At the END of every session, before quitting:
@@ -133,8 +139,61 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
-Deep review P0 hardening sweep ("Make a full review of this app. Go deep." + "Yes" to fix):
-- **Deep Review Artifact**: Authored detailed architectural, security, data-safety, and performance audit artifact `crateup-deep-review-v2.md`.
+Embedded Standalone Python Runtime (Option B):
+- **Standalone Runtime Setup**: Downloaded relocatable CPython 3.12 (`cpython-3.12.15+20261009-aarch64-apple-darwin-install_only_stripped`) from `astral-sh/python-build-standalone`. Installed sidecar dependencies (`shazamio`, `deemix`, etc.) directly into `python-runtime/`.
+- **Reproducible Automation**: Created `scripts/setup-python-runtime.sh` and wired `"setup:python"` script in `package.json` to verify or automatically bootstrap the runtime. Added `python-runtime/` to `.gitignore`.
+- **Tauri Bundling**: Added `"../python-runtime/**/*"` to `src-tauri/tauri.conf.json` resources.
+- **Dynamic Runtime Resolution**:
+  - `src-tauri/src/lib.rs`: Injected `Resources/_up_/python-runtime/bin` and dev `python-runtime/bin` into `PATH` in `build_sidecar_env_path`.
+  - `node-sidecar/rpc.js` & `node-sidecar/index.js`: Prioritized bundled `Resources/_up_/python-runtime/bin/python3` and dev `python-runtime/bin/python3` ahead of `.venv` and system python.
+- **Production Package Verification**: Executed `npm run tauri build` to generate `CrateUp.app` and `CrateUp_3.1.1_aarch64.dmg`. Tested direct execution and Node-Python JSON-RPC communication inside `CrateUp.app/Contents/Resources/_up_`: passed ping/pong and imports with 100% success.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 49 tests pass, `cargo check` 0 warnings, `cargo test` 13 tests pass, `python-runtime/bin/pytest tests/` 8 tests pass.
+- **Next Task**: Field-test native tools with live Rekordbox database and audio files.
+
+## Previous session
+Critical data-safety remediation:
+- **P0.1 Atomic In-Place Tagging**: In `node-sidecar/commit.js`, removed `fs.unlinkSync(originalAbsPath)` before `fs.renameSync(tempTarget, originalAbsPath)`. Relying on atomic POSIX rename eliminates the vulnerability window where an original file was unlinked before the replacement rename completed.
+- **P0.2 Post-Verification Duplicate Deletion**: In `src-tauri/src/xml.rs` (`execute_safe_clone`) and `src-tauri/src/rekordbox.rs` (`execute_db_consolidation`), reordered duplicate swapping so that `crate::safe_delete_file(p_path)` executes *after* the replacement file is confirmed written and verified on disk (`copy_success == true`), with a `p_path != &target_path` guard. Prevents loss of existing duplicate tracks if the replacement move or copy fails.
+- **P0.3 SQLite WAL Checkpoint Verification & Backup Safety**: In `src-tauri/src/rekordbox.rs`, created `create_master_db_backup()` helper. Validates the return code `(busy, log, checkpointed)` of `PRAGMA wal_checkpoint(TRUNCATE)`. If checkpoint was busy/incomplete and a non-empty `master.db-wal` remains, automatically snapshots `master.db.backup_<timestamp>-wal` alongside the main database backup. Updated `rollback_to_latest_backup()` to restore the `-wal` file if present, or clean up live `-wal`/`-shm` if not.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 49 tests pass, `cargo check` 0 warnings, `cargo test` 13 tests pass, `.venv/bin/pytest tests/` 8 tests pass.
+- **Next Task**: Field-test with live Rekordbox database and test standalone packaging (`npm run tauri build`).
+
+## Previous session
+Core stability & data-safety hardening:
+- **P0.1 Process Leak Fix**: In `src-tauri/src/xml.rs` (`run_pipeline_rpc`), explicitly killed spawned Node processes with `child.kill()` upon receiving the JSON response line, preventing orphaned Node background processes during playlist/XML scans.
+- **P0.2 Path Traversal & Staging Escape Prevention**:
+  - `node-sidecar/pipeline.js` & `node-sidecar/refetch.js`: Stripped relative parent climbing segments (`..` and `.`) from `baseWithoutExt` when computing `stagedAbsPath`, guaranteeing staged downloads stay constrained to `crateup-staging/` even when tracks originate outside `root_path`.
+  - `node-sidecar/pipeline.js`, `node-sidecar/refetch.js`, `node-sidecar/identify.js`: Prioritized `entry.original_abs_path` over derived relative paths when interacting with the Python sidecar and calculating similarity.
+- **P0.3 In-Place Replacement Data Loss Elimination**: In `node-sidecar/commit.js`, removed dangerous pre-rename `fs.unlinkSync(originalAbsPath)`. Leveraged atomic POSIX `fs.renameSync` directly and only moved `originalAbsPath` to Trash via `safeTrashFile` after rename succeeds when `originalAbsPath !== targetAbsPath`.
+- **P1.1 AIFF Proxy MP3 Cleanup**: Added `cleanProxyFile` in `node-sidecar/commit.js` to automatically clean up temporary `.proxy.mp3` waveform preview files in both Phase A (approved commits) and Phase B (skipped commits).
+- **P1.2 Deterministic Backup Timestamps**: In `src-tauri/src/rekordbox.rs`, replaced static `"unknown"` backup timestamp fallback with `get_backup_timestamp()` using `/bin/date` and epoch seconds/nanoseconds fallback, preventing backup file collisions.
+- **P1.3 Audio Similarity False Negative Elimination**: In `src-tauri/src/similarity.rs`, removed aggressive 8-frame grid skip and anchor heuristics that caused valid offset audio matches to evaluate to 0.0 similarity. Retained exact mathematical bit-budget early-pruning bound and density filtering.
+- **P1.4 Atomic Ledger Persistence**: In `node-sidecar/ledger.js`, updated `saveLedger` to write to a temporary file (`${resolvedPath}.tmp.${process.pid}.${Date.now()}`) and perform an atomic `fs.renameSync` into place, eliminating partial ledger writes on process kill.
+- **P1.5 Fast Audio Duration Probe**: In `python-sidecar/fingerprint.py`, refactored `get_audio_duration` to use `ffprobe -show_entries format=duration` container header inspection with `ffmpeg -i` stderr fallback instead of decoding audio streams via pydub.
+- **P2.2 URI Decode Resilience**: In `node-sidecar/rekordbox-parser.js`, protected `decodeURIComponent` with try/catch to safely handle non-UTF-8 / Latin-1 encoded file URIs in legacy Rekordbox XMLs.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 49 tests pass, `cargo check` 0 warnings, `cargo test` 13 tests pass, `.venv/bin/pytest tests/` 8 tests pass.
+- **Next Task**: Field-test native tools with live Rekordbox database and run production release build (`npm run tauri build`).
+
+## Previous session
+Extended hardening remediation:
+- **Ledger Dev/Prod Desynchronization Resolved**: Unified `resolveLedgerFilename()` in `node-sidecar/ledger.js` to `.crateup-progress.json` with `CRATEUP_LEDGER_FILENAME` override and fallback. Fixes silent state desync where Node wrote to `-dev.json` while Tauri v2 WebView read `.crateup-progress.json`.
+- **Filename Extension Replacement Hardening**: Replaced `.replace(ext, '.' + outputFormat)` in `node-sidecar/pipeline.js` and `node-sidecar/refetch.js` with end-anchored slicing (`relativeBase.slice(0, -ext.length) + '.' + outputFormat`), preventing directory path corruption when folder names contain dots.
+- **Node ↔ Python RPC Timeouts**: Added 180-second timeout timers with cleanup on resolution/rejection/close in `node-sidecar/rpc.js`, preventing infinite pipeline stalls on hung Python operations.
+- **Cross-Filesystem File Move Resilience**: Implemented `safe_move_file` in `src-tauri/src/lib.rs` (with copy-and-remove fallback for `EXDEV`) and replaced raw `fs::rename` in `src-tauri/src/xml.rs` (`execute_safe_clone`, `execute_playlist_ingestion`) and `src-tauri/src/rekordbox.rs` (`execute_db_consolidation`).
+- **Data Safety on Duplicate Audio Swaps**: Replaced unrecoverable `fs::remove_file` with macOS Trash integration (`crate::safe_delete_file`) on lower-quality duplicate removals in `src-tauri/src/xml.rs` and `src-tauri/src/rekordbox.rs`.
+- **Rekordbox DB Commit Path Alignment**: Aligned path resolution in `src-tauri/src/rekordbox.rs` (`update_rekordbox_db_directly`) to prioritize `entry.output_path` and `entry.original_abs_path` from the committed ledger, with fallback to case-insensitive/Unicode normalized path matching when initial rows affected is 0.
+- **SQLite WAL Checkpointing & Backup Safety**: In `src-tauri/src/rekordbox.rs`, executed `PRAGMA wal_checkpoint(TRUNCATE)` prior to copying `master.db` backups; on backup rollback, cleared stale `master.db-wal` and `master.db-shm` files to prevent database corruption. Added seconds precision (`%Y%m%d_%H%M%S`) to backup timestamps.
+- **Pipeline Process Lifecycle & Cancellation**:
+  - Rust: Defined `PipelineManager` mutex holding `CommandChild`. Implemented `cancel_pipeline` command and registered in `Builder` handler. Kills active child on pipeline start and session reset.
+  - UI: Added `cancelPipeline` to `ui/src/api.ts`. Added "Stop pipeline" button to `renderRunning` dock in `ui/src/upgrader/run.ts`. Made `finishRun` load ledger on cancellation and enabled "Review upgrades" for partial runs with downloaded tracks.
+  - Node: Added `SIGTERM` and `SIGINT` signal handlers in `node-sidecar/pipeline.js` to shut down Python bridge child processes cleanly.
+- **Deemix Subprocess Timeout**: Wrapped deemix CLI `proc.communicate(...)` with `asyncio.wait_for(..., timeout=180.0)` in `python-sidecar/download.py`, killing process and cleaning up temp files on timeout.
+- **Review Player Watchdog Timer Cleanup**: Managed `watchdogTimer` state in `ui/src/upgrader/review.ts`, clearing timers on track switch and on `leaveReview()`.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 49 tests pass, `cargo check` 0 warnings, `cargo test` 13 tests pass, `.venv/bin/pytest tests/` 8 tests pass.
+- **Next Task**: Field-test with live Rekordbox database and test production package build (`npm run tauri build`).
+
+## Previous session
+Core P0 hardening sweep:
 - **Scanner Command Injection Eliminated**: Replaced `child_process.execSync` string interpolation in `node-sidecar/scanner.js` with argument-array `execFileSync('ffprobe', [...args])`. Updated `tests/scanner.test.js` mock.
 - **Audio Similarity Length-Tolerance Guard**: Ported the 20% max-length difference tolerance filter into `node-sidecar/similarity.js` (`calculateSimilarity`). Prevents 30-second Deemix previews from falsely matching full-length tracks with high similarity scores. Added dedicated unit tests in `tests/similarity.test.js`.
 - **Commit Ledger Preservation on DB Error**: Hardened `ui/src/upgrader/review.ts` (`runCommit` & `renderCommitResult`) so that if `updateRekordboxDbDirectly` fails after files are committed on disk, the UI displays accurate committed track counts and the ledger is NOT wiped by `finishSession()`. Provided "Close (Keep Session)" affordance.
@@ -143,8 +202,7 @@ Deep review P0 hardening sweep ("Make a full review of this app. Go deep." + "Ye
 - **Next Task**: Field-test native tools with live Rekordbox library and test production release build (`npm run tauri build`).
 
 ## Previous session
-Comprehensive Deep Review & Full Hardening Sweep ("Make a full review of this app. Go deep." + "Fix it all"):
-- **Deep Review Artifact**: Authored detailed architectural, security, data-safety, and performance audit artifact `crateup-deep-review.md`.
+Comprehensive hardening sweep:
 - **Command Injection Elimination**: Replaced shell string interpolation `child_process.execSync(\`ffmpeg -i "${filePath}"\`)` in `node-sidecar/commit.js` with safe argument array execution `spawnSync('ffmpeg', ['-i', filePath], { stdio: 'pipe' })`.
 - **Code-Generation & Argument Hardening**: Replaced manual JSON/escaped string formatting in `src-tauri/src/lib.rs` (`commit_changes`, `download_track_by_id`, `identify_track`) with strict `serde_json::to_string` serialization for all arguments passed to Node.
 - **Data Safety (macOS Trash Integration)**: Added `trash = "5.2"` to `src-tauri/Cargo.toml` and implemented `safe_delete_file` helper in `src-tauri/src/lib.rs`. Routed destructive file removals in `src-tauri/src/audit.rs` (`delete_audit_paths`) and `src-tauri/src/rekordbox.rs` (`execute_backup_cleanup`, `rollback_to_latest_backup`) through the Trash rather than unrecoverable `fs::remove_file`.

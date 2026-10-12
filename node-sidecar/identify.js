@@ -17,7 +17,14 @@ async function identifyTrack(rootPath, relPath) {
   bridge.start();
 
   try {
-    const absPath = path.join(rootPath, relPath);
+    let absPath = path.join(rootPath, relPath.startsWith('/') ? relPath.substring(1) : relPath);
+    try {
+      const ledger = loadLedger(rootPath);
+      if (ledger && ledger.files && ledger.files[relPath] && ledger.files[relPath].original_abs_path) {
+        absPath = ledger.files[relPath].original_abs_path;
+      }
+    } catch (e) {}
+
     const result = await bridge.call('fingerprint', { path: absPath });
 
     // Update ledger on disk if identified

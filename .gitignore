@@ -25,6 +25,7 @@ dist-ssr
 
 # Python Environment & Caches
 .venv/
+python-runtime/
 .pytest_cache/
 **/__pycache__/
 

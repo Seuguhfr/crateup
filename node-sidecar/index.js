@@ -29,11 +29,17 @@ async function main() {
   const pythonScript = candidateScripts.find(p => fs.existsSync(p)) || candidateScripts[0];
 
   const candidatePythons = [
+    path.join(__dirname, '..', 'python-runtime', 'bin', 'python3'),
+    path.join(__dirname, '..', 'Resources', 'python-runtime', 'bin', 'python3'),
+    path.join(__dirname, '..', 'Resources', '_up_', 'python-runtime', 'bin', 'python3'),
+    path.join(path.dirname(process.execPath), '..', 'Resources', 'python-runtime', 'bin', 'python3'),
+    path.join(path.dirname(process.execPath), '..', 'Resources', '_up_', 'python-runtime', 'bin', 'python3'),
+    path.join(__dirname, '..', 'python-runtime', 'bin', 'python'),
     path.join(__dirname, '..', '.venv', 'bin', 'python'),
     path.join(path.dirname(process.execPath), '..', '.venv', 'bin', 'python'),
   ];
-  const venvPython = candidatePythons.find(p => fs.existsSync(p));
-  const pythonExec = venvPython || 'python3';
+  const resolvedPython = candidatePythons.find(p => fs.existsSync(p));
+  const pythonExec = resolvedPython || 'python3';
   
   log(`Spawning Python sidecar: ${pythonExec} ${pythonScript}`);
   const pyProcess = spawn(pythonExec, [pythonScript]);

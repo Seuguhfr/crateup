@@ -49,6 +49,7 @@
     "resources": [
       "../node-sidecar/**/*",
       "../python-sidecar/**/*",
+      "../python-runtime/**/*",
       "binaries/ffmpeg*",
       "binaries/ffprobe*",
       "binaries/fpcalc*"

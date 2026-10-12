@@ -75,7 +75,13 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
   try {
     const ext = path.extname(relPath);
     const relativeBase = relPath.startsWith('/') ? relPath.substring(1) : relPath;
-    const relativeStaged = 'crateup-staging/' + relativeBase.replace(ext, '.' + outputFormat);
+    const baseWithoutExt = ext ? relativeBase.slice(0, -ext.length) : relativeBase;
+    const sanitizedBase = baseWithoutExt
+      .split('/')
+      .filter(segment => segment !== '..' && segment !== '.')
+      .join('/');
+    const safeBase = sanitizedBase || path.basename(relPath, ext);
+    const relativeStaged = 'crateup-staging/' + safeBase + '.' + outputFormat;
     const stagedAbsPath = path.join(rootPath, relativeStaged);
 
     let matchedArtist = artist;
@@ -136,11 +142,17 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
 
     const stagedBitrate = getBitrate(fs.existsSync(finalAbsPath) ? finalAbsPath : stagedAbsPath);
 
+    // Update ledger (read-through; missing ledger or track = no-op)
+    const ledger = loadLedger(rootPath);
+    const entry = ledger && ledger.files && ledger.files[relPath];
+
     // Calculate audio similarity between original and new staged file
     let audioSimilarity = 0.0;
     let audioBitIdentical = false;
     try {
-      const absOriginalPath = path.join(rootPath, relPath.startsWith('/') ? relPath.substring(1) : relPath);
+      const absOriginalPath = (entry && entry.original_abs_path)
+        ? entry.original_abs_path
+        : path.join(rootPath, relPath.startsWith('/') ? relPath.substring(1) : relPath);
       const compareTarget = fs.existsSync(finalAbsPath) ? finalAbsPath : stagedAbsPath;
       if (fs.existsSync(absOriginalPath) && fs.existsSync(compareTarget)) {
         const compResult = compareAudioFiles(absOriginalPath, compareTarget);
@@ -152,8 +164,6 @@ async function refetchTrack(rootPath, outputFormat, relPath, deezerId, artist, t
       console.error(`[NODE] Similarity check failed: ${simErr.message}`);
     }
 
-    // Update ledger (read-through; missing ledger or track = no-op)
-    const ledger = loadLedger(rootPath);
     if (ledger && ledger.files && ledger.files[relPath]) {
       ledger.files[relPath].status = 'downloaded';
       ledger.files[relPath].deezer_id = parseInt(deezerId, 10);

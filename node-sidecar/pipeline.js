@@ -94,6 +94,22 @@ function shouldSkipDeezerMax(relPath, outputFormat, entry) {
   }
 }
 
+let activeBridge = null;
+
+function handleExitSignal(sig) {
+  log(`Received ${sig}, terminating child processes...`);
+  if (activeBridge) {
+    try {
+      activeBridge.stop();
+    } catch (_) {}
+    activeBridge = null;
+  }
+  process.exit(sig === 'SIGTERM' ? 143 : 130);
+}
+
+process.once('SIGTERM', () => handleExitSignal('SIGTERM'));
+process.once('SIGINT', () => handleExitSignal('SIGINT'));
+
 async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQuality = false, skipDeezerMax = false) {
   log(`Starting pipeline for root: ${rootPath}, format: ${outputFormat}`);
   
@@ -102,6 +118,7 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
   
   // 2. Start Python bridge
   const bridge = new PythonBridge();
+  activeBridge = bridge;
   bridge.start();
   
   const shazamThrottle = new ThrottleQueue();
@@ -118,8 +135,11 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
     if (downloadedFiles.length > 0) {
       log(`Found ${downloadedFiles.length} downloaded tracks missing similarity data. Calculating...`);
       for (const relPath of downloadedFiles) {
-        const absPath = path.join(rootPath, relPath);
-        const finalAbsoluteStaged = ledger.files[relPath].staged_path;
+        const entry = ledger.files[relPath];
+        const absPath = (entry && entry.original_abs_path)
+          ? entry.original_abs_path
+          : path.join(rootPath, relPath.startsWith('/') ? relPath.substring(1) : relPath);
+        const finalAbsoluteStaged = entry.staged_path;
         const stagedAbsPath = path.resolve(rootPath, finalAbsoluteStaged);
         try {
           const compResult = compareAudioFiles(absPath, stagedAbsPath);
@@ -136,7 +156,10 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
     }
     
     for (const relPath of pendingFiles) {
-      const absPath = path.join(rootPath, relPath);
+      const entry = ledger.files[relPath];
+      const absPath = (entry && entry.original_abs_path)
+        ? entry.original_abs_path
+        : path.join(rootPath, relPath.startsWith('/') ? relPath.substring(1) : relPath);
       
       if (skipHighQuality) {
         const ext = path.extname(relPath).toLowerCase();
@@ -196,10 +219,16 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
       log(`Track identified on Deezer: "${matchedArtist} - ${matchedTitle}" (ID: ${deezerId})`);
       
       // Step C: Download (Deezer)
-      // Derive staged path relative and absolute
+      // Derive staged path relative and absolute (sanitized against traversal)
       const ext = path.extname(relPath);
       const relativeBase = relPath.startsWith('/') ? relPath.substring(1) : relPath;
-      const relativeStaged = 'crateup-staging/' + relativeBase.replace(ext, '.' + outputFormat);
+      const baseWithoutExt = ext ? relativeBase.slice(0, -ext.length) : relativeBase;
+      const sanitizedBase = baseWithoutExt
+        .split('/')
+        .filter(segment => segment !== '..' && segment !== '.')
+        .join('/');
+      const safeBase = sanitizedBase || path.basename(relPath, ext);
+      const relativeStaged = 'crateup-staging/' + safeBase + '.' + outputFormat;
       const stagedAbsPath = path.join(rootPath, relativeStaged);
       
       let downloadResult;
@@ -296,6 +325,7 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
     log("Pipeline run complete.");
   } finally {
     // 3. Stop Python bridge
+    activeBridge = null;
     bridge.stop();
   }
   

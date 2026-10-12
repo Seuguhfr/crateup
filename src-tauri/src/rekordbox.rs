@@ -29,6 +29,59 @@ fn get_rekordbox_db_path() -> Result<std::path::PathBuf, String> {
     Ok(lowercase_path)
 }
 
+fn get_backup_timestamp() -> String {
+    if let Ok(out) = std::process::Command::new("/bin/date").arg("+%Y%m%d_%H%M%S").output() {
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    if let Ok(out) = std::process::Command::new("date").arg("+%Y%m%d_%H%M%S").output() {
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}_{:09}", duration.as_secs(), duration.subsec_nanos())
+}
+
+fn create_master_db_backup(
+    conn: &rusqlite::Connection,
+    live_db_path: &std::path::Path,
+    backup_path: &std::path::Path,
+) -> Result<(), String> {
+    // 1. Attempt WAL TRUNCATE checkpoint to flush uncommitted pages into master.db
+    let checkpoint_res: Result<(i32, i32, i32), _> = conn.query_row(
+        "PRAGMA wal_checkpoint(TRUNCATE);",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    );
+
+    let (busy, _log, _ckp) = checkpoint_res.unwrap_or((1, -1, -1));
+
+    // 2. Copy the main database file
+    std::fs::copy(live_db_path, backup_path)
+        .map_err(|e| format!("Failed to create database backup: {}", e))?;
+
+    // 3. If TRUNCATE was busy or failed, and a non-empty -wal file remains, preserve it alongside the backup
+    if let Some(db_dir) = live_db_path.parent() {
+        let wal_path = db_dir.join("master.db-wal");
+        if wal_path.exists() {
+            let wal_len = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
+            if busy != 0 && wal_len > 0 {
+                let backup_wal_name = format!("{}-wal", backup_path.file_name().unwrap().to_string_lossy());
+                let backup_wal_path = db_dir.join(backup_wal_name);
+                let _ = std::fs::copy(&wal_path, &backup_wal_path);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn is_rekordbox_running() -> bool {
     // Check for lowercase process name "rekordbox" exactly
     let output = std::process::Command::new("pgrep")
@@ -462,18 +515,13 @@ pub async fn execute_db_consolidation(
             return Err("Rekordbox process is active; database is locked. Close Rekordbox first.".to_string());
         }
         
-        let timestamp = if let Ok(out) = std::process::Command::new("date").arg("+%Y%m%d_%H%M").output() {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        } else {
-            "unknown".to_string()
-        };
+        let timestamp = get_backup_timestamp();
         
+        let mut conn = open_rekordbox_db(&live_db_path)?;
         let db_dir = live_db_path.parent().unwrap();
         let backup_filename = format!("master.db.backup_{}", timestamp);
         let backup_path = db_dir.join(&backup_filename);
-        std::fs::copy(&live_db_path, &backup_path).map_err(|e| format!("Failed to create database backup: {}", e))?;
-        
-        let mut conn = open_rekordbox_db(&live_db_path)?;
+        create_master_db_backup(&conn, &live_db_path, &backup_path)?;
         
         let query = "
             SELECT 
@@ -719,13 +767,6 @@ pub async fn execute_db_consolidation(
                     target_path = src_path.to_path_buf();
                     needs_write = false;
                 } else {
-                    if should_swap_duplicate {
-                        if let Some(ref p_path) = swap_prev_path {
-                            if p_path.exists() {
-                                let _ = std::fs::remove_file(p_path);
-                            }
-                        }
-                    }
                     let ext = src_path.extension()
                         .map(|e| e.to_string_lossy().to_string())
                         .unwrap_or_else(|| "mp3".to_string());
@@ -804,7 +845,7 @@ pub async fn execute_db_consolidation(
                     duplicate_count += 1;
                 } else if needs_write {
                     let op_result = match file_mode.as_str() {
-                        "move" => std::fs::rename(&src_path, &target_path),
+                        "move" => crate::safe_move_file(&src_path, &target_path),
                         "hardlink" | "link" => std::fs::hard_link(&src_path, &target_path),
                         _ => std::fs::copy(&src_path, &target_path).map(|_| ()),
                     };
@@ -850,6 +891,9 @@ pub async fn execute_db_consolidation(
                             }
 
                             if let Some(ref p_path) = swap_prev_path {
+                                if p_path.exists() && p_path != &target_path {
+                                    let _ = crate::safe_delete_file(p_path);
+                                }
                                 let p_path_str = p_path.to_string_lossy().to_string();
                                 if let Some(pos) = processed_list.iter().position(|x| x == &p_path_str) {
                                     processed_list.remove(pos);
@@ -958,6 +1002,22 @@ pub async fn rollback_to_latest_backup() -> Result<String, String> {
     std::fs::copy(&backup_path, &db_path)
         .map_err(|e| format!("Failed to restore backup: {}", e))?;
         
+    let wal_path = db_dir.join("master.db-wal");
+    let backup_wal_name = format!("{}-wal", latest_backup);
+    let backup_wal_path = db_dir.join(&backup_wal_name);
+
+    if backup_wal_path.exists() {
+        let _ = std::fs::copy(&backup_wal_path, &wal_path);
+        let _ = crate::safe_delete_file(&backup_wal_path);
+    } else if wal_path.exists() {
+        let _ = std::fs::remove_file(&wal_path);
+    }
+
+    let shm_path = db_dir.join("master.db-shm");
+    if shm_path.exists() {
+        let _ = std::fs::remove_file(&shm_path);
+    }
+
     crate::safe_delete_file(&backup_path)
         .map_err(|e| format!("Successfully restored database, but failed to move backup to trash: {}", e))?;
         
@@ -1255,16 +1315,12 @@ pub async fn update_rekordbox_db_directly(
             return Err("Rekordbox process is active; database is locked. Close Rekordbox first.".to_string());
         }
 
-        let timestamp = if let Ok(out) = std::process::Command::new("date").arg("+%Y%m%d_%H%M").output() {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        } else {
-            "unknown".to_string()
-        };
-        let db_dir = live_db_path.parent().unwrap();
-        let backup_path = db_dir.join(format!("master.db.backup_{}", timestamp));
-        std::fs::copy(&live_db_path, &backup_path).map_err(|e| format!("Failed to create database backup: {}", e))?;
+        let timestamp = get_backup_timestamp();
 
         let mut conn = open_rekordbox_db(&live_db_path)?;
+        let db_dir = live_db_path.parent().unwrap();
+        let backup_path = db_dir.join(format!("master.db.backup_{}", timestamp));
+        create_master_db_backup(&conn, &live_db_path, &backup_path)?;
 
         let ledger_content = std::fs::read_to_string(&ledger_path).map_err(|e| e.to_string())?;
         let ledger_json: serde_json::Value = serde_json::from_str(&ledger_content).map_err(|e| e.to_string())?;
@@ -1285,40 +1341,58 @@ pub async fn update_rekordbox_db_directly(
             let status = entry.get("status").and_then(|v| v.as_str()).unwrap_or("");
             let staged_path = entry.get("staged_path").and_then(|v| v.as_str()).unwrap_or("");
 
-            let original_abs_path = std::path::Path::new(root_path).join(rel_path.trim_start_matches('/'));
-            let original_abs_path_str = original_abs_path.to_string_lossy().to_string();
-
-            let new_abs_path = if output_strategy == "replace" {
-                let ext = original_abs_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                let new_ext = if status == "downloaded" && !staged_path.is_empty() {
-                    let sp = std::path::Path::new(staged_path);
-                    sp.extension().and_then(|e| e.to_str()).unwrap_or(output_format)
-                } else {
-                    ext
-                };
-                original_abs_path.with_extension(new_ext)
+            let original_abs_path_str = if let Some(orig_saved) = entry.get("original_abs_path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                orig_saved.to_string()
             } else {
-                let rel_clean = rel_path.trim_start_matches('/');
-                let mut target_basename = original_abs_path.file_name().unwrap().to_string_lossy().to_string();
-                if status == "downloaded" && !staged_path.is_empty() {
-                    let sp = std::path::Path::new(staged_path);
-                    target_basename = sp.file_name().unwrap().to_string_lossy().to_string();
-                }
-                
-                if output_strategy == "consolidate" {
-                    std::path::Path::new(&output_path).join(target_basename)
-                } else {
-                    std::path::Path::new(&output_path).join(rel_clean).with_file_name(target_basename)
-                }
+                let p = std::path::Path::new(root_path).join(rel_path.trim_start_matches('/'));
+                p.to_string_lossy().to_string()
             };
 
-            let new_abs_path_str = new_abs_path.to_string_lossy().to_string();
-            let new_filename = new_abs_path.file_name().unwrap().to_string_lossy().to_string();
+            let (new_abs_path_str, new_filename) = if let Some(committed_out) = entry.get("output_path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                let p = std::path::Path::new(committed_out);
+                let fname = p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                (committed_out.to_string(), fname)
+            } else {
+                let orig_p = std::path::Path::new(&original_abs_path_str);
+                let new_abs_path = if output_strategy == "replace" {
+                    let ext = orig_p.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    let new_ext = if status == "downloaded" && !staged_path.is_empty() {
+                        let sp = std::path::Path::new(staged_path);
+                        sp.extension().and_then(|e| e.to_str()).unwrap_or(output_format)
+                    } else {
+                        ext
+                    };
+                    orig_p.with_extension(new_ext)
+                } else {
+                    let rel_clean = rel_path.trim_start_matches('/');
+                    let mut target_basename = orig_p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    if status == "downloaded" && !staged_path.is_empty() {
+                        let sp = std::path::Path::new(staged_path);
+                        target_basename = sp.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    }
+                    
+                    if output_strategy == "consolidate" {
+                        std::path::Path::new(&output_path).join(target_basename)
+                    } else {
+                        std::path::Path::new(&output_path).join(rel_clean).with_file_name(target_basename)
+                    }
+                };
+                let fname = new_abs_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                (new_abs_path.to_string_lossy().to_string(), fname)
+            };
 
-            tx.execute(
+            let rows_affected = tx.execute(
                 "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE FolderPath = ?",
                 [&new_abs_path_str, &new_filename, &original_abs_path_str]
             ).map_err(|e| format!("Failed to update database record for {}: {}", rel_path, e))?;
+
+            if rows_affected == 0 {
+                // Fallback: Case or Unicode normalization difference
+                let _ = tx.execute(
+                    "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE lower(FolderPath) = lower(?)",
+                    [&new_abs_path_str, &new_filename, &original_abs_path_str]
+                );
+            }
         }
 
         let _ = cleanup_master_db_duplicates(&tx);

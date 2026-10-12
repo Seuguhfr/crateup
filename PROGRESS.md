@@ -5,7 +5,7 @@
 > session-by-session history. This file is the **current snapshot** — update
 > it whenever the state changes.
 
-Last updated: 2026-10-12 (comprehensive deep review & full hardening complete)
+Last updated: 2026-10-12 (embedded standalone Python runtime + critical data-safety complete)
 
 ## 1. What this project is
 
@@ -25,12 +25,13 @@ Library Audit (enforce folder-database invariants).
 | What | Command (repo root unless noted) |
 |---|---|
 | UI typecheck + build | `npm run build:ui` (`tsc -p ui/tsconfig.json` → `ui/out/main.js`; no bundler) |
+| Setup Python runtime | `npm run setup:python` (bootstraps standalone CPython 3.12 for Apple Silicon) |
 | JS tests | `npx jest` (17 suites / 49 tests passed) |
 | Rust check | `cargo check` (run in `src-tauri/`; 0 warnings) |
 | Rust tests | `cargo test` (in `src-tauri/`; 13 passed) |
 | Dev app | `npm run tauri dev` |
-| Release bundle | `npm run tauri build` |
-| Python tests | `.venv/bin/pytest tests/` (8 passed) |
+| Release bundle | `npm run tauri build` (produces self-contained `.app` and `.dmg`) |
+| Python tests | `python-runtime/bin/pytest tests/` (8 passed) |
 
 Screenshots can't be seen in chat — the workflow is: save to `screenshots/`
 (gitignored) and read via the Read tool.
@@ -78,14 +79,34 @@ mtime-checked read-through cache, `LEDGER_VERSION = 1`), `bin-setup.js`
 preserved. Per-track writes preserved (crash recovery). Node filename logic
 lives in exactly one place (`ledger.js`); commit.js resolves via caller.
 
-## 5. Done recently (deep review & hardening sweep)
+## 5. Done recently (hardening & stability sweep)
 
+- **Atomic in-place metadata tagging**: Removed `fs.unlinkSync` prior to `fs.renameSync` in `node-sidecar/commit.js`, ensuring atomic POSIX file replacement without intermediate deletion windows.
+- **Post-verification duplicate deletion**: Reordered duplicate swapping in `src-tauri/src/xml.rs` and `src-tauri/src/rekordbox.rs` so that `crate::safe_delete_file(p_path)` executes only after the replacement file has successfully written to disk, preventing data loss if disk operations fail.
+- **SQLite WAL checkpoint status verification & backup safety**: Implemented `create_master_db_backup()` in `src-tauri/src/rekordbox.rs` to verify the `PRAGMA wal_checkpoint(TRUNCATE)` return code. If the WAL cannot be truncated, automatically preserves `master.db.backup_<timestamp>-wal` alongside the main database backup, and restores or removes it accurately on rollback.
+- **Child process leak elimination**: Added explicit `child.kill()` in `src-tauri/src/xml.rs` (`run_pipeline_rpc`) to terminate spawned Node processes upon receiving JSON responses.
+- **Path traversal & staging escape prevention**: Sanitized `stagedAbsPath` base filenames in `pipeline.js` and `refetch.js` by stripping climbing `..` and `.` segments; prioritized `entry.original_abs_path` in `pipeline.js`, `refetch.js`, and `identify.js` to ensure reliable handling of tracks located outside `root_path`.
+- **In-place replacement data-loss eliminated**: Removed pre-rename `fs.unlinkSync` in `node-sidecar/commit.js`, switching to atomic POSIX `fs.renameSync` directly and moving original files to Trash only after target rename succeeds when paths differ.
+- **AIFF proxy MP3 cleanup**: Added `cleanProxyFile` in `node-sidecar/commit.js` to clean up leftover waveform `.proxy.mp3` files in both commit and skip phases.
+- **Deterministic backup timestamps**: Switched `src-tauri/src/rekordbox.rs` backup timestamping to use `/bin/date` with epoch nanoseconds fallback, preventing static `"unknown"` filename collisions.
+- **Restored Chromaprint similarity precision**: Removed aggressive 8-frame grid skipping and anchor heuristics in `src-tauri/src/similarity.rs` that caused false negative 0.0 matches, preserving exact bit-budget early-pruning and density filtering.
+- **Atomic ledger saves**: Updated `node-sidecar/ledger.js` to write to a temporary file (`.tmp.${pid}.${Date.now()}`) and rename atomically into place.
+- **Instantaneous audio duration probe**: Switched `python-sidecar/fingerprint.py` from decoding streams via pydub to fast `ffprobe` container header inspection with `ffmpeg -i` fallback.
+- **Safe URI decode**: Wrapped `decodeURIComponent` in try/catch in `node-sidecar/rekordbox-parser.js` for non-UTF-8 Latin-1 paths.
+- **Pipeline cancellation & process management**: Added `PipelineManager` in `lib.rs` and `cancel_pipeline` command. Exposed `cancelPipeline` in UI and added "Stop pipeline" button to run screen dock with ledger preservation and partial review capability. Added SIGTERM/SIGINT listeners in `pipeline.js`.
+- **Ledger dev/prod resolution sync**: Unified `resolveLedgerFilename()` in `node-sidecar/ledger.js` to `.crateup-progress.json` with override and fallback, resolving dev/prod ledger desynchronization.
+- **Node-Python RPC timeouts**: Added 180s timeout timers to `node-sidecar/rpc.js` to prevent hangs.
+- **Cross-filesystem file move fallback**: Added `safe_move_file` in Rust to handle `EXDEV` across filesystems gracefully in XML and Rekordbox migrations.
+- **Rekordbox commit alignment & Unicode fallback**: Updated Rekordbox direct sync to use committed output and original paths from ledger, with Unicode-normalized case-insensitive fallback.
+- **WAL checkpointing & backup safety**: Added `PRAGMA wal_checkpoint(TRUNCATE)` prior to copying `master.db` backups and cleared stale `-wal` and `-shm` files on rollback.
+- **Deemix subprocess timeout**: Added 180s `asyncio.wait_for` timeout in `python-sidecar/download.py` with process termination.
+- **Review player watchdog cleanup**: Managed `watchdogTimer` in `ui/src/upgrader/review.ts` with explicit cleanup on track switches and `leaveReview()`.
 - **Scanner command injection eliminated**: Replaced `child_process.execSync` shell string interpolation in `node-sidecar/scanner.js` with safe `execFileSync('ffprobe', [...args])`.
 - **Similarity duration discrepancy patched**: Ported 20% max-length difference tolerance filter into `node-sidecar/similarity.js` so 30-second clips cannot falsely match full-length tracks.
 - **Commit error data-loss prevented**: Hardened `ui/src/upgrader/review.ts` so that if Rekordbox database sync throws an error, the session ledger is preserved and `finishSession()` does not delete `.crateup-progress.json`.
 - **Non-blocking Rekordbox read-only queries**: Updated `list_library_entries` and `execute_backup_cleanup` in `src-tauri/src/rekordbox.rs` to route through `with_rekordbox_query_conn`, avoiding database lock collisions while Rekordbox is open.
 - **Command injection eliminated**: Replaced `execSync` with `spawnSync(['-i', path])` in `node-sidecar/commit.js`.
-- **macOS Trash integration**: Integrated `trash = "5.2"` crate in `src-tauri`. Audit deletions and Rekordbox backup cleanups/rollbacks now send files to Trash rather than unrecoverable deletion.
+- **macOS Trash integration**: Integrated `trash = "5.2"` crate in `src-tauri`. Duplicate replacements, audit deletions, and Rekordbox backup cleanups/rollbacks now send files to Trash.
 - **Sidecar & Python packaging resolution**: Configured dynamic candidate search for `python-sidecar` and Python binary in production bundle (`app.path().resource_dir()`) and dev environments across Rust and Node.
 - **Code-generation & RPC hardening**: Migrated all Node RPC command calls from formatted string interpolations to strict `serde_json::to_string` serialization.
 - **SQLCipher read-only direct reads**: Replaced static `/tmp` database copies with direct read-only SQLCipher connections, eliminating disk thrashing and concurrent file collisions.

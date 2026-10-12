@@ -21,11 +21,17 @@ class PythonBridge {
     const pythonScript = candidateScripts.find(p => fs.existsSync(p)) || candidateScripts[0];
 
     const candidatePythons = [
+      path.join(__dirname, '..', 'python-runtime', 'bin', 'python3'),
+      path.join(__dirname, '..', 'Resources', 'python-runtime', 'bin', 'python3'),
+      path.join(__dirname, '..', 'Resources', '_up_', 'python-runtime', 'bin', 'python3'),
+      path.join(path.dirname(process.execPath), '..', 'Resources', 'python-runtime', 'bin', 'python3'),
+      path.join(path.dirname(process.execPath), '..', 'Resources', '_up_', 'python-runtime', 'bin', 'python3'),
+      path.join(__dirname, '..', 'python-runtime', 'bin', 'python'),
       path.join(__dirname, '..', '.venv', 'bin', 'python'),
       path.join(path.dirname(process.execPath), '..', '.venv', 'bin', 'python'),
     ];
-    const venvPython = candidatePythons.find(p => fs.existsSync(p));
-    const pythonExec = venvPython || 'python3';
+    const resolvedPython = candidatePythons.find(p => fs.existsSync(p));
+    const pythonExec = resolvedPython || 'python3';
     
     this.pyProcess = spawn(pythonExec, [pythonScript]);
 
@@ -49,7 +55,8 @@ class PythonBridge {
         const response = JSON.parse(line);
         const id = response.id;
         if (id && this.pendingRequests.has(id)) {
-          const { resolve, reject } = this.pendingRequests.get(id);
+          const { resolve, reject, timer } = this.pendingRequests.get(id);
+          if (timer) clearTimeout(timer);
           this.pendingRequests.delete(id);
           if (response.error) {
             reject(new Error(response.error));
@@ -72,13 +79,14 @@ class PythonBridge {
   }
 
   cleanupPending(err) {
-    for (const [id, { reject }] of this.pendingRequests.entries()) {
+    for (const [id, { reject, timer }] of this.pendingRequests.entries()) {
+      if (timer) clearTimeout(timer);
       reject(err);
     }
     this.pendingRequests.clear();
   }
 
-  async call(method, params = {}) {
+  async call(method, params = {}, timeoutMs = 180000) {
     if (!this.pyProcess) {
       throw new Error("Python bridge not started");
     }
@@ -86,14 +94,21 @@ class PythonBridge {
     const request = { id, method, params };
     
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id);
+          reject(new Error(`Python RPC call '${method}' timed out after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+      this.pendingRequests.set(id, { resolve, reject, timer });
       this.pyProcess.stdin.write(JSON.stringify(request) + '\n');
     });
   }
 
   stop() {
+    this.cleanupPending(new Error("Python bridge stopped"));
     if (this.pyProcess) {
-      this.pyProcess.stdin.end();
+      try { this.pyProcess.stdin.end(); } catch (e) {}
       this.pyProcess = null;
     }
   }

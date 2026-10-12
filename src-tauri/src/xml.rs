@@ -57,6 +57,8 @@ async fn run_pipeline_rpc(app: &tauri::AppHandle, request_json: String) -> Resul
         }
     }
 
+    let _ = child.kill();
+
     Ok(response)
 }
 
@@ -666,13 +668,6 @@ pub async fn execute_safe_clone(
                             target_path = src_path.to_path_buf();
                             needs_write = false;
                         } else {
-                            if should_swap_duplicate {
-                                if let Some(ref p_path) = swap_prev_path {
-                                    if p_path.exists() {
-                                        let _ = std::fs::remove_file(p_path);
-                                    }
-                                }
-                            }
                             let ext = src_path.extension()
                                 .map(|e| e.to_string_lossy().to_string())
                                 .unwrap_or_else(|| "mp3".to_string());
@@ -761,7 +756,7 @@ pub async fn execute_safe_clone(
                             duplicate_count += 1;
                         } else if needs_write {
                             let op_result = match file_mode.as_str() {
-                                "move" => std::fs::rename(&src_path, &target_path),
+                                "move" => crate::safe_move_file(&src_path, &target_path),
                                 "hardlink" | "link" => std::fs::hard_link(&src_path, &target_path),
                                 _ => std::fs::copy(&src_path, &target_path).map(|_| ()),
                             };
@@ -795,6 +790,9 @@ pub async fn execute_safe_clone(
                                     duplicate_count += 1;
                                     
                                     if let Some(ref p_path) = swap_prev_path {
+                                        if p_path.exists() && p_path != &target_path {
+                                            let _ = crate::safe_delete_file(p_path);
+                                        }
                                         let p_path_str = p_path.to_string_lossy().to_string();
                                         if let Some(pos) = processed_list.iter().position(|x| x == &p_path_str) {
                                             processed_list.remove(pos);
@@ -1783,7 +1781,7 @@ pub async fn execute_playlist_ingestion(
 
         let op_res = match file_mode.as_str() {
             "move" => {
-                std::fs::rename(&track.source_path, &target_file_path)
+                crate::safe_move_file(&track.source_path, &target_file_path)
             }
             "link" => {
                 if let Err(_) = std::fs::hard_link(&track.source_path, &target_file_path) {

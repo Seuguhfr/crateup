@@ -133,8 +133,21 @@ async def download_track(deezer_id: int, output_format: str, staged_path: str) -
         stderr=asyncio.subprocess.PIPE,
         stdin=asyncio.subprocess.PIPE
     )
-    stdout, stderr = await proc.communicate(input=arl.encode('utf-8') + b"\n")
-    
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=arl.encode('utf-8') + b"\n"),
+            timeout=180.0
+        )
+    except asyncio.TimeoutError:
+        log(f"deemix timed out after 180s for track {deezer_id}")
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception:
+            pass
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise Exception("download_failed")
+
     if proc.returncode != 0:
         log(f"deemix failed: {stderr.decode('utf-8', errors='ignore')}")
         shutil.rmtree(temp_dir, ignore_errors=True)

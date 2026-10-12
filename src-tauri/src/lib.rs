@@ -1,7 +1,9 @@
 use tauri::Manager;
 use tauri::Emitter;
 use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+
+pub(crate) struct PipelineManager(pub(crate) tokio::sync::Mutex<Option<CommandChild>>);
 
 mod fingerprint_cache;
 mod rekordbox;
@@ -54,7 +56,24 @@ pub(crate) fn resolve_node_sidecar_dir(app: &tauri::AppHandle) -> Result<std::pa
 pub(crate) fn build_sidecar_env_path(app: &tauri::AppHandle, node_sidecar_dir: &std::path::Path) -> String {
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
 
+    // Packaged python-runtime in Resources
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled_py = resource_dir.join("python-runtime").join("bin");
+        if bundled_py.exists() {
+            dirs.push(bundled_py);
+        }
+        let bundled_up_py = resource_dir.join("_up_").join("python-runtime").join("bin");
+        if bundled_up_py.exists() {
+            dirs.push(bundled_up_py);
+        }
+    }
+
+    // Dev python-runtime or .venv
     if let Some(parent) = node_sidecar_dir.parent() {
+        let runtime_bin = parent.join("python-runtime").join("bin");
+        if runtime_bin.exists() {
+            dirs.push(runtime_bin);
+        }
         let venv_bin = parent.join(".venv").join("bin");
         if venv_bin.exists() {
             dirs.push(venv_bin);
@@ -97,6 +116,20 @@ pub(crate) fn safe_delete_file(path: &std::path::Path) -> Result<(), String> {
             })
         }
     }
+}
+
+pub(crate) fn safe_move_file(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    if let Err(err) = std::fs::rename(src, dst) {
+        let is_cross_dev = err.kind() == std::io::ErrorKind::CrossesDevices
+            || err.raw_os_error() == Some(18);
+        if is_cross_dev {
+            std::fs::copy(src, dst)?;
+            let _ = std::fs::remove_file(src);
+            return Ok(());
+        }
+        return Err(err);
+    }
+    Ok(())
 }
 
 async fn run_node_script(app: &tauri::AppHandle, script: &str) -> Result<String, String> {
@@ -301,7 +334,7 @@ fn start_pipeline(
             .env("PATH", &new_path)
             .spawn();
 
-        let (mut rx, _child) = match spawn_res {
+        let (mut rx, child) = match spawn_res {
             Ok(res) => res,
             Err(e) => {
                 let err_msg = format!("Failed to spawn sidecar: {} (Check if 'node' binary is on PATH. Current PATH: {})", e, new_path);
@@ -311,6 +344,15 @@ fn start_pipeline(
                 return;
             }
         };
+
+        {
+            let manager = app.state::<PipelineManager>();
+            let mut guard = manager.0.lock().await;
+            if let Some(old_child) = guard.take() {
+                let _ = old_child.kill();
+            }
+            *guard = Some(child);
+        }
 
         while let Some(event) = rx.recv().await {
             match event {
@@ -330,7 +372,24 @@ fn start_pipeline(
                 _ => {}
             }
         }
+
+        {
+            let manager = app.state::<PipelineManager>();
+            let mut guard = manager.0.lock().await;
+            *guard = None;
+        }
     });
+}
+
+#[tauri::command]
+async fn cancel_pipeline(state: tauri::State<'_, PipelineManager>) -> Result<bool, String> {
+    let mut guard = state.0.lock().await;
+    if let Some(child) = guard.take() {
+        child.kill().map_err(|e| e.to_string())?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 #[tauri::command]
@@ -528,7 +587,17 @@ async fn identify_track(
 }
 
 #[tauri::command]
-fn reset_session(root_path: String, is_session_dir: bool) -> Result<(), String> {
+async fn reset_session(
+    state: tauri::State<'_, PipelineManager>,
+    root_path: String,
+    is_session_dir: bool,
+) -> Result<(), String> {
+    {
+        let mut guard = state.0.lock().await;
+        if let Some(child) = guard.take() {
+            let _ = child.kill();
+        }
+    }
     let root = std::path::Path::new(&root_path);
     if !root.exists() {
         return Ok(());
@@ -925,6 +994,7 @@ async fn open_directory(path: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(PipelineManager(tokio::sync::Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
@@ -937,6 +1007,7 @@ pub fn run() {
             write_ledger_file,
             get_node_path,
             start_pipeline,
+            cancel_pipeline,
             save_ledger_decision,
             commit_changes,
             get_file_size,

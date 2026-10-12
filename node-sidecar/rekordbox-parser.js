@@ -13,9 +13,17 @@ function parseAttributes(attrString) {
 
 function decodeLocation(location) {
   if (!location) return '';
-  const rawPath = decodeURIComponent(
-    location.replace(/^file:\/\/localhost/, '').replace(/^file:\/\//, '')
-  );
+  const stripped = location.replace(/^file:\/\/localhost/, '').replace(/^file:\/\//, '');
+  let rawPath = stripped;
+  try {
+    rawPath = decodeURIComponent(stripped);
+  } catch (err) {
+    try {
+      rawPath = unescape(stripped);
+    } catch (e) {
+      rawPath = stripped;
+    }
+  }
   const absolutePath = path.resolve(rawPath);
   if (!fs.existsSync(absolutePath)) {
     const ts = new Date().toISOString().replace('T', ' ').substring(0, 19);

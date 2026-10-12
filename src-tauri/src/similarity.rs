@@ -212,90 +212,15 @@ pub fn calculate_similarity(fp1: &[u32], fp2: &[u32], threshold: f64) -> f64 {
         return 0.0;
     }
 
-    // Trick 2: Middle-Subsegment Fast-Scan (Acoustic Anchoring) with loose 60% match margin
-    let anchor_len = std::cmp::min(40, a.len());
-    if anchor_len > 10 {
-        let start_idx = (a.len() - anchor_len) / 2;
-        let anchor = &a[start_idx..start_idx + anchor_len];
-        let mut anchor_matched = false;
-        
-        for d in (0..=(b.len() - anchor_len)).step_by(2) {
-            let mut match_bits = 0;
-            for i in 0..anchor_len {
-                let x = anchor[i];
-                let y = b[d + i];
-                match_bits += 32 - (x ^ y).count_ones() as usize;
-            }
-            let sim = (match_bits as f64) / (anchor_len * 32) as f64;
-            if sim > 0.60 {
-                anchor_matched = true;
-                break;
-            }
-        }
-        if !anchor_matched {
-            return 0.0;
-        }
-    }
-
     let n = a.len() as isize;
     let m = b.len() as isize;
     let min_overlap = std::cmp::min(60, n);
     
     let start_offset = -n + min_overlap;
     let end_offset = m - min_overlap;
-    let total_offsets = end_offset - start_offset;
-
-    let mut candidates = Vec::new();
-    let use_coarse = total_offsets > 16;
-
-    // Trick 3: Coarse Grid Sub-sampling (Offset skipping with 65% screening filter)
-    if use_coarse {
-        let coarse_step = 8;
-        for d in (start_offset..=end_offset).step_by(coarse_step) {
-            let start_a = std::cmp::max(0, -d);
-            let end_a = std::cmp::min(n, m - d);
-            let k = end_a - start_a;
-            if k < min_overlap {
-                continue;
-            }
-            
-            let mut match_bits = 0;
-            let mut sample_count = 0;
-            for i in (start_a..end_a).step_by(4) {
-                let x = a[i as usize];
-                let y = b[(i + d) as usize];
-                match_bits += 32 - (x ^ y).count_ones() as usize;
-                sample_count += 1;
-            }
-            if sample_count > 0 {
-                let est = (match_bits as f64) / (sample_count * 32) as f64;
-                if est > 0.65 {
-                    candidates.push(d);
-                }
-            }
-        }
-        if candidates.is_empty() {
-            return 0.0;
-        }
-    }
-
-    let mut offsets_to_check = Vec::new();
-    if use_coarse {
-        for &coarse_d in &candidates {
-            let start_range = std::cmp::max(start_offset, coarse_d - 4);
-            let end_range = std::cmp::min(end_offset, coarse_d + 4);
-            for d in start_range..=end_range {
-                offsets_to_check.push(d);
-            }
-        }
-        offsets_to_check.sort_unstable();
-        offsets_to_check.dedup();
-    } else {
-        offsets_to_check.extend(start_offset..=end_offset);
-    }
 
     let mut max_sim = 0.0;
-    for &d in &offsets_to_check {
+    for d in start_offset..=end_offset {
         let start_a = std::cmp::max(0, -d);
         let end_a = std::cmp::min(n, m - d);
         let k = end_a - start_a;

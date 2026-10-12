@@ -21,13 +21,21 @@ function isProdBuild() {
 
 /** Single source of truth for the progress-ledger filename. */
 function resolveLedgerFilename() {
-  if (process.env.NODE_ENV === 'test') return PROD_LEDGER_FILENAME;
-  return isProdBuild() ? PROD_LEDGER_FILENAME : DEV_LEDGER_FILENAME;
+  if (process.env.CRATEUP_LEDGER_FILENAME) return process.env.CRATEUP_LEDGER_FILENAME;
+  return PROD_LEDGER_FILENAME;
 }
 
 /** Absolute ledger path for a library/session root. */
 function resolveLedgerPath(rootPath) {
-  return path.join(rootPath, resolveLedgerFilename());
+  const custom = resolveLedgerFilename();
+  const primary = path.join(rootPath, custom);
+  if (!fs.existsSync(primary)) {
+    const devFallback = path.join(rootPath, DEV_LEDGER_FILENAME);
+    if (fs.existsSync(devFallback)) {
+      return devFallback;
+    }
+  }
+  return primary;
 }
 
 // Read-through cache: absolute ledger path -> { mtimeMs, size, ledger }.
@@ -70,7 +78,9 @@ function loadLedger(rootPath) {
 /** Persist the ledger (write-through) and refresh the cache. */
 function saveLedger(rootPath, ledger) {
   const ledgerPath = resolveLedgerPath(rootPath);
-  fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf8');
+  const tmpPath = ledgerPath + `.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(ledger, null, 2), 'utf8');
+  fs.renameSync(tmpPath, ledgerPath);
   const st = statOf(ledgerPath) || { mtimeMs: 0, size: 0 };
   cache.set(ledgerPath, { mtimeMs: st.mtimeMs, size: st.size, ledger });
   return ledgerPath;
