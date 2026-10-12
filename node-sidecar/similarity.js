@@ -52,7 +52,14 @@ function calculateSimilarity(fp1, fp2) {
   
   const len1 = fp1.length;
   const len2 = fp2.length;
-  
+  const maxLen = Math.max(len1, len2);
+  const minLen = Math.min(len1, len2);
+  // If lengths differ by more than 20% (for files of substantial length > 60 frames ~5s),
+  // they cannot be the same complete recording (prevents truncated 30s clips matching full tracks).
+  if (maxLen > 60 && (maxLen - minLen) > (maxLen * 0.20)) {
+    return 0;
+  }
+
   const [A, B] = len1 <= len2 ? [fp1, fp2] : [fp2, fp1];
   const N = A.length;
   const M = B.length;

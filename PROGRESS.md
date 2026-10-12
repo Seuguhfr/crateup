@@ -25,7 +25,7 @@ Library Audit (enforce folder-database invariants).
 | What | Command (repo root unless noted) |
 |---|---|
 | UI typecheck + build | `npm run build:ui` (`tsc -p ui/tsconfig.json` → `ui/out/main.js`; no bundler) |
-| JS tests | `npx jest` (17 suites / 47 tests passed) |
+| JS tests | `npx jest` (17 suites / 49 tests passed) |
 | Rust check | `cargo check` (run in `src-tauri/`; 0 warnings) |
 | Rust tests | `cargo test` (in `src-tauri/`; 13 passed) |
 | Dev app | `npm run tauri dev` |
@@ -80,6 +80,10 @@ lives in exactly one place (`ledger.js`); commit.js resolves via caller.
 
 ## 5. Done recently (deep review & hardening sweep)
 
+- **Scanner command injection eliminated**: Replaced `child_process.execSync` shell string interpolation in `node-sidecar/scanner.js` with safe `execFileSync('ffprobe', [...args])`.
+- **Similarity duration discrepancy patched**: Ported 20% max-length difference tolerance filter into `node-sidecar/similarity.js` so 30-second clips cannot falsely match full-length tracks.
+- **Commit error data-loss prevented**: Hardened `ui/src/upgrader/review.ts` so that if Rekordbox database sync throws an error, the session ledger is preserved and `finishSession()` does not delete `.crateup-progress.json`.
+- **Non-blocking Rekordbox read-only queries**: Updated `list_library_entries` and `execute_backup_cleanup` in `src-tauri/src/rekordbox.rs` to route through `with_rekordbox_query_conn`, avoiding database lock collisions while Rekordbox is open.
 - **Command injection eliminated**: Replaced `execSync` with `spawnSync(['-i', path])` in `node-sidecar/commit.js`.
 - **macOS Trash integration**: Integrated `trash = "5.2"` crate in `src-tauri`. Audit deletions and Rekordbox backup cleanups/rollbacks now send files to Trash rather than unrecoverable deletion.
 - **Sidecar & Python packaging resolution**: Configured dynamic candidate search for `python-sidecar` and Python binary in production bundle (`app.path().resource_dir()`) and dev environments across Rust and Node.
@@ -87,7 +91,7 @@ lives in exactly one place (`ledger.js`); commit.js resolves via caller.
 - **SQLCipher read-only direct reads**: Replaced static `/tmp` database copies with direct read-only SQLCipher connections, eliminating disk thrashing and concurrent file collisions.
 - **XML entity decoding**: Attribute parsing unescapes XML entities (`&quot;`, `&apos;`, `&lt;`, `&gt;`, `&amp;`).
 - **Compiler warnings cleared**: Fixed all compiler warnings across Rust modules (0 warnings).
-- **Test testability & Python test suite**: Added `pytest.ini`. All tests pass across Rust (13 tests), Node/Jest (47 tests), and Python (8 tests).
+- **Test testability & Python test suite**: Added `pytest.ini`. All tests pass across Rust (13 tests), Node/Jest (49 tests), and Python (8 tests).
 
 ## 6. Known issues / tech debt
 

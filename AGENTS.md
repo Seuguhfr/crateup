@@ -124,7 +124,8 @@ All messages are newline-delimited JSON on stdio.
 - [x] Phase 13 ingestion UI + sessions: `ui/src/ingestion/` (stage → configure → run → summary, full sessions, staged paths persist), `tests/ingestion-settings.test.js`
 - [x] Phase 14 ingestion library check: `list_library_entries` (`rekordbox.rs`) + tier-mirrored matching in `execute_playlist_ingestion` (exact path / filename+size / artist+title / fuzzy fp-confirm, stale-row + self-path guards); links reference the db file with zero file ops; `ResultPayload.library_matched_count`; UI toggle (default on) + summary stat
 - [x] Phase 15 library audit tool: `src-tauri/src/audit.rs` (`audit_library` with stat walk + narrowed MD5 matching + same-device stray-link sweep with found/total coverage, `delete_audit_paths` fail-closed, `remove_empty_folders`, `audit_suggested_roots`) + `ui/src/audit/` (pick → run → results, dupes pre-ticked / orphans unticked, confirmed delete + empty-folder step, full sessions) + registry/home/shell wiring; `tests/audit-settings.test.js`
-- [x] Phase 16 comprehensive deep review & hardening: command injection fix (`commit.js`), safe deletions via macOS Trash (`trash` crate in `audit.rs` and `rekordbox.rs`), dynamic sidecar resource path resolution in dev & prod (`lib.rs`, `xml.rs`, `rpc.js`, `index.js`, `tauri.conf.json`), SQLCipher direct read-only connections (`rekordbox.rs`), strict `serde_json` serialization in Node sidecar invocations, XML entity unescaping (`xml.rs`), 0 Rust warnings, pytest config (`pytest.ini`), all suites passing across Rust, Node/TS, and Python.
+- [x] Phase 16: Comprehensive deep review & hardening: command injection fix (`commit.js`), safe deletions via macOS Trash (`trash` crate in `audit.rs` and `rekordbox.rs`), dynamic sidecar resource path resolution in dev & prod (`lib.rs`, `xml.rs`, `rpc.js`, `index.js`, `tauri.conf.json`), SQLCipher direct read-only connections (`rekordbox.rs`), strict `serde_json` serialization in Node sidecar invocations, XML entity unescaping (`xml.rs`), 0 Rust warnings, pytest config (`pytest.ini`), all suites passing across Rust, Node/TS, and Python.
+- [x] Phase 17: Deep review P0 hardening sweep: eliminated scanner command injection via `execFileSync` in `node-sidecar/scanner.js`, ported 20% length tolerance bound into `node-sidecar/similarity.js` to block short preview mismatch false-positives, preserved progress ledger and added safe exit without wipe on commit DB sync errors in `ui/src/upgrader/review.ts`, migrated `list_library_entries` and `execute_backup_cleanup` live queries to non-blocking `with_rekordbox_query_conn` in `src-tauri/src/rekordbox.rs`.
 
 ## Session handoff protocol
 At the END of every session, before quitting:
@@ -132,6 +133,16 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Deep review P0 hardening sweep ("Make a full review of this app. Go deep." + "Yes" to fix):
+- **Deep Review Artifact**: Authored detailed architectural, security, data-safety, and performance audit artifact `crateup-deep-review-v2.md`.
+- **Scanner Command Injection Eliminated**: Replaced `child_process.execSync` string interpolation in `node-sidecar/scanner.js` with argument-array `execFileSync('ffprobe', [...args])`. Updated `tests/scanner.test.js` mock.
+- **Audio Similarity Length-Tolerance Guard**: Ported the 20% max-length difference tolerance filter into `node-sidecar/similarity.js` (`calculateSimilarity`). Prevents 30-second Deemix previews from falsely matching full-length tracks with high similarity scores. Added dedicated unit tests in `tests/similarity.test.js`.
+- **Commit Ledger Preservation on DB Error**: Hardened `ui/src/upgrader/review.ts` (`runCommit` & `renderCommitResult`) so that if `updateRekordboxDbDirectly` fails after files are committed on disk, the UI displays accurate committed track counts and the ledger is NOT wiped by `finishSession()`. Provided "Close (Keep Session)" affordance.
+- **Non-blocking Rekordbox Read-Only Queries**: Migrated `list_library_entries` and `execute_backup_cleanup` live paths in `src-tauri/src/rekordbox.rs` to use `with_rekordbox_query_conn`, avoiding database lock collisions while Rekordbox is open.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 49 tests pass, `cargo check` 0 warnings, `cargo test` 13 tests pass, `.venv/bin/pytest tests/` 8 tests pass.
+- **Next Task**: Field-test native tools with live Rekordbox library and test production release build (`npm run tauri build`).
+
+## Previous session
 Comprehensive Deep Review & Full Hardening Sweep ("Make a full review of this app. Go deep." + "Fix it all"):
 - **Deep Review Artifact**: Authored detailed architectural, security, data-safety, and performance audit artifact `crateup-deep-review.md`.
 - **Command Injection Elimination**: Replaced shell string interpolation `child_process.execSync(\`ffmpeg -i "${filePath}"\`)` in `node-sidecar/commit.js` with safe argument array execution `spawnSync('ffmpeg', ['-i', filePath], { stdio: 'pipe' })`.

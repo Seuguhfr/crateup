@@ -329,18 +329,18 @@ pub async fn execute_backup_cleanup(backup_filename: String) -> Result<CleanupRe
     drop(rows);
     drop(stmt);
     
-    let conn_live = open_rekordbox_db(&db_path)?;
-    let mut stmt_live = conn_live.prepare("SELECT FolderPath FROM djmdContent").map_err(|e| e.to_string())?;
-    let mut rows_live = stmt_live.query([]).map_err(|e| e.to_string())?;
-    let mut live_paths = std::collections::HashSet::new();
-    while let Some(row) = rows_live.next().map_err(|e| e.to_string())? {
-        let path: String = row.get(0).map_err(|e| e.to_string())?;
-        if !path.trim().is_empty() {
-            live_paths.insert(path);
+    let live_paths = with_rekordbox_query_conn(|conn_live| {
+        let mut stmt_live = conn_live.prepare("SELECT FolderPath FROM djmdContent").map_err(|e| e.to_string())?;
+        let mut rows_live = stmt_live.query([]).map_err(|e| e.to_string())?;
+        let mut set = std::collections::HashSet::new();
+        while let Some(row) = rows_live.next().map_err(|e| e.to_string())? {
+            let path: String = row.get(0).map_err(|e| e.to_string())?;
+            if !path.trim().is_empty() {
+                set.insert(path);
+            }
         }
-    }
-    drop(rows_live);
-    drop(stmt_live);
+        Ok(set)
+    })?;
     
     let mut results = Vec::new();
     for path in old_paths {
@@ -416,32 +416,29 @@ pub(crate) struct LibraryEntry {
 /// Every track known to the live `master.db`. Errors when the database is
 /// missing or unreadable — callers fall back to staged-only behavior.
 pub(crate) fn list_library_entries() -> Result<Vec<LibraryEntry>, String> {
-    let db_path = get_rekordbox_db_path()?;
-    if !db_path.exists() {
-        return Err("Rekordbox master.db not found".to_string());
-    }
-    let conn = open_rekordbox_db(&db_path)?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT c.FolderPath, c.FileNameL, c.Title, a.Name AS ArtistName \
-             FROM djmdContent c LEFT JOIN djmdArtist a ON c.ArtistID = a.ID",
-        )
-        .map_err(|e| e.to_string())?;
-    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
-    let mut entries = Vec::new();
-    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let folder_path: String = row.get(0).map_err(|e| e.to_string())?;
-        let file_name: String = row.get(1).unwrap_or_default();
-        let title: String = row.get(2).unwrap_or_default();
-        let artist: String = row.get(3).unwrap_or_default();
-        entries.push(LibraryEntry {
-            path: std::path::PathBuf::from(&folder_path),
-            file_name,
-            title,
-            artist,
-        });
-    }
-    Ok(entries)
+    with_rekordbox_query_conn(|conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT c.FolderPath, c.FileNameL, c.Title, a.Name AS ArtistName \
+                 FROM djmdContent c LEFT JOIN djmdArtist a ON c.ArtistID = a.ID",
+            )
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+        let mut entries = Vec::new();
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let folder_path: String = row.get(0).map_err(|e| e.to_string())?;
+            let file_name: String = row.get(1).unwrap_or_default();
+            let title: String = row.get(2).unwrap_or_default();
+            let artist: String = row.get(3).unwrap_or_default();
+            entries.push(LibraryEntry {
+                path: std::path::PathBuf::from(&folder_path),
+                file_name,
+                title,
+                artist,
+            });
+        }
+        Ok(entries)
+    })
 }
 
 #[tauri::command]

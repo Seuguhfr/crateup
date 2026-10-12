@@ -235,9 +235,9 @@ describe('Directory Scanner and Ledger Init', () => {
     const child_process = require('child_process');
     
     const originalExec = child_process.execSync;
+    const originalExecFile = child_process.execFileSync;
     
-    // Stub execSync to return JSON with BARCODE and TSRC
-    child_process.execSync = jest.fn().mockReturnValue(JSON.stringify({
+    const mockData1 = JSON.stringify({
       streams: [{ codec_type: 'audio', bit_rate: '320000' }],
       format: {
         tags: {
@@ -245,26 +245,30 @@ describe('Directory Scanner and Ledger Init', () => {
           TSRC: 'USRC17607839'
         }
       }
-    }));
+    });
+    child_process.execSync = jest.fn().mockReturnValue(mockData1);
+    child_process.execFileSync = jest.fn().mockReturnValue(mockData1);
     
     const details = getFileDetails('mock-file.mp3');
     expect(details.bitrate).toBe(320);
     expect(details.deezerOrigin).toBe(true);
     
-    // Stub execSync to return JSON with BARCODE but no TSRC/ISRC
-    child_process.execSync = jest.fn().mockReturnValue(JSON.stringify({
+    const mockData2 = JSON.stringify({
       streams: [{ codec_type: 'audio', bit_rate: '320000' }],
       format: {
         tags: {
           BARCODE: '1234567890'
         }
       }
-    }));
+    });
+    child_process.execSync = jest.fn().mockReturnValue(mockData2);
+    child_process.execFileSync = jest.fn().mockReturnValue(mockData2);
     
     const detailsNoIsrc = getFileDetails('mock-file.mp3');
     expect(detailsNoIsrc.deezerOrigin).toBe(false);
 
-    // Restore original execSync
+    // Restore original exec functions
     child_process.execSync = originalExec;
+    child_process.execFileSync = originalExecFile;
   });
 });

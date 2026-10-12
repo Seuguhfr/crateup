@@ -40,9 +40,10 @@ function getFileDetails(filePath) {
   let deezerOrigin = false;
   try {
     const child_process = require('child_process');
-    const stdout = child_process.execSync(
-      `ffprobe -v quiet -print_format json -show_streams -show_format "${filePath}"`,
-      { encoding: 'utf8' }
+    const stdout = child_process.execFileSync(
+      'ffprobe',
+      ['-v', 'quiet', '-print_format', 'json', '-show_streams', '-show_format', filePath],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     );
     const data = JSON.parse(stdout);
     const streams = data.streams || [];

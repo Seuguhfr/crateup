@@ -83,6 +83,20 @@ describe('Audio Similarity Module', () => {
       const sim = calculateSimilarity(fp1, fp2);
       expect(sim).toBe(0.5);
     });
+
+    test('rejects comparison (returns 0) when fingerprint lengths differ by >20% on substantial tracks', () => {
+      // 100 frames (~8-10s) vs 200 frames (~16-20s, e.g. a preview clip vs full track)
+      const fpShort = new Array(100).fill(123456);
+      const fpLong = new Array(200).fill(123456);
+      expect(calculateSimilarity(fpShort, fpLong)).toBe(0);
+    });
+
+    test('allows comparison when fingerprint lengths are within 20% on substantial tracks', () => {
+      // 100 frames vs 110 frames (10% diff)
+      const fp1 = new Array(100).fill(123456);
+      const fp2 = new Array(110).fill(123456);
+      expect(calculateSimilarity(fp1, fp2)).toBe(1.0);
+    });
   });
 
   describe('compareAudioFiles', () => {

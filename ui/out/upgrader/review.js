@@ -1267,17 +1267,21 @@ async function runCommit(closeModal) {
     queue.forEach((item) => {
         decisions[item.relPath] = decide(item) || "skipped";
     });
+    let commitResult = null;
     try {
         setCommitStatus(backdrop, "Applying high-quality replacements to your library files. Please do not close the app.");
-        const result = await commitChanges(res.ledgerPath, decisions, outputPath, strategy);
+        commitResult = await commitChanges(res.ledgerPath, decisions, outputPath, strategy);
         if (rbAction === "db" && res.sourceKind === "db") {
             setCommitStatus(backdrop, "Updating Rekordbox library directly…");
             await updateRekordboxDbDirectly(res.ledgerPath, decisions, outputPath, strategy);
         }
-        renderCommitResult(backdrop, result.committed, result.skipped, result.failed, rbAction === "db" && res.sourceKind === "db");
+        renderCommitResult(backdrop, commitResult.committed, commitResult.skipped, commitResult.failed, rbAction === "db" && res.sourceKind === "db");
     }
     catch (err) {
-        renderCommitResult(backdrop, 0, 0, [], false, `Error during commit: ${err}`);
+        const committed = commitResult ? commitResult.committed : 0;
+        const skipped = commitResult ? commitResult.skipped : 0;
+        const failed = commitResult ? commitResult.failed : [];
+        renderCommitResult(backdrop, committed, skipped, failed, false, `Error during commit: ${err}`);
     }
 }
 function destContainerWarning() {
@@ -1321,12 +1325,15 @@ function renderCommitResult(root, committed, skipped, failed, dbUpdated, error) 
     const body = root.querySelector("#rv-commit-body");
     const actions = root.querySelector("#rv-commit-actions");
     if (title) {
-        title.textContent = error ? "Commit Failed" : "✔ Upgrades Applied";
+        title.textContent = error ? "Commit Issue" : "✔ Upgrades Applied";
         title.style.color = error ? "var(--red)" : "var(--green)";
     }
     if (body) {
         if (error) {
-            body.innerHTML = `<div class="danger-text" style="font-family:var(--mono);font-size:12px;padding:10px;background:var(--red-bg);border:1px solid var(--red);border-radius:6px">${esc(error)}</div>`;
+            body.innerHTML = `
+        <div class="danger-text" style="font-family:var(--mono);font-size:12px;padding:10px;background:var(--red-bg);border:1px solid var(--red);border-radius:6px;margin-bottom:12px">${esc(error)}</div>
+        ${committed > 0 ? `<p class="muted small" style="margin-bottom:8px">${committed} track(s) were replaced on disk, but Rekordbox sync failed. Your progress ledger is safely preserved so no work is lost.</p>` : "<p class=\"muted small\">Your session ledger has been preserved.</p>"}
+      `;
         }
         else {
             body.innerHTML = `
@@ -1346,10 +1353,21 @@ function renderCommitResult(root, committed, skipped, failed, dbUpdated, error) 
     }
     actions?.classList.remove("hidden");
     const closeBtn = root.querySelector("#rv-commit-close");
-    closeBtn?.addEventListener("click", () => {
-        root.remove();
-        void finishSession();
-    });
+    if (closeBtn) {
+        if (error)
+            closeBtn.textContent = "Close (Keep Session)";
+        closeBtn.addEventListener("click", () => {
+            root.remove();
+            if (error) {
+                // Do not wipe the ledger on failure — leave review or let user retry
+                leaveReview();
+                cb?.onClose();
+            }
+            else {
+                void finishSession();
+            }
+        });
+    }
 }
 async function finishSession() {
     if (!res)
