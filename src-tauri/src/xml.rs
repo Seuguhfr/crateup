@@ -4,7 +4,7 @@
 //! Extracted from lib.rs.
 
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use tauri::Emitter;
 use tauri::Manager;
 use crate::fingerprint_cache::FingerprintCache;
@@ -2215,7 +2215,26 @@ pub async fn update_rekordbox_xml(
 
         let file = std::fs::File::open(xml_p).map_err(|e| format!("Failed to open XML: {}", e))?;
         let mut reader = std::io::BufReader::new(file);
-        let mut xml_out = String::new();
+
+        let xml_dir = xml_p.parent().unwrap_or(std::path::Path::new("."));
+        let date_str = if let Ok(out) = std::process::Command::new("/bin/date").arg("+%Y-%m-%d").output() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() { s } else { "upgraded".to_string() }
+        } else {
+            "upgraded".to_string()
+        };
+        let out_filename = format!("rekordbox_upgraded_{}.xml", date_str);
+        let out_path = xml_dir.join(&out_filename);
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let tmp_path = xml_dir.join(format!("{}.tmp.{}.{}", out_filename, std::process::id(), nanos));
+        let tmp_file = std::fs::File::create(&tmp_path)
+            .map_err(|e| format!("Failed to create temporary XML file: {}", e))?;
+        let mut writer = std::io::BufWriter::new(tmp_file);
+
         let mut line_buf = String::new();
         let mut in_track = false;
         let mut track_buf = String::new();
@@ -2229,7 +2248,7 @@ pub async fn update_rekordbox_xml(
                     track_buf.clear();
                     track_buf.push_str(&line_buf);
                 } else {
-                    xml_out.push_str(&line_buf);
+                    writer.write_all(line_buf.as_bytes()).map_err(|e| e.to_string())?;
                 }
             } else {
                 track_buf.push_str(&line_buf);
@@ -2253,14 +2272,14 @@ pub async fn update_rekordbox_xml(
                             let old_location_attr = format!("Location=\"{}\"", location_str);
                             let new_location_attr = format!("Location=\"{}\"", encode_location(target_path));
                             let updated_track = track_buf.replace(&old_location_attr, &new_location_attr);
-                            xml_out.push_str(&updated_track);
+                            writer.write_all(updated_track.as_bytes()).map_err(|e| e.to_string())?;
                             line_written = true;
                         }
                     }
                 }
 
                 if !line_written {
-                    xml_out.push_str(&track_buf);
+                    writer.write_all(track_buf.as_bytes()).map_err(|e| e.to_string())?;
                 }
 
                 in_track = false;
@@ -2271,20 +2290,16 @@ pub async fn update_rekordbox_xml(
         }
 
         if in_track && !track_buf.is_empty() {
-            xml_out.push_str(&track_buf);
+            writer.write_all(track_buf.as_bytes()).map_err(|e| e.to_string())?;
         }
 
-        let xml_dir = xml_p.parent().unwrap_or(std::path::Path::new("."));
-        let date_str = if let Ok(out) = std::process::Command::new("/bin/date").arg("+%Y-%m-%d").output() {
-            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !s.is_empty() { s } else { "upgraded".to_string() }
-        } else {
-            "upgraded".to_string()
-        };
-        let out_filename = format!("rekordbox_upgraded_{}.xml", date_str);
-        let out_path = xml_dir.join(out_filename);
+        writer.flush().map_err(|e| e.to_string())?;
+        drop(writer);
 
-        crate::atomic_write_file(&out_path, &xml_out)?;
+        if let Err(e) = std::fs::rename(&tmp_path, &out_path) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(format!("Failed to rename updated XML into place: {}", e));
+        }
 
         Ok(out_path.to_string_lossy().to_string())
     }).await.map_err(|e| format!("Task failed: {}", e))?

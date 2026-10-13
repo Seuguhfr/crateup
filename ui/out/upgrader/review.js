@@ -54,6 +54,9 @@ let lockInterval = null;
 let watchdogRetried = false;
 let watchdogTimer = null;
 let wavWarningShown = false;
+let linkedScrub = false;
+let isSyncingSeek = false;
+let decisionHistory = [];
 function waveSurfer() {
     const w = window.WaveSurfer;
     return w ?? null;
@@ -179,6 +182,10 @@ function headMetaHtml() {
       <div class="kvr"><span class="v" id="rv-o-dur">–</span><span class="k">Time</span><span class="v n" id="rv-s-dur">–</span></div>
     </div>`;
 }
+function skeletonHtml(label) {
+    const bars = Array.from({ length: 25 }, () => "<span></span>").join("");
+    return `<div class="wave-skeleton">${bars}</div><div>${esc(label)}</div>`;
+}
 function deckHtml(deck) {
     const orig = deck === "original";
     const cls = orig ? "dorig" : "dnew";
@@ -192,7 +199,7 @@ function deckHtml(deck) {
         <span class="dur" id="rv-${deck[0]}-time">00:00</span>
       </div>
       <div class="wav" id="wave-${deck}">
-        <div class="loading" id="rv-${deck[0]}-load">${orig ? "Loading original audio…" : ""}</div>
+        <div class="loading" id="rv-${deck[0]}-load">${orig ? skeletonHtml("Loading original audio…") : ""}</div>
       </div>
       <div class="tr">
         <span class="fl" id="rv-${deck[0]}-fmt">—</span>
@@ -207,9 +214,11 @@ function workspaceHtml() {
       ${deckHtml("staged")}
       ${headMetaHtml()}
       <div class="rev-foot">
-        <span class="kb">Review keys · <kbd>Space</kbd> play/pause</span>
+        <span class="kb">Review keys · <kbd>Space</kbd> play &nbsp;<kbd>↵</kbd> approve &nbsp;<kbd>⌫</kbd> skip &nbsp;<kbd>Z</kbd> undo</span>
         <span class="kb">
-          <kbd>↵</kbd> approve &nbsp;<kbd>⌫</kbd> skip &nbsp;<kbd>←→</kbd> seek &nbsp;<kbd>↑↓</kbd> focus
+          <kbd>←→</kbd> scrub &nbsp;<kbd>↑↓</kbd> deck &nbsp;
+          <button class="link-btn" id="rv-toggle-link" title="Toggle synchronized scrub between decks (L)"><kbd>L</kbd> Link</button>
+          <button class="help-btn" id="rv-help" title="Keyboard shortcuts (?)">?</button>
         </span>
         <span class="kb" id="rv-reviewed">—</span>
       </div>
@@ -404,6 +413,7 @@ async function readLedgerAndBoot() {
         return;
     }
     queue = [];
+    decisionHistory = [];
     const files = ledger.files ?? {};
     for (const relPath of Object.keys(files)) {
         const entry = files[relPath];
@@ -484,6 +494,7 @@ export function renderReviewScreen(el, source, callbacks) {
     refreshDock();
     bindDeckButtons(el);
     bindRefetchRow(el);
+    bindReviewFooter(el);
     void readLedgerAndBoot();
 }
 export function leaveReview() {
@@ -498,13 +509,75 @@ export function leaveReview() {
         lockInterval = null;
     }
     document.getElementById("rv-wav-warning-modal")?.remove();
+    removeAnyShortcutsModal();
     wavWarningShown = false;
+    decisionHistory = [];
     res = null;
     cb = null;
     ledger = null;
     queue = [];
     currentIndex = -1;
     Object.keys(expanded).forEach((k) => (expanded[k] = false));
+}
+function bindReviewFooter(el) {
+    el.querySelector("#rv-toggle-link")?.addEventListener("click", () => {
+        toggleLinkedScrub();
+    });
+    el.querySelector("#rv-help")?.addEventListener("click", () => {
+        openShortcutsModal();
+    });
+    updateLinkButtonState();
+}
+function toggleLinkedScrub() {
+    linkedScrub = !linkedScrub;
+    updateLinkButtonState();
+}
+function updateLinkButtonState() {
+    const btn = id("#rv-toggle-link");
+    if (!btn)
+        return;
+    btn.classList.toggle("on", linkedScrub);
+    btn.setAttribute("aria-pressed", String(linkedScrub));
+    btn.innerHTML = `<kbd>L</kbd> ${linkedScrub ? "Link: ON" : "Link"}`;
+}
+function openShortcutsModal() {
+    if (document.getElementById("rv-shortcuts-modal")) {
+        removeAnyShortcutsModal();
+        return;
+    }
+    const root = document.createElement("div");
+    root.className = "modal-backdrop show";
+    root.id = "rv-shortcuts-modal";
+    root.innerHTML = `
+    <div class="modal" role="dialog" aria-label="Review Keyboard Shortcuts" style="width:min(460px,92vw)">
+      <div class="modal-title" style="margin-bottom:12px">Review Shortcuts</div>
+      <div class="shortcut-grid">
+        <div class="sc-row"><span class="k">Play / Pause</span><span class="v"><kbd>Space</kbd></span></div>
+        <div class="sc-row"><span class="k">Switch Deck Focus</span><span class="v"><kbd>↑</kbd> <kbd>↓</kbd></span></div>
+        <div class="sc-row"><span class="k">Seek Audio</span><span class="v"><kbd>←</kbd> <kbd>→</kbd> <span class="muted small">(±5s)</span></span></div>
+        <div class="sc-row"><span class="k">Fast Seek</span><span class="v"><kbd>⌘←</kbd> <kbd>⌘→</kbd> <span class="muted small">(±20s)</span></span></div>
+        <div class="sc-row"><span class="k">Approve Replacement</span><span class="v"><kbd>↵</kbd> <span class="muted small">Enter</span></span></div>
+        <div class="sc-row"><span class="k">Skip (Keep Original)</span><span class="v"><kbd>⌫</kbd> <span class="muted small">Backspace</span></span></div>
+        <div class="sc-row"><span class="k">Undo Last Decision</span><span class="v"><kbd>Z</kbd> / <kbd>⌘Z</kbd></span></div>
+        <div class="sc-row"><span class="k">Toggle Linked Scrub</span><span class="v"><kbd>L</kbd></span></div>
+        <div class="sc-row"><span class="k">Shortcuts Help</span><span class="v"><kbd>?</kbd> / <kbd>h</kbd></span></div>
+        <div class="sc-row"><span class="k">Dismiss Dialog</span><span class="v"><kbd>Esc</kbd></span></div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn primary" id="rv-shortcuts-close">Close</button>
+      </div>
+    </div>`;
+    document.body.appendChild(root);
+    const close = () => root.remove();
+    root.addEventListener("click", (e) => {
+        const t = e.target;
+        if (t === root || t.closest("#rv-shortcuts-close")) {
+            close();
+        }
+    });
+}
+function removeAnyShortcutsModal() {
+    document.getElementById("rv-shortcuts-modal")?.remove();
 }
 /** Safe teardown for route-level navigation (e.g. leaving the module). */
 export function teardownReview() {
@@ -606,6 +679,9 @@ function initWaveSurfers() {
             checkUsable("original");
         });
     }
+    wsOrig.on("seek", () => {
+        syncSeek(wsOrig, wsStaged, "staged");
+    });
     wsOrig.on("play", () => setGlyph("original", true));
     wsOrig.on("pause", () => setGlyph("original", false));
     wsOrig.on("finish", () => setGlyph("original", false));
@@ -658,10 +734,34 @@ function initWaveSurfers() {
             checkUsable("staged");
         });
     }
+    wsStaged.on("seek", () => {
+        syncSeek(wsStaged, wsOrig, "original");
+    });
     wsStaged.on("play", () => setGlyph("staged", true));
     wsStaged.on("pause", () => setGlyph("staged", false));
     wsStaged.on("finish", () => setGlyph("staged", false));
     wsStaged.on("error", (err) => console.error("Staged WaveSurfer error:", err));
+}
+function syncSeek(sourceWs, targetWs, targetDeck) {
+    if (!linkedScrub || isSyncingSeek || !targetWs)
+        return;
+    if (!isUsable(targetDeck))
+        return;
+    const durSrc = sourceWs.getDuration();
+    const durTgt = targetWs.getDuration();
+    if (durSrc <= 0 || durTgt <= 0)
+        return;
+    const time = sourceWs.getCurrentTime();
+    isSyncingSeek = true;
+    try {
+        targetWs.setTime(Math.max(0, Math.min(durTgt, time)));
+    }
+    catch {
+        /* best effort */
+    }
+    finally {
+        isSyncingSeek = false;
+    }
 }
 function setGlyph(deck, playing) {
     const fn = window.__setPlayGlyph;
@@ -783,7 +883,7 @@ async function loadTrack(index) {
     const ls = id("#rv-s-load");
     if (lo) {
         lo.classList.remove("hidden");
-        lo.textContent = "Loading original audio…";
+        lo.innerHTML = skeletonHtml("Loading original audio…");
     }
     [["#rv-o-dur2", "00:00"], ["#rv-o-time", "00:00"]].forEach(([sel, txt]) => {
         const h = id(sel);
@@ -878,7 +978,7 @@ async function loadTrack(index) {
     if (track.status === "downloaded") {
         if (ls) {
             ls.classList.remove("hidden");
-            ls.textContent = "Loading upgrade audio…";
+            ls.innerHTML = skeletonHtml("Loading upgrade audio…");
         }
         playS?.removeAttribute("disabled");
         const stagedRel = le.proxy_path || le.staged_path;
@@ -1002,6 +1102,8 @@ async function approveCurrent() {
     const track = queue[currentIndex];
     if (!track)
         return;
+    const prevDecision = decide(track);
+    decisionHistory.push({ index: currentIndex, prevDecision });
     const d = track.status === "downloaded" || hasShazamMeta(track) ? "approved" : "skipped";
     await saveDecision(track.relPath, d);
     pauseAll();
@@ -1017,6 +1119,8 @@ async function skipCurrent() {
     const track = queue[currentIndex];
     if (!track)
         return;
+    const prevDecision = decide(track);
+    decisionHistory.push({ index: currentIndex, prevDecision });
     await saveDecision(track.relPath, "skipped");
     pauseAll();
     updateQueueRow(currentIndex);
@@ -1027,13 +1131,28 @@ async function skipCurrent() {
     else
         scrollActiveIntoView();
 }
+async function undoLastDecision() {
+    if (decisionHistory.length === 0)
+        return;
+    const last = decisionHistory.pop();
+    const track = queue[last.index];
+    if (!track)
+        return;
+    await saveDecision(track.relPath, last.prevDecision);
+    pauseAll();
+    updateQueueRow(last.index);
+    refreshDock();
+    await loadTrack(last.index);
+}
 async function clearCategory(cat, approve) {
     let changed = false;
-    for (const item of queue) {
+    for (let idx = 0; idx < queue.length; idx++) {
+        const item = queue[idx];
         if (getItemCategory(item) !== cat)
             continue;
         if (decide(item) !== "pending")
             continue;
+        decisionHistory.push({ index: idx, prevDecision: decide(item) });
         let d;
         if (approve)
             d = item.status === "downloaded" || hasShazamMeta(item) ? "approved" : "skipped";
@@ -1478,8 +1597,30 @@ window.addEventListener("keydown", (e) => {
     const ae = document.activeElement;
     if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT"))
         return;
+    if (document.getElementById("rv-shortcuts-modal")) {
+        if (e.key === "Escape" || e.key === "?" || e.key === "h" || e.key === "H") {
+            e.preventDefault();
+            removeAnyShortcutsModal();
+            return;
+        }
+    }
     if (anyModalOpen())
         return;
+    if (e.key === "?" || ((e.key === "h" || e.key === "H") && !e.metaKey && !e.ctrlKey)) {
+        e.preventDefault();
+        openShortcutsModal();
+        return;
+    }
+    if ((e.key === "z" || e.key === "Z") && !e.shiftKey) {
+        e.preventDefault();
+        void undoLastDecision();
+        return;
+    }
+    if ((e.key === "l" || e.key === "L") && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        toggleLinkedScrub();
+        return;
+    }
     if (e.key === "Enter")
         e.preventDefault();
     if (currentIndex < 0 || currentIndex >= queue.length)
@@ -1539,4 +1680,9 @@ function seekHand(track, sec) {
     const dur = media?.duration ?? ws.getDuration();
     const next = Math.max(0, Math.min(dur, ws.getCurrentTime() + sec));
     ws.setTime(next);
+    if (linkedScrub && track.status === "downloaded") {
+        const other = ws === wsOrig ? wsStaged : wsOrig;
+        const otherDeck = ws === wsOrig ? "staged" : "original";
+        syncSeek(ws, other, otherDeck);
+    }
 }

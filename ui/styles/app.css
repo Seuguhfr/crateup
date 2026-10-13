@@ -1350,10 +1350,144 @@ input.chk[type="radio"]::after {
 .wav .loading {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   font-size: var(--fs-caption);
   color: var(--text4);
+  gap: 6px;
+  background: var(--canvasBg);
+}
+
+.wave-skeleton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 28px;
+}
+
+.wave-skeleton span {
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--text4);
+  animation: wavePulse 1.2s ease-in-out infinite alternate;
+}
+
+.wave-skeleton span:nth-child(1)  { height: 8px;  animation-delay: 0.1s; }
+.wave-skeleton span:nth-child(2)  { height: 14px; animation-delay: 0.2s; }
+.wave-skeleton span:nth-child(3)  { height: 22px; animation-delay: 0.3s; }
+.wave-skeleton span:nth-child(4)  { height: 16px; animation-delay: 0.15s; }
+.wave-skeleton span:nth-child(5)  { height: 28px; animation-delay: 0.4s; }
+.wave-skeleton span:nth-child(6)  { height: 20px; animation-delay: 0.25s; }
+.wave-skeleton span:nth-child(7)  { height: 12px; animation-delay: 0.05s; }
+.wave-skeleton span:nth-child(8)  { height: 26px; animation-delay: 0.35s; }
+.wave-skeleton span:nth-child(9)  { height: 18px; animation-delay: 0.2s; }
+.wave-skeleton span:nth-child(10) { height: 24px; animation-delay: 0.45s; }
+.wave-skeleton span:nth-child(11) { height: 15px; animation-delay: 0.1s; }
+.wave-skeleton span:nth-child(12) { height: 22px; animation-delay: 0.3s; }
+.wave-skeleton span:nth-child(13) { height: 10px; animation-delay: 0.15s; }
+.wave-skeleton span:nth-child(14) { height: 19px; animation-delay: 0.25s; }
+.wave-skeleton span:nth-child(15) { height: 25px; animation-delay: 0.4s; }
+.wave-skeleton span:nth-child(16) { height: 16px; animation-delay: 0.1s; }
+.wave-skeleton span:nth-child(17) { height: 22px; animation-delay: 0.35s; }
+.wave-skeleton span:nth-child(18) { height: 12px; animation-delay: 0.2s; }
+.wave-skeleton span:nth-child(19) { height: 20px; animation-delay: 0.3s; }
+.wave-skeleton span:nth-child(20) { height: 14px; animation-delay: 0.15s; }
+.wave-skeleton span:nth-child(21) { height: 24px; animation-delay: 0.45s; }
+.wave-skeleton span:nth-child(22) { height: 18px; animation-delay: 0.25s; }
+.wave-skeleton span:nth-child(23) { height: 10px; animation-delay: 0.05s; }
+.wave-skeleton span:nth-child(24) { height: 16px; animation-delay: 0.2s; }
+.wave-skeleton span:nth-child(25) { height: 8px;  animation-delay: 0.1s; }
+
+@keyframes wavePulse {
+  0% {
+    transform: scaleY(0.4);
+    opacity: 0.35;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0.85;
+  }
+}
+
+.link-btn {
+  appearance: none;
+  border: 1px solid var(--btnBorder);
+  background: var(--fieldBg);
+  color: var(--text3);
+  font: var(--fs-micro) var(--mono);
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.link-btn:hover {
+  color: var(--text);
+  background: var(--segBg);
+}
+
+.link-btn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.link-btn.on b {
+  color: var(--accent);
+}
+
+.help-btn {
+  appearance: none;
+  border: 1px solid var(--btnBorder);
+  background: var(--fieldBg);
+  color: var(--text3);
+  font: 600 var(--fs-micro) var(--mono);
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.help-btn:hover {
+  color: var(--text);
+  background: var(--segBg);
+}
+
+.shortcut-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0;
+}
+
+.sc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-label);
+}
+
+.sc-row:last-child {
+  border-bottom: none;
+}
+
+.sc-keys {
+  display: flex;
+  gap: 4px;
+}
+
+.sc-desc {
+  color: var(--text2);
 }
 
 .tr {
@@ -1676,6 +1810,8 @@ a.nv,
 .tree-toggle,
 .select-all-row,
 .pop,
+.link-btn,
+.help-btn,
 .chk {
   cursor: pointer;
 }
