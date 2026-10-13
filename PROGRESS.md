@@ -26,9 +26,9 @@ Library Audit (enforce folder-database invariants).
 |---|---|
 | UI typecheck + build | `npm run build:ui` (`tsc -p ui/tsconfig.json` → `ui/out/main.js`; no bundler) |
 | Setup Python runtime | `npm run setup:python` (bootstraps standalone CPython 3.12 for Apple Silicon) |
-| JS tests | `npx jest` (17 suites / 51 tests passed) |
+| JS tests | `npx jest` (17 suites / 52 tests passed) |
 | Rust check | `cargo check` (run in `src-tauri/`; 0 warnings) |
-| Rust tests | `cargo test` (in `src-tauri/`; 17 passed) |
+| Rust tests | `cargo test` (in `src-tauri/`; 18 passed) |
 | Dev app | `npm run tauri dev` |
 | Release bundle | `npm run tauri build` (produces self-contained `.app` and `.dmg`) |
 | Python tests | `python-runtime/bin/pytest tests/` (9 passed) |
@@ -81,6 +81,10 @@ lives in exactly one place (`ledger.js`); commit.js resolves via caller.
 
 ## 5. Done recently (deep review remediation & stability sweep)
 
+- **Pre-download duplicate reuse in pipeline (§3.4 SPEC.md)**: Added `findExistingStagedDownload` to `node-sidecar/pipeline.js` to look up previously downloaded tracks with the same `deezerId` within the current session, copying the staged file and proxy without re-downloading or triggering redundant rate-limit throttling. Added unit tests in `tests/pipeline.test.js`.
+- **Upgrader Rekordbox XML export option (§6.5 SPEC.md)**: Implemented `update_rekordbox_xml` in `src-tauri/src/xml.rs` (registered in `tauri::generate_handler!` and UI `api.ts`), added `commit-rekordbox-action` radio option ("Export upgraded XML") in `ui/src/upgrader/review.ts` when source is XML, and displayed output path upon completion. Tested with `test_update_rekordbox_xml`.
+- **Incremental review queue DOM updates (§2.2 Review screen)**: Implemented `updateQueueRow(index)` in `ui/src/upgrader/review.ts` to perform targeted updates to row status badges, category header counters, and docking state on track approvals and skips, removing full-DOM `#insp-body` wipes and keeping UI interaction at 60 FPS.
+- **Atomic Rust ledger decision writes**: Implemented `atomic_write_file` in `src-tauri/src/lib.rs` using `.tmp.<pid>.<nanos>` files and atomic POSIX renames, eliminating risks of partial ledger corruption during rapid UI decision recording.
 - **Multi-release duration matching (§3.5 SPEC.md)**: Updated `search_deezer` in `python-sidecar/fingerprint.py` to compare candidate track durations against probed original duration and pick the release with minimal absolute delta, preventing radio edits from replacing extended club mixes. Added automated Pytest test suite.
 - **Original metadata tag merging (§5.1 SPEC.md)**: Implemented `getAudioTags` and `mergeOriginalTags` in `node-sidecar/commit.js` to extract original comments, genres, and ratings via FFprobe and transplant them into staged replacements before atomic swap into place. Added unit tests in `tests/commit.test.js`.
 - **AIFF proxy MP3 filename alignment**: Synchronously renamed `.proxy.mp3` waveform preview files alongside their main staged audio files in `node-sidecar/pipeline.js` and `node-sidecar/refetch.js`.

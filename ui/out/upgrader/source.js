@@ -303,7 +303,9 @@ async function xmlFlow() {
     const pick = await pickPlaylist("Select Playlist to Upgrade", tree);
     if (!pick)
         throw new Error("cancelled");
-    return resolvePlaylistSession("xml", pick, () => fetchTrackList({ kind: "xml", xmlPath }, pick.name, pick.nodeType));
+    const res = await resolvePlaylistSession("xml", pick, () => fetchTrackList({ kind: "xml", xmlPath }, pick.name, pick.nodeType));
+    res.xmlPath = xmlPath;
+    return res;
 }
 async function dbFlow() {
     const tree = await loadPlaylistTree({ kind: "db" });
@@ -465,6 +467,7 @@ export function renderSourceScreen(el, onResolved, onError) {
                 sourceKind: res.sourceKind,
                 isSessionDir: res.isSessionDir,
                 outputFormat: res.existing?.output_format ?? null,
+                xmlPath: res.xmlPath ?? null,
             });
             onResolved(res);
         }

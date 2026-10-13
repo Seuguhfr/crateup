@@ -40,6 +40,7 @@ export interface SourceResolution {
   sourceKind: SourceKind;
   isSessionDir: boolean;
   existing: Ledger | null;
+  xmlPath?: string | null;
 }
 
 interface PlaylistPick {
@@ -380,9 +381,11 @@ async function xmlFlow(): Promise<SourceResolution> {
   const pick = await pickPlaylist("Select Playlist to Upgrade", tree);
   if (!pick) throw new Error("cancelled");
 
-  return resolvePlaylistSession("xml", pick, () =>
+  const res = await resolvePlaylistSession("xml", pick, () =>
     fetchTrackList({ kind: "xml", xmlPath }, pick.name, pick.nodeType),
   );
+  res.xmlPath = xmlPath;
+  return res;
 }
 
 async function dbFlow(): Promise<SourceResolution> {
@@ -555,6 +558,7 @@ export function renderSourceScreen(
         sourceKind: res.sourceKind,
         isSessionDir: res.isSessionDir,
         outputFormat: res.existing?.output_format ?? null,
+        xmlPath: res.xmlPath ?? null,
       });
       onResolved(res);
     } catch (err) {

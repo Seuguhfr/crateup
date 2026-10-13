@@ -84,4 +84,21 @@ describe('Pipeline Loop Orchestrator', () => {
     const diskLedger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
     expect(diskLedger.files['/normal.mp3'].status).toBe('downloaded');
   });
+
+  test('reuses already staged file for duplicate Deezer IDs without second download call', async () => {
+    const file1 = path.join(testRoot, 'track1.mp3');
+    const file2 = path.join(testRoot, 'track2.mp3');
+    fs.writeFileSync(file1, 'dummy');
+    fs.writeFileSync(file2, 'dummy');
+
+    const ledger = await runPipeline(testRoot, 'flac', [file1, file2]);
+
+    expect(ledger.files['/track1.mp3'].status).toBe('downloaded');
+    expect(ledger.files['/track2.mp3'].status).toBe('downloaded');
+    expect(ledger.files['/track1.mp3'].deezer_id).toBe(12345);
+    expect(ledger.files['/track2.mp3'].deezer_id).toBe(12345);
+
+    expect(fs.existsSync(ledger.files['/track1.mp3'].staged_path)).toBe(true);
+    expect(fs.existsSync(ledger.files['/track2.mp3'].staged_path)).toBe(true);
+  });
 });

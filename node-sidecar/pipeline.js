@@ -110,6 +110,29 @@ function handleExitSignal(sig) {
 process.once('SIGTERM', () => handleExitSignal('SIGTERM'));
 process.once('SIGINT', () => handleExitSignal('SIGINT'));
 
+function findExistingStagedDownload(ledger, deezerId, rootPath) {
+  if (!deezerId || !ledger || !ledger.files) return null;
+  for (const relPath in ledger.files) {
+    const entry = ledger.files[relPath];
+    if (entry.deezer_id === deezerId && entry.status === 'downloaded' && entry.staged_path) {
+      const candidatePath = path.isAbsolute(entry.staged_path)
+        ? entry.staged_path
+        : path.join(rootPath, entry.staged_path);
+      if (fs.existsSync(candidatePath)) {
+        return {
+          stagedPath: candidatePath,
+          proxyPath: entry.proxy_path
+            ? (path.isAbsolute(entry.proxy_path) ? entry.proxy_path : path.join(rootPath, entry.proxy_path))
+            : null,
+          matchedArtist: entry.artist,
+          matchedTitle: entry.title
+        };
+      }
+    }
+  }
+  return null;
+}
+
 async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQuality = false, skipDeezerMax = false) {
   log(`Starting pipeline for root: ${rootPath}, format: ${outputFormat}`);
   
@@ -231,18 +254,31 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
       const relativeStaged = 'crateup-staging/' + safeBase + '.' + outputFormat;
       const stagedAbsPath = path.join(rootPath, relativeStaged);
       
+      // Check for duplicate download in current session (§3.4 SPEC.md)
+      const existingDownload = findExistingStagedDownload(ledger, deezerId, rootPath);
       let downloadResult;
-      try {
-        await deezerThrottle.throttle();
-        downloadResult = await bridge.call('download', {
-          deezer_id: deezerId,
-          output_format: outputFormat,
-          staged_path: stagedAbsPath
-        });
-      } catch (err) {
-        log(`Download failed for ${relPath}: ${err.message}. Retrying in 10 seconds...`);
-        await new Promise(resolve => setTimeout(resolve, process.env.NODE_ENV === 'test' ? 0 : 10000));
-        
+
+      if (existingDownload) {
+        log(`Track already downloaded in session (Deezer ID: ${deezerId}). Reusing staged file.`);
+        writeSessionLog(rootPath, 'DUPLICATE', `${matchedArtist} - ${matchedTitle}  →  reused staged download from Deezer ID ${deezerId}`);
+        if (existingDownload.stagedPath !== stagedAbsPath) {
+          fs.mkdirSync(path.dirname(stagedAbsPath), { recursive: true });
+          fs.copyFileSync(existingDownload.stagedPath, stagedAbsPath);
+        }
+        let reusedProxy = null;
+        if (existingDownload.proxyPath && fs.existsSync(existingDownload.proxyPath)) {
+          const extStaged = path.extname(stagedAbsPath);
+          const targetProxy = stagedAbsPath.slice(0, -extStaged.length) + '.proxy.mp3';
+          if (existingDownload.proxyPath !== targetProxy) {
+            fs.copyFileSync(existingDownload.proxyPath, targetProxy);
+          }
+          reusedProxy = targetProxy;
+        }
+        downloadResult = {
+          staged_path: stagedAbsPath,
+          proxy_path: reusedProxy
+        };
+      } else {
         try {
           await deezerThrottle.throttle();
           downloadResult = await bridge.call('download', {
@@ -250,11 +286,23 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
             output_format: outputFormat,
             staged_path: stagedAbsPath
           });
-        } catch (retryErr) {
-          log(`Retry download failed for ${relPath}: ${retryErr.message}. Marking as download_failed.`);
-          ledger.files[relPath].status = 'download_failed';
-          saveLedger(rootPath, ledger);
-          continue;
+        } catch (err) {
+          log(`Download failed for ${relPath}: ${err.message}. Retrying in 10 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, process.env.NODE_ENV === 'test' ? 0 : 10000));
+          
+          try {
+            await deezerThrottle.throttle();
+            downloadResult = await bridge.call('download', {
+              deezer_id: deezerId,
+              output_format: outputFormat,
+              staged_path: stagedAbsPath
+            });
+          } catch (retryErr) {
+            log(`Retry download failed for ${relPath}: ${retryErr.message}. Marking as download_failed.`);
+            ledger.files[relPath].status = 'download_failed';
+            saveLedger(rootPath, ledger);
+            continue;
+          }
         }
       }
       

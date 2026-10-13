@@ -132,6 +132,28 @@ pub(crate) fn safe_move_file(src: &std::path::Path, dst: &std::path::Path) -> st
     Ok(())
 }
 
+pub(crate) fn atomic_write_file(target_path: &std::path::Path, content: &str) -> Result<(), String> {
+    let parent = target_path.parent().unwrap_or(std::path::Path::new("."));
+    if !parent.exists() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let file_stem = target_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file");
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let tmp_path = parent.join(format!("{}.tmp.{}.{}", file_stem, std::process::id(), nanos));
+    std::fs::write(&tmp_path, content).map_err(|e| e.to_string())?;
+    if let Err(e) = std::fs::rename(&tmp_path, target_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("Failed to atomically rename file: {}", e));
+    }
+    Ok(())
+}
+
 async fn run_node_script(app: &tauri::AppHandle, script: &str) -> Result<String, String> {
     let node_sidecar_dir = resolve_node_sidecar_dir(app)?;
     let new_path = build_sidecar_env_path(app, &node_sidecar_dir);
@@ -238,7 +260,7 @@ fn read_ledger_file(ledger_path: String) -> Result<String, String> {
     
     if modified {
         let updated = serde_json::to_string_pretty(&val).map_err(|e| e.to_string())?;
-        std::fs::write(&ledger_path, &updated).map_err(|e| e.to_string())?;
+        atomic_write_file(std::path::Path::new(&ledger_path), &updated)?;
         Ok(updated)
     } else {
         Ok(content)
@@ -247,11 +269,7 @@ fn read_ledger_file(ledger_path: String) -> Result<String, String> {
 
 #[tauri::command]
 fn write_ledger_file(ledger_path: String, content: String) -> Result<(), String> {
-    if let Some(parent) = std::path::Path::new(&ledger_path).parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&ledger_path, content).map_err(|e| e.to_string())?;
-    Ok(())
+    atomic_write_file(std::path::Path::new(&ledger_path), &content)
 }
 
 #[tauri::command]
@@ -412,7 +430,7 @@ fn save_ledger_decision(
     }
     
     let updated = serde_json::to_string_pretty(&ledger_json).map_err(|e| e.to_string())?;
-    std::fs::write(&ledger_path, updated).map_err(|e| e.to_string())?;
+    atomic_write_file(std::path::Path::new(&ledger_path), &updated)?;
     
     Ok(())
 }
@@ -1045,7 +1063,8 @@ pub fn run() {
             audit::audit_library,
             audit::audit_suggested_roots,
             audit::delete_audit_paths,
-            audit::remove_empty_folders
+            audit::remove_empty_folders,
+            xml::update_rekordbox_xml
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

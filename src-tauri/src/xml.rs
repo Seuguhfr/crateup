@@ -362,6 +362,17 @@ fn clean_fuzzy(s: &str) -> String {
     cleaned
 }
 
+const PATH_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}');
+
 fn encode_location(path: &std::path::Path) -> String {
     let path_str = path.to_string_lossy();
     let normalized = path_str.replace('\\', "/");
@@ -371,7 +382,7 @@ fn encode_location(path: &std::path::Path) -> String {
             if seg.is_empty() {
                 String::new()
             } else {
-                percent_encoding::utf8_percent_encode(seg, percent_encoding::NON_ALPHANUMERIC).to_string()
+                percent_encoding::utf8_percent_encode(seg, PATH_ENCODE_SET).to_string()
             }
         })
         .collect();
@@ -1929,6 +1940,147 @@ pub async fn execute_playlist_ingestion(
     })
 }
 
+#[tauri::command]
+pub async fn update_rekordbox_xml(
+    xml_path: String,
+    ledger_path: String,
+    decisions: std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let xml_p = std::path::Path::new(&xml_path);
+        if !xml_p.exists() {
+            return Err(format!("Rekordbox XML not found at {}", xml_path));
+        }
+
+        let ledger_content = std::fs::read_to_string(&ledger_path)
+            .map_err(|e| format!("Failed to read ledger {}: {}", ledger_path, e))?;
+        let ledger: serde_json::Value = serde_json::from_str(&ledger_content)
+            .map_err(|e| format!("Failed to parse ledger JSON: {}", e))?;
+
+        let root_path = ledger.get("root_path").and_then(|v| v.as_str()).unwrap_or("");
+        let output_format = ledger.get("output_format").and_then(|v| v.as_str()).unwrap_or("flac");
+        let files = ledger.get("files").and_then(|v| v.as_object())
+            .ok_or_else(|| "Missing files object in ledger".to_string())?;
+
+        // Build mapping: normalized original path -> new target path
+        let mut approved_remapping: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+
+        for (rel_path, entry_val) in files {
+            let decision = decisions.get(rel_path).map(|s| s.as_str()).unwrap_or("skipped");
+            if decision != "approved" {
+                continue;
+            }
+
+            let entry = match entry_val.as_object() {
+                Some(e) => e,
+                None => continue,
+            };
+
+            let orig_abs_str = if let Some(orig_saved) = entry.get("original_abs_path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                orig_saved.to_string()
+            } else {
+                std::path::Path::new(root_path).join(rel_path.trim_start_matches('/')).to_string_lossy().to_string()
+            };
+
+            let orig_p = std::path::Path::new(&orig_abs_str);
+
+            let new_path_buf = if let Some(committed_out) = entry.get("output_path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                std::path::PathBuf::from(committed_out)
+            } else {
+                let status = entry.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                let staged_path = entry.get("staged_path").and_then(|v| v.as_str()).unwrap_or("");
+                let ext = orig_p.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let new_ext = if status == "downloaded" && !staged_path.is_empty() {
+                    let sp = std::path::Path::new(staged_path);
+                    sp.extension().and_then(|e| e.to_str()).unwrap_or(output_format)
+                } else {
+                    ext
+                };
+                orig_p.with_extension(new_ext)
+            };
+
+            approved_remapping.insert(norm_fs_path(orig_p), new_path_buf.clone());
+            approved_remapping.insert(orig_p.to_string_lossy().to_string(), new_path_buf.clone());
+            approved_remapping.insert(orig_p.to_string_lossy().to_lowercase(), new_path_buf);
+        }
+
+        let file = std::fs::File::open(&xml_p).map_err(|e| format!("Failed to open XML: {}", e))?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut xml_out = String::new();
+        let mut line_buf = String::new();
+        let mut in_track = false;
+        let mut track_buf = String::new();
+
+        while reader.read_line(&mut line_buf).map_err(|e| e.to_string())? > 0 {
+            let trimmed = line_buf.trim();
+
+            if !in_track {
+                if trimmed.contains("<TRACK ") || trimmed.contains("<TRACK>") {
+                    in_track = true;
+                    track_buf.clear();
+                    track_buf.push_str(&line_buf);
+                } else {
+                    xml_out.push_str(&line_buf);
+                }
+            } else {
+                track_buf.push_str(&line_buf);
+            }
+
+            if in_track && line_buf.contains('>') {
+                let trimmed_track = track_buf.trim();
+                let mut line_written = false;
+
+                if let Some(location_str) = extract_attribute(trimmed_track, "Location") {
+                    if let Some(decoded_path) = decode_location(&location_str) {
+                        let decoded_p = std::path::Path::new(&decoded_path);
+                        let norm = norm_fs_path(decoded_p);
+                        let lower = decoded_p.to_string_lossy().to_lowercase();
+
+                        let target_path_opt = approved_remapping.get(&norm)
+                            .or_else(|| approved_remapping.get(&decoded_path))
+                            .or_else(|| approved_remapping.get(&lower));
+
+                        if let Some(target_path) = target_path_opt {
+                            let old_location_attr = format!("Location=\"{}\"", location_str);
+                            let new_location_attr = format!("Location=\"{}\"", encode_location(target_path));
+                            let updated_track = track_buf.replace(&old_location_attr, &new_location_attr);
+                            xml_out.push_str(&updated_track);
+                            line_written = true;
+                        }
+                    }
+                }
+
+                if !line_written {
+                    xml_out.push_str(&track_buf);
+                }
+
+                in_track = false;
+                track_buf.clear();
+            }
+
+            line_buf.clear();
+        }
+
+        if in_track && !track_buf.is_empty() {
+            xml_out.push_str(&track_buf);
+        }
+
+        let xml_dir = xml_p.parent().unwrap_or(std::path::Path::new("."));
+        let date_str = if let Ok(out) = std::process::Command::new("/bin/date").arg("+%Y-%m-%d").output() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() { s } else { "upgraded".to_string() }
+        } else {
+            "upgraded".to_string()
+        };
+        let out_filename = format!("rekordbox_upgraded_{}.xml", date_str);
+        let out_path = xml_dir.join(out_filename);
+
+        crate::atomic_write_file(&out_path, &xml_out)?;
+
+        Ok(out_path.to_string_lossy().to_string())
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1988,5 +2140,59 @@ mod tests {
         assert_eq!(clean_fuzzy("Destination Calabria (Original Mix)"), "destinationcalabria");
         assert_eq!(clean_fuzzy("Destination Calabria [Extended Mix]"), "destinationcalabria");
         assert_eq!(clean_fuzzy("Alex Gaudino"), "alexgaudino");
+    }
+
+    #[test]
+    fn test_update_rekordbox_xml() {
+        let temp_dir = std::env::temp_dir().join(format!("test_upg_xml_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let orig_xml_path = temp_dir.join("collection.xml");
+        let xml_content = r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <COLLECTION Entries="2">
+    <TRACK TrackID="1" Name="Song One" Location="file://localhost/Music/OldSong1.mp3" />
+    <TRACK TrackID="2" Name="Song Two" Location="file://localhost/Music/OldSong2.mp3" />
+  </COLLECTION>
+</DJ_PLAYLISTS>"#;
+        std::fs::write(&orig_xml_path, xml_content).unwrap();
+
+        let ledger_path = temp_dir.join(".crateup-progress.json");
+        let ledger_content = r#"{
+  "session_id": "test-session",
+  "root_path": "/Music",
+  "output_format": "flac",
+  "files": {
+    "/OldSong1.mp3": {
+      "status": "downloaded",
+      "original_abs_path": "/Music/OldSong1.mp3",
+      "output_path": "/Music/NewSong1.flac"
+    },
+    "/OldSong2.mp3": {
+      "status": "downloaded",
+      "original_abs_path": "/Music/OldSong2.mp3",
+      "output_path": "/Music/NewSong2.flac"
+    }
+  }
+}"#;
+        std::fs::write(&ledger_path, ledger_content).unwrap();
+
+        let mut decisions = std::collections::HashMap::new();
+        decisions.insert("/OldSong1.mp3".to_string(), "approved".to_string());
+        decisions.insert("/OldSong2.mp3".to_string(), "skipped".to_string());
+
+        let upgraded_path_str = tauri::async_runtime::block_on(update_rekordbox_xml(
+            orig_xml_path.to_string_lossy().to_string(),
+            ledger_path.to_string_lossy().to_string(),
+            decisions,
+        )).unwrap();
+
+        let upgraded_xml = std::fs::read_to_string(&upgraded_path_str).unwrap();
+        // Song 1 should have updated Location with flac
+        assert!(upgraded_xml.contains("Location=\"file://localhost/Music/NewSong1.flac\""));
+        // Song 2 was skipped, so Location remains OldSong2.mp3
+        assert!(upgraded_xml.contains("Location=\"file://localhost/Music/OldSong2.mp3\""));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

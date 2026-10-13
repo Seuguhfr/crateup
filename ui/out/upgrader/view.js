@@ -39,6 +39,7 @@ async function resumeStoredSession(el) {
         sourceKind: s.sourceKind ?? "folder",
         isSessionDir: s.isSessionDir,
         existing: ledger,
+        xmlPath: s.xmlPath ?? null,
     }, null);
     return true;
 }
@@ -182,6 +183,7 @@ export async function startFileListSession(el, name, paths) {
         sourceKind: res.sourceKind,
         isSessionDir: res.isSessionDir,
         outputFormat: res.existing?.output_format ?? null,
+        xmlPath: res.xmlPath ?? null,
     });
     enterConfigure(el, res, null);
     return true;

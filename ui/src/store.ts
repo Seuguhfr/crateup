@@ -36,6 +36,7 @@ export interface Session {
   status: SessionStatus;
   hasFollowUps: boolean;
   updatedAt: number;
+  xmlPath?: string | null;
 }
 
 /** View of the current session used by existing call sites. */
@@ -53,6 +54,7 @@ export interface OpenSessionInput {
   sourceKind?: SourceKind | null;
   isSessionDir?: boolean;
   outputFormat?: string | null;
+  xmlPath?: string | null;
 }
 
 type Listener = () => void;
@@ -232,6 +234,7 @@ export function openSession(input: OpenSessionInput): Session {
     if (input.sourceKind) resumed.sourceKind = input.sourceKind;
     resumed.isSessionDir = input.isSessionDir ?? resumed.isSessionDir;
     if (input.outputFormat !== undefined) resumed.outputFormat = input.outputFormat;
+    if (input.xmlPath !== undefined) resumed.xmlPath = input.xmlPath ?? null;
     resumed.updatedAt = now;
     currentId = resumed.id;
     persistSessions();
@@ -252,6 +255,7 @@ export function openSession(input: OpenSessionInput): Session {
     status: "active",
     hasFollowUps: false,
     updatedAt: now,
+    xmlPath: input.xmlPath ?? null,
   };
   sessions.push(session);
   currentId = session.id;

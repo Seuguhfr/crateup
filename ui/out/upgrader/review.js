@@ -2,7 +2,7 @@
    and the commit phase. Reads the ledger fresh on every paint so a
    re-render mid-review (or a crash recovery) resumes exactly where
    the user left off. */
-import { checkRekordboxStatus, commitChanges, convertFileSrc, downloadTrackById, getFileSize, identifyTrack, isTauri, readLedgerFile, resetSession, saveLedgerDecision, selectOutputDirectory, updateRekordboxDbDirectly, } from "../api.js";
+import { checkRekordboxStatus, commitChanges, convertFileSrc, downloadTrackById, getFileSize, identifyTrack, isTauri, readLedgerFile, resetSession, saveLedgerDecision, selectOutputDirectory, updateRekordboxDbDirectly, updateRekordboxXml, } from "../api.js";
 import { clearSession, setSession } from "../store.js";
 import { renderDock, renderInspector, renderUpgraderStage, } from "../chrome.js";
 import { esc, fmtBytes, fmtTime, joinPath, isLosslessExt, } from "./utils.js";
@@ -256,6 +256,35 @@ function renderQueue() {
      </div>` +
             CATEGORY_ORDER.map(queueGroupHtml).join("");
     bindQueue(body);
+}
+function updateQueueRow(index) {
+    const item = queue[index];
+    if (!item)
+        return;
+    const row = document.querySelector(`#insp-body .qr[data-idx="${index}"]`);
+    if (row) {
+        const badge = statusBadge(item);
+        const existingBadge = row.querySelector(".sc");
+        if (existingBadge) {
+            existingBadge.outerHTML = badge;
+        }
+        else {
+            row.insertAdjacentHTML("beforeend", badge);
+        }
+    }
+    const cat = getItemCategory(item);
+    const catGroup = document.querySelector(`#insp-body .qg[data-cat="${cat}"]`);
+    if (catGroup) {
+        const catItems = queue.filter((i) => getItemCategory(i) === cat);
+        const total = catItems.length;
+        const done = catItems.filter((i) => decide(i) !== "pending").length;
+        const cnt = catGroup.querySelector(".cnt");
+        if (cnt)
+            cnt.textContent = `${done}/${total}`;
+        if (done >= total) {
+            catGroup.querySelector(".qg-acts")?.remove();
+        }
+    }
 }
 function countReviewed() {
     return queue.filter((item) => decide(item) !== "pending").length;
@@ -884,7 +913,7 @@ async function loadTrack(index) {
         }
         catch { /* error listeners surface load failures */ }
     }, 8000);
-    renderQueue();
+    highlightActive();
     refreshDock();
 }
 function highlightActive() {
@@ -944,7 +973,7 @@ async function approveCurrent() {
     const d = track.status === "downloaded" || hasShazamMeta(track) ? "approved" : "skipped";
     await saveDecision(track.relPath, d);
     pauseAll();
-    renderQueue();
+    updateQueueRow(currentIndex);
     refreshDock();
     const next = getNextInCategory(currentIndex);
     if (next !== -1)
@@ -958,7 +987,7 @@ async function skipCurrent() {
         return;
     await saveDecision(track.relPath, "skipped");
     pauseAll();
-    renderQueue();
+    updateQueueRow(currentIndex);
     refreshDock();
     const next = getNextInCategory(currentIndex);
     if (next !== -1)
@@ -1151,6 +1180,7 @@ function openCommitModal() {
     const root = document.createElement("div");
     root.className = "modal-backdrop show";
     const isDb = res.sourceKind === "db";
+    const isXml = res.sourceKind === "xml" && !!res.xmlPath;
     const defaultSuggestion = suggestedDestPath(res.rootPath);
     root.innerHTML = `
     <div class="modal" role="dialog" aria-label="Apply changes">
@@ -1179,8 +1209,13 @@ function openCommitModal() {
           <input type="radio" class="chk" name="commit-rekordbox-action" value="db" ${isDb ? "checked" : "disabled"} />
           <span class="of">Update database directly<span class="ob">Syncs rewritten track paths straight into master.db. Only available when the source is the live database.</span></span>
         </label>
+        ${isXml ? `
         <label class="opt">
-          <input type="radio" class="chk" name="commit-rekordbox-action" value="none" ${isDb ? "" : "checked"} />
+          <input type="radio" class="chk" name="commit-rekordbox-action" value="xml" checked />
+          <span class="of">Export upgraded XML<span class="ob">Generates a new Rekordbox XML with updated track paths and lossless audio specs.</span></span>
+        </label>` : ""}
+        <label class="opt">
+          <input type="radio" class="chk" name="commit-rekordbox-action" value="none" ${isDb || isXml ? "" : "checked"} />
           <span class="of">Leave Rekordbox alone<span class="ob">Files move on disk; Rekordbox is not touched.</span></span>
         </label>
         <p id="commit-rekordbox-lock-warning" class="warn-text hidden" style="margin:6px 0 0">Rekordbox is running. Close it before updating the database, or choose “Leave Rekordbox alone”.</p>
@@ -1278,6 +1313,7 @@ async function runCommit(closeModal) {
         decisions[item.relPath] = decide(item) || "skipped";
     });
     let commitResult = null;
+    let exportedXmlPath = null;
     try {
         setCommitStatus(backdrop, "Applying high-quality replacements to your library files. Please do not close the app.");
         commitResult = await commitChanges(res.ledgerPath, decisions, outputPath, strategy);
@@ -1285,7 +1321,11 @@ async function runCommit(closeModal) {
             setCommitStatus(backdrop, "Updating Rekordbox library directly…");
             await updateRekordboxDbDirectly(res.ledgerPath, decisions, outputPath, strategy);
         }
-        renderCommitResult(backdrop, commitResult.committed, commitResult.skipped, commitResult.failed, rbAction === "db" && res.sourceKind === "db");
+        else if (rbAction === "xml" && res.sourceKind === "xml" && res.xmlPath) {
+            setCommitStatus(backdrop, "Exporting upgraded Rekordbox XML…");
+            exportedXmlPath = await updateRekordboxXml(res.xmlPath, res.ledgerPath, decisions);
+        }
+        renderCommitResult(backdrop, commitResult.committed, commitResult.skipped, commitResult.failed, rbAction === "db" && res.sourceKind === "db", undefined, exportedXmlPath);
     }
     catch (err) {
         const committed = commitResult ? commitResult.committed : 0;
@@ -1330,7 +1370,7 @@ function setCommitStatus(root, text) {
     if (el)
         el.textContent = text;
 }
-function renderCommitResult(root, committed, skipped, failed, dbUpdated, error) {
+function renderCommitResult(root, committed, skipped, failed, dbUpdated, error, xmlExportPath) {
     const title = root.querySelector("#rv-commit-title");
     const body = root.querySelector("#rv-commit-body");
     const actions = root.querySelector("#rv-commit-actions");
@@ -1353,6 +1393,7 @@ function renderCommitResult(root, committed, skipped, failed, dbUpdated, error) 
           <div class="stat"><div class="v">${failed.length}</div><div class="l">Failed</div></div>
         </div>
         ${dbUpdated ? `<p class="ok-text small" style="margin:10px 0 0">Rekordbox library updated successfully.</p>` : ""}
+        ${xmlExportPath ? `<p class="ok-text small" style="margin:10px 0 0">Upgraded Rekordbox XML exported to:<br /><code style="font-family:var(--mono);font-size:11px;word-break:break-all">${esc(xmlExportPath)}</code></p>` : ""}
         ${failed.length > 0 ? `
           <div style="max-height:140px;overflow:auto;margin-top:12px;padding:10px 12px;background:var(--red-bg);border:1px solid var(--line2);border-radius:6px">
             <p class="danger-text small" style="margin:0 0 6px">Commit failures</p>

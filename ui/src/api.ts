@@ -288,6 +288,17 @@ export const updateRekordboxDbDirectly = (
     outputStrategy,
   });
 
+export const updateRekordboxXml = (
+  xmlPath: string,
+  ledgerPath: string,
+  decisions: Record<string, string>,
+) =>
+  invoke<string>("update_rekordbox_xml", {
+    xmlPath,
+    ledgerPath,
+    decisions,
+  });
+
 export const checkRekordboxStatus = () =>
   invoke<OpaqueResult>("check_rekordbox_status");
 

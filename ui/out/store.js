@@ -164,6 +164,8 @@ export function openSession(input) {
         resumed.isSessionDir = input.isSessionDir ?? resumed.isSessionDir;
         if (input.outputFormat !== undefined)
             resumed.outputFormat = input.outputFormat;
+        if (input.xmlPath !== undefined)
+            resumed.xmlPath = input.xmlPath ?? null;
         resumed.updatedAt = now;
         currentId = resumed.id;
         persistSessions();
@@ -184,6 +186,7 @@ export function openSession(input) {
         status: "active",
         hasFollowUps: false,
         updatedAt: now,
+        xmlPath: input.xmlPath ?? null,
     };
     sessions.push(session);
     currentId = session.id;

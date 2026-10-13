@@ -133,6 +133,7 @@ All messages are newline-delimited JSON on stdio.
 - [x] Phase 20: Critical data-safety remediation: eliminate pre-rename unlink on in-place metadata tagging (`commit.js`), reorder duplicate swapping to delete old files only after new replacement verification (`xml.rs`, `rekordbox.rs`), and enforce SQLite WAL checkpoint status verification with `-wal` snapshotting on database backup & rollback (`rekordbox.rs`).
 - [x] Phase 21: Embedded standalone Python runtime (Option B): fully self-contained CPython 3.12 bundle for Apple Silicon (`aarch64-apple-darwin`), reproducible `scripts/setup-python-runtime.sh`, packaged in `CrateUp.app/Contents/Resources/_up_/python-runtime`, zero external Python / Homebrew / Xcode CLI dependency.
 - [x] Phase 22: Deep architectural review remediation: multi-release duration matching (§3.5 SPEC.md), original metadata tag merging (§5.1 SPEC.md), AIFF proxy MP3 filename alignment, Rekordbox technical audio properties sync, and SQLCipher test suite (17 Rust / 51 Jest / 9 Pytest passing).
+- [x] Phase 23: Comprehensive review remediation: pipeline duplicate reuse (§3.4), Rekordbox XML export (§6.5), atomic Rust ledger writes, and incremental review DOM updates (18 Rust / 52 Jest / 9 Pytest passing).
 
 ## Session handoff protocol
 At the END of every session, before quitting:
@@ -140,6 +141,15 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Comprehensive Review Remediation:
+- **Pre-download Duplicate Reuse (§3.4 SPEC.md)**: Implemented `findExistingStagedDownload` in `node-sidecar/pipeline.js` to look up previously downloaded tracks with matching `deezerId` within the current session. Reuses existing staged audio and waveform preview proxies without triggering redundant network downloads or anti-ban rate limiting. Added unit test in `tests/pipeline.test.js`.
+- **Upgrader Rekordbox XML Export Option (§6.5 SPEC.md)**: Implemented `update_rekordbox_xml` in `src-tauri/src/xml.rs` using unreserved URI character preservation (`PATH_ENCODE_SET`). Registered Tauri handler in `src-tauri/src/lib.rs` and frontend client in `ui/src/api.ts`. Added "Export upgraded XML" radio option in commit modal (`ui/src/upgrader/review.ts`) when source is XML, updated `ui/src/store.ts`, `ui/src/upgrader/source.ts`, and `ui/src/upgrader/view.ts` to preserve `xmlPath`, and surfaced the output XML path in the commit results modal. Added Rust unit test `test_update_rekordbox_xml`.
+- **Incremental Review Queue DOM Updates**: Implemented `updateQueueRow(index)` in `ui/src/upgrader/review.ts` to perform targeted updates to row status badges, category header counters, and docking summary upon track approvals and skips. Removed destructive `renderQueue()` calls on individual keypresses and track transitions within categories, preserving 60 FPS performance on large libraries.
+- **Atomic Rust Ledger Writes**: Implemented `atomic_write_file` in `src-tauri/src/lib.rs` using `.tmp.<pid>.<nanos>` files and atomic POSIX `fs::rename`, eliminating risk of partial ledger corruption on rapid UI decision saves.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 52 tests pass, `cargo check` 0 warnings, `cargo test` 18 tests pass, `python-runtime/bin/pytest tests/` 9 tests pass.
+- **Next Task**: Field-test native tools with live Rekordbox database and audio files.
+
+## Previous session
 Deep Architectural Review Remediation:
 - **Multi-Release Duration Matching (§3.5 SPEC.md)**: Updated `search_deezer` in `python-sidecar/fingerprint.py` to compare candidate track durations against probed original duration and pick the release with minimal absolute delta, preventing radio edits from replacing extended club mixes. Added `test_search_deezer_multi_release_duration_matching` in `tests/test_fingerprint.py`.
 - **Original Metadata Tag Merging (§5.1 SPEC.md)**: Implemented `getAudioTags` and `mergeOriginalTags` in `node-sidecar/commit.js` using FFprobe/FFmpeg to preserve comments, genres, and ratings from original files onto staged replacements before atomic swap into place. Added unit tests in `tests/commit.test.js`.

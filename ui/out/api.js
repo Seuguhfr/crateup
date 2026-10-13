@@ -91,6 +91,11 @@ export const updateRekordboxDbDirectly = (ledgerPath, decisions, outputPath, out
     outputPath,
     outputStrategy,
 });
+export const updateRekordboxXml = (xmlPath, ledgerPath, decisions) => invoke("update_rekordbox_xml", {
+    xmlPath,
+    ledgerPath,
+    decisions,
+});
 export const checkRekordboxStatus = () => invoke("check_rekordbox_status");
 export const getDbBackups = () => invoke("get_db_backups");
 export const executeBackupCleanup = (backupFilename) => invoke("execute_backup_cleanup", { backupFilename });
