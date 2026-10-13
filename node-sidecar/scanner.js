@@ -43,7 +43,7 @@ function getFileDetails(filePath) {
     const stdout = child_process.execFileSync(
       'ffprobe',
       ['-v', 'quiet', '-print_format', 'json', '-show_streams', '-show_format', filePath],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      { env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     );
     const data = JSON.parse(stdout);
     const streams = data.streams || [];

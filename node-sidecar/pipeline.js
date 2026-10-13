@@ -399,38 +399,7 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
 // Allow running from CLI directly
 if (require.main === module) {
   const args = process.argv.slice(2);
-  if (args.length === 0) {
-    const readline = require('readline');
-    const { parsePlaylists, getPlaylistTracks, getFolderTracks } = require('./rekordbox-parser');
-    
-    const rl = readline.createInterface({
-      input: process.stdin,
-      terminal: false
-    });
-    
-    rl.on('line', (line) => {
-      if (!line.trim()) return;
-      try {
-        const request = JSON.parse(line);
-        const { id, method, params } = request;
-        
-        if (method === 'parse_playlists') {
-          const result = parsePlaylists(params.xml_path);
-          console.log(JSON.stringify({ id, result }));
-        } else if (method === 'get_playlist_tracks') {
-          const result = getPlaylistTracks(params.xml_path, params.playlist_name);
-          console.log(JSON.stringify({ id, result }));
-        } else if (method === 'get_folder_tracks') {
-          const result = getFolderTracks(params.xml_path, params.folder_name);
-          console.log(JSON.stringify({ id, result }));
-        } else {
-          console.log(JSON.stringify({ id, error: `Unknown method: ${method}` }));
-        }
-      } catch (err) {
-        console.log(JSON.stringify({ error: err.message }));
-      }
-    });
-  } else if (args.length >= 2) {
+  if (args.length >= 2) {
     let fileList = null;
     let skipHighQuality = false;
     let skipDeezerMax = false;
@@ -455,7 +424,7 @@ if (require.main === module) {
         process.exit(1);
       });
   } else {
-    console.error("Usage: node pipeline.js <rootPath> <outputFormat> [fileListJson] [--skip-high-quality]");
+    console.error("Usage: node pipeline.js <rootPath> <outputFormat> [fileListJson] [--skip-high-quality] [--skip-deezer-max]");
     process.exit(1);
   }
 }

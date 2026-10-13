@@ -154,14 +154,18 @@ pub(crate) fn atomic_write_file(target_path: &std::path::Path, content: &str) ->
     Ok(())
 }
 
-async fn run_node_script(app: &tauri::AppHandle, script: &str) -> Result<String, String> {
+async fn run_node_args<I, S>(app: &tauri::AppHandle, args: I) -> Result<String, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
     let node_sidecar_dir = resolve_node_sidecar_dir(app)?;
     let new_path = build_sidecar_env_path(app, &node_sidecar_dir);
 
     let output = app.shell()
         .sidecar("node")
         .map_err(|e| e.to_string())?
-        .args(&["-e", script])
+        .args(args)
         .current_dir(node_sidecar_dir)
         .env("PATH", new_path)
         .output()
@@ -171,7 +175,12 @@ async fn run_node_script(app: &tauri::AppHandle, script: &str) -> Result<String,
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if !stderr.trim().is_empty() {
+            Err(stderr)
+        } else {
+            Err(String::from_utf8_lossy(&output.stdout).to_string())
+        }
     }
 }
 
@@ -443,40 +452,27 @@ async fn commit_changes(
     output_path: String,
     output_strategy: String,
 ) -> Result<CommitResult, String> {
-    let decisions_json = serde_json::to_string(&decisions).map_err(|e| e.to_string())?;
-    let ledger_path_json = serde_json::to_string(&ledger_path).map_err(|e| e.to_string())?;
-    let output_path_json = serde_json::to_string(&output_path).map_err(|e| e.to_string())?;
-    let output_strategy_json = serde_json::to_string(&output_strategy).map_err(|e| e.to_string())?;
-    
-    let script = format!(
-        r#"
-        const {{ commit }} = require("./commit.js");
-        const decisionsJson = {};
-        const decisions = new Map(Object.entries(decisionsJson));
-        commit({}, decisions, {}, {}, true).then(result => {{
-            let committed = 0;
-            let skipped = 0;
-            const failedPaths = result.failures.map(f => f.relPath);
-            for (const [path, dec] of decisions) {{
-                if (failedPaths.includes(path)) continue;
-                if (dec === "approved") committed++;
-                else skipped++;
-            }}
-            console.log(JSON.stringify({{ committed, skipped, failed: result.failures }}));
-            process.exit(0);
-        }}).catch(err => {{
-            console.error(err);
-            process.exit(1);
-        }});
-        "#,
-        decisions_json,
-        ledger_path_json,
-        output_path_json,
-        output_strategy_json
-    );
+    let config = serde_json::json!({
+        "ledger_path": ledger_path,
+        "decisions": decisions,
+        "output_path": output_path,
+        "output_strategy": output_strategy,
+    });
+    let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
 
-    let output_str = run_node_script(&app, &script).await?;
-    let result: CommitResult = serde_json::from_str(&output_str.trim()).map_err(|e| {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_input = std::env::temp_dir().join(format!("crateup-commit-{}-{}.json", std::process::id(), nanos));
+    std::fs::write(&temp_input, config_json).map_err(|e| format!("Failed to write commit config: {}", e))?;
+
+    let temp_input_str = temp_input.to_string_lossy().to_string();
+    let output_res = run_node_args(&app, &["commit.js", &temp_input_str]).await;
+    let _ = std::fs::remove_file(&temp_input);
+
+    let output_str = output_res?;
+    let result: CommitResult = serde_json::from_str(output_str.trim()).map_err(|e| {
         format!("Failed to parse commit result JSON: {}. Output was: {}", e, output_str)
     })?;
     
@@ -520,49 +516,18 @@ async fn download_track_by_id(
     artist: String,
     title: String,
 ) -> Result<String, String> {
-    let root_path_json = serde_json::to_string(&root_path).map_err(|e| e.to_string())?;
-    let output_format_json = serde_json::to_string(&output_format).map_err(|e| e.to_string())?;
-    let rel_path_json = serde_json::to_string(&relative_path).map_err(|e| e.to_string())?;
-    let artist_json = serde_json::to_string(&artist).map_err(|e| e.to_string())?;
-    let title_json = serde_json::to_string(&title).map_err(|e| e.to_string())?;
-
-    let script = format!(
-        r#"
-        const cp = require("child_process");
-        const path = require("path");
-        
-        const child = cp.spawn(process.execPath, [
-            "refetch.js",
-            {},
-            {},
-            {},
-            {},
-            {},
-            {}
-        ]);
-        let stdout = "";
-        let stderr = "";
-        child.stdout.on("data", data => stdout += data);
-        child.stderr.on("data", data => stderr += data);
-        child.on("close", code => {{
-            if (code === 0) {{
-                console.log(stdout.trim());
-                process.exit(0);
-            }} else {{
-                console.error(stderr.trim());
-                process.exit(1);
-            }}
-        }});
-        "#,
-        root_path_json,
-        output_format_json,
-        rel_path_json,
-        deezer_id,
-        artist_json,
-        title_json
-    );
-
-    run_node_script(&app, &script).await
+    let deezer_id_str = deezer_id.to_string();
+    let args = [
+        "refetch.js",
+        &root_path,
+        &output_format,
+        &relative_path,
+        &deezer_id_str,
+        &artist,
+        &title,
+    ];
+    let output_str = run_node_args(&app, &args).await?;
+    Ok(output_str.trim().to_string())
 }
 
 #[tauri::command]
@@ -571,37 +536,13 @@ async fn identify_track(
     root_path: String,
     relative_path: String,
 ) -> Result<String, String> {
-    let root_path_json = serde_json::to_string(&root_path).map_err(|e| e.to_string())?;
-    let rel_path_json = serde_json::to_string(&relative_path).map_err(|e| e.to_string())?;
-
-    let script = format!(
-        r#"
-        const cp = require("child_process");
-        
-        const child = cp.spawn(process.execPath, [
-            "identify.js",
-            {},
-            {}
-        ]);
-        let stdout = "";
-        let stderr = "";
-        child.stdout.on("data", data => stdout += data);
-        child.stderr.on("data", data => stderr += data);
-        child.on("close", code => {{
-            if (code === 0) {{
-                console.log(stdout.trim());
-                process.exit(0);
-            }} else {{
-                console.error(stderr.trim());
-                process.exit(1);
-            }}
-        }});
-        "#,
-        root_path_json,
-        rel_path_json
-    );
-
-    run_node_script(&app, &script).await
+    let args = [
+        "identify.js",
+        &root_path,
+        &relative_path,
+    ];
+    let output_str = run_node_args(&app, &args).await?;
+    Ok(output_str.trim().to_string())
 }
 
 #[tauri::command]

@@ -99,7 +99,8 @@ async def download_track(deezer_id: int, output_format: str, staged_path: str) -
             written = arl_path.read_text(encoding="utf-8").strip()
             print(f"[DOWNLOAD] ARL written to {arl_path}: {len(written)} chars", 
                   file=sys.stderr)
-            assert len(written) > 100, f"ARL too short: {len(written)} chars"
+            if len(written) <= 100:
+                raise AssertionError(f"ARL too short: {len(written)} chars")
         except AssertionError as ae:
             log(f"ARL verification failed: {ae}")
             raise ae

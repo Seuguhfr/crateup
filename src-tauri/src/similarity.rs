@@ -48,76 +48,56 @@ pub fn greedy_acoustic_match(
     out
 }
 
-pub fn get_fpcalc_path(app: &tauri::AppHandle) -> std::path::PathBuf {
-    let temp_path = std::env::temp_dir().join("crateup-bin").join("fpcalc");
+fn get_sidecar_binary_path(app: &tauri::AppHandle, base_name: &str) -> std::path::PathBuf {
+    let temp_path = std::env::temp_dir().join("crateup-bin").join(base_name);
     if temp_path.exists() {
         return temp_path;
     }
-    
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let arch = if cfg!(target_arch = "x86_64") {
-            "x86_64"
-        } else if cfg!(target_arch = "aarch64") {
-            "aarch64"
-        } else {
-            ""
-        };
-        let platform = if cfg!(target_os = "macos") {
-            "apple-darwin"
-        } else if cfg!(target_os = "windows") {
-            "pc-windows-msvc"
-        } else if cfg!(target_os = "linux") {
-            "unknown-linux-gnu"
-        } else {
-            ""
-        };
-        
-        if !arch.is_empty() && !platform.is_empty() {
-            let bin_name = format!("fpcalc-{}-{}", arch, platform);
+
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        ""
+    };
+    let platform = if cfg!(target_os = "macos") {
+        "apple-darwin"
+    } else if cfg!(target_os = "windows") {
+        "pc-windows-msvc"
+    } else if cfg!(target_os = "linux") {
+        "unknown-linux-gnu"
+    } else {
+        ""
+    };
+
+    if !arch.is_empty() && !platform.is_empty() {
+        let bin_name = format!("{}-{}-{}", base_name, arch, platform);
+
+        if let Ok(resource_dir) = app.path().resource_dir() {
             let resource_path = resource_dir.join("binaries").join(&bin_name);
             if resource_path.exists() {
                 return resource_path;
             }
         }
+
+        let dev_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("binaries")
+            .join(&bin_name);
+        if dev_path.exists() {
+            return dev_path;
+        }
     }
-    
-    std::path::PathBuf::from("fpcalc")
+
+    std::path::PathBuf::from(base_name)
+}
+
+pub fn get_fpcalc_path(app: &tauri::AppHandle) -> std::path::PathBuf {
+    get_sidecar_binary_path(app, "fpcalc")
 }
 
 pub fn get_ffmpeg_path(app: &tauri::AppHandle) -> std::path::PathBuf {
-    let temp_path = std::env::temp_dir().join("crateup-bin").join("ffmpeg");
-    if temp_path.exists() {
-        return temp_path;
-    }
-    
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let arch = if cfg!(target_arch = "x86_64") {
-            "x86_64"
-        } else if cfg!(target_arch = "aarch64") {
-            "aarch64"
-        } else {
-            ""
-        };
-        let platform = if cfg!(target_os = "macos") {
-            "apple-darwin"
-        } else if cfg!(target_os = "windows") {
-            "pc-windows-msvc"
-        } else if cfg!(target_os = "linux") {
-            "unknown-linux-gnu"
-        } else {
-            ""
-        };
-        
-        if !arch.is_empty() && !platform.is_empty() {
-            let bin_name = format!("ffmpeg-{}-{}", arch, platform);
-            let resource_path = resource_dir.join("binaries").join(&bin_name);
-            if resource_path.exists() {
-                return resource_path;
-            }
-        }
-    }
-    
-    std::path::PathBuf::from("ffmpeg")
+    get_sidecar_binary_path(app, "ffmpeg")
 }
 
 pub fn get_audio_fingerprint(fpcalc_path: &std::path::Path, file_path: &std::path::Path) -> Option<Vec<u32>> {

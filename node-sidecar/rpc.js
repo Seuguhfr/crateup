@@ -33,7 +33,9 @@ class PythonBridge {
     const resolvedPython = candidatePythons.find(p => fs.existsSync(p));
     const pythonExec = resolvedPython || 'python3';
     
-    this.pyProcess = spawn(pythonExec, [pythonScript]);
+    this.pyProcess = spawn(pythonExec, ['-u', pythonScript], {
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    });
 
     this.pyProcess.stderr.on('data', (data) => {
       const lines = data.toString().split('\n');

@@ -65,7 +65,7 @@ function getFileMetadata(filePath) {
   if (fs.existsSync(filePath)) {
     try {
       // Run ffmpeg -i and capture stderr since information is printed to stderr
-      const res = child_process.spawnSync('ffmpeg', ['-i', filePath], { stdio: 'pipe' });
+      const res = child_process.spawnSync('ffmpeg', ['-i', filePath], { env: process.env, stdio: 'pipe' });
       const stderrStr = res.stderr ? res.stderr.toString() : (res.error?.stderr ? res.error.stderr.toString() : '');
 
       // Parse duration
@@ -105,7 +105,7 @@ function getAudioTags(filePath) {
     const stdout = child_process.execFileSync(
       'ffprobe',
       ['-v', 'quiet', '-print_format', 'json', '-show_format', filePath],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      { env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     );
     const data = JSON.parse(stdout);
     const rawTags = (data && data.format && data.format.tags) || {};
@@ -155,7 +155,7 @@ function mergeOriginalTags(originalPath, targetPath) {
     }
     args.push(...metadataArgs, tmpTagged);
 
-    const res = child_process.spawnSync('ffmpeg', args, { stdio: 'pipe' });
+    const res = child_process.spawnSync('ffmpeg', args, { env: process.env, stdio: 'pipe' });
     if (res.status === 0 && fs.existsSync(tmpTagged)) {
       fs.renameSync(tmpTagged, targetPath);
     } else {
@@ -248,7 +248,8 @@ function safeTrashFile(filePath) {
   // 2. On macOS, ask Finder to move to Trash (handles volume-local .Trashes on external drives)
   if (process.platform === 'darwin') {
     try {
-      const escaped = filePath.replace(/["\\]/g, '\\$&');
+      const sanitized = filePath.replace(/[\r\n]/g, '');
+      const escaped = sanitized.replace(/["\\]/g, '\\$&');
       child_process.execFileSync(
         '/usr/bin/osascript',
         ['-e', `tell application "Finder" to delete POSIX file "${escaped}"`],
@@ -479,14 +480,19 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
           if (strategy === 'replace') {
             if (hasShazamMeta) {
               const tempTarget = originalAbsPath + '.temp-tagged';
-              const spawnResult = child_process.spawnSync('ffmpeg', [
+              const origExt = path.extname(originalAbsPath).toLowerCase();
+              const ffmpegArgs = [
                 '-y',
                 '-i', originalAbsPath,
                 '-metadata', `artist=${entry.artist}`,
                 '-metadata', `title=${entry.title}`,
-                '-codec', 'copy',
-                tempTarget
-              ]);
+                '-codec', 'copy'
+              ];
+              if (['.aiff', '.aif', '.wav'].includes(origExt)) {
+                ffmpegArgs.push('-write_id3v2', '1');
+              }
+              ffmpegArgs.push(tempTarget);
+              const spawnResult = child_process.spawnSync('ffmpeg', ffmpegArgs, { env: process.env });
 
               if (spawnResult.status === 0) {
                 fs.renameSync(tempTarget, originalAbsPath);
@@ -506,14 +512,19 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
 
             if (hasShazamMeta) {
               // Copy original file and write metadata tags using ffmpeg
-              const spawnResult = child_process.spawnSync('ffmpeg', [
+              const origExt = path.extname(originalAbsPath).toLowerCase();
+              const ffmpegArgs = [
                 '-y',
                 '-i', originalAbsPath,
                 '-metadata', `artist=${entry.artist}`,
                 '-metadata', `title=${entry.title}`,
-                '-codec', 'copy',
-                targetAbsPath
-              ]);
+                '-codec', 'copy'
+              ];
+              if (['.aiff', '.aif', '.wav'].includes(origExt)) {
+                ffmpegArgs.push('-write_id3v2', '1');
+              }
+              ffmpegArgs.push(targetAbsPath);
+              const spawnResult = child_process.spawnSync('ffmpeg', ffmpegArgs, { env: process.env });
 
               if (spawnResult.status !== 0) {
                 fs.copyFileSync(originalAbsPath, targetAbsPath);
@@ -647,3 +658,36 @@ module.exports = {
   getAudioTags,
   mergeOriginalTags
 };
+
+if (require.main === module) {
+  const inputPath = process.argv[2];
+  if (!inputPath) {
+    console.error("Usage: node commit.js <commit-config-json-path>");
+    process.exit(1);
+  }
+  try {
+    const raw = fs.readFileSync(inputPath, 'utf8');
+    const config = JSON.parse(raw);
+    const decisions = new Map(Object.entries(config.decisions || {}));
+    commit(config.ledger_path, decisions, config.output_path, config.output_strategy, true)
+      .then(result => {
+        let committed = 0;
+        let skipped = 0;
+        const failedPaths = (result.failures || []).map(f => f.relPath);
+        for (const [p, dec] of decisions) {
+          if (failedPaths.includes(p)) continue;
+          if (dec === 'approved') committed++;
+          else skipped++;
+        }
+        console.log(JSON.stringify({ committed, skipped, failed: result.failures }));
+        process.exit(0);
+      })
+      .catch(err => {
+        console.error(err.message || err);
+        process.exit(1);
+      });
+  } catch (err) {
+    console.error(`Failed to read or parse commit config: ${err.message}`);
+    process.exit(1);
+  }
+}

@@ -275,4 +275,52 @@ describe('Commit Phase Module', () => {
     expect(() => mergeOriginalTags(dummyA, dummyB)).not.toThrow();
     expect(fs.readFileSync(dummyB, 'utf8')).toBe('test audio b');
   });
+
+  test('commit.js CLI runner executes correctly via child_process with JSON config file', () => {
+    const cp = require('child_process');
+    const origPath = path.join(testRoot, 'CLI Artist - Track.mp3');
+    fs.writeFileSync(origPath, 'cli original content');
+    const stagingDir = path.join(testRoot, 'crateup-staging');
+    fs.mkdirSync(stagingDir, { recursive: true });
+    const stagedPath = path.join(stagingDir, 'CLI Artist - Track.flac');
+    fs.writeFileSync(stagedPath, 'cli upgraded content');
+
+    const ledger = {
+      session_id: 'test-cli-uuid',
+      root_path: testRoot,
+      output_format: 'flac',
+      files: {
+        '/CLI Artist - Track.mp3': {
+          status: 'downloaded',
+          deezer_id: 99999,
+          staged_path: 'crateup-staging/CLI Artist - Track.flac',
+          proxy_path: null
+        }
+      }
+    };
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const configFile = path.join(testRoot, 'commit-config.json');
+    const configData = {
+      ledger_path: ledgerPath,
+      decisions: {
+        '/CLI Artist - Track.mp3': 'approved'
+      },
+      output_path: '',
+      output_strategy: 'replace'
+    };
+    fs.writeFileSync(configFile, JSON.stringify(configData));
+
+    const scriptPath = path.join(__dirname, '../node-sidecar/commit.js');
+    const stdout = cp.execFileSync(process.execPath, [scriptPath, configFile], { encoding: 'utf8' });
+    const res = JSON.parse(stdout.trim());
+
+    expect(res.committed).toBe(1);
+    expect(res.skipped).toBe(0);
+    expect(res.failed).toEqual([]);
+
+    const replacedPath = path.join(testRoot, 'CLI Artist - Track.flac');
+    expect(fs.existsSync(replacedPath)).toBe(true);
+    expect(fs.readFileSync(replacedPath, 'utf8')).toBe('cli upgraded content');
+  });
 });

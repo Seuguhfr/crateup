@@ -1,3 +1,4 @@
+require('./bin-setup');
 const child_process = require('child_process');
 const fs = require('fs');
 
@@ -12,7 +13,7 @@ function getRawAudioMD5(filePath) {
     const stdout = child_process.execFileSync(
       'ffmpeg',
       ['-i', filePath, '-map', '0:a', '-f', 'md5', '-'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      { env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     );
     const match = stdout.match(/MD5=([a-f0-9]{32})/i);
     return match ? match[1].toLowerCase() : null;
@@ -27,7 +28,7 @@ function getChromaprintFingerprint(filePath) {
     const stdout = child_process.execFileSync(
       'fpcalc',
       ['-raw', filePath],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      { env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     );
     
     let fingerprint = null;

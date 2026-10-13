@@ -32,15 +32,19 @@ crateup/
 ├── ui/                    ← HTML/CSS/TS frontend
 ├── node-sidecar/          ← Node.js pipeline orchestrator
 │   ├── index.js           ← entry point, spawns Python sidecar
+│   ├── bin-setup.js       ← bundled binaries bootstrap
 │   ├── scanner.js         ← directory traversal + ledger init
-│   ├── pipeline.js        ← orchestrates fingerprint → download loop
-│   ├── commit.js          ← final file move + XML update
+│   ├── pipeline.js        ← orchestrates fingerprint → download loop (with ThrottleQueue)
+│   ├── commit.js          ← final file move + XML update + CLI runner
+│   ├── identify.js        ← single-track identification CLI
+│   ├── refetch.js         ← single-track download & similarity CLI
+│   ├── similarity.js      ← Chromaprint & raw MD5 comparison
+│   ├── ledger.js          ← ledger resolution, cache & atomic persistence
 │   └── rpc.js             ← JSON-RPC helpers (Node ↔ Python)
 ├── python-sidecar/        ← Python fingerprint + download engine
 │   ├── main.py            ← entry point, reads JSON-RPC from stdin
-│   ├── fingerprint.py     ← shazamio wrapper
-│   ├── download.py        ← deemix wrapper
-│   └── throttle.py        ← rate limiting queues
+│   ├── fingerprint.py     ← shazamio wrapper + duration matching
+│   └── download.py        ← deemix wrapper + transcode
 ├── python-runtime/        ← standalone relocatable CPython 3.12 bundle
 ├── scripts/               ← automation scripts (setup-python-runtime.sh)
 ├── test-library/          ← small folder of MP3s for manual testing
@@ -135,6 +139,7 @@ All messages are newline-delimited JSON on stdio.
 - [x] Phase 22: Deep architectural review remediation: multi-release duration matching (§3.5 SPEC.md), original metadata tag merging (§5.1 SPEC.md), AIFF proxy MP3 filename alignment, Rekordbox technical audio properties sync, and SQLCipher test suite (17 Rust / 51 Jest / 9 Pytest passing).
 - [x] Phase 23: Comprehensive review remediation: pipeline duplicate reuse (§3.4), Rekordbox XML export (§6.5), atomic Rust ledger writes, and incremental review DOM updates (18 Rust / 52 Jest / 9 Pytest passing).
 - [x] Phase 24: Deep review hardening & performance optimization: external drive safe trashing on EXDEV, acoustic similarity engine density alignment, native Rust XML playlist parsing (eliminating Node subprocess spawns for XML inspection), streaming XML track counting, and cue/beatgrid + Deezer HiFi UI advisories (19 Rust / 52 Jest / 9 Pytest passing, 0 warnings).
+- [x] Phase 25: Full app review remediation: eliminated ARG_MAX risk in commit_changes via temp config JSON, direct single-process sidecar invocation for identify/refetch, bin-setup bootstrap in similarity.js, AppleScript control char sanitization in commit.js, AIFF/WAV ID3v2 tag writing consistency, Python unbuffered stdio pipe guarantee (-u / PYTHONUNBUFFERED=1), explicit ARL validation check, child process environment inheritance (`env: process.env`) across Node sidecar binaries, unified Rust binary resolution with dev tree fallback, and retired legacy CLI stdio in pipeline.js (19 Rust / 53 Jest / 9 Pytest passing, 0 warnings).
 
 ## Session handoff protocol
 At the END of every session, before quitting:
@@ -142,6 +147,22 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Full App Review Remediation & Deep Hardening:
+- **Child Process Environment Inheritance (`node-sidecar/similarity.js`, `commit.js`, `scanner.js`)**: Explicitly passed `{ env: process.env }` to all `child_process.execFileSync` and `spawnSync` calls for `fpcalc`, `ffmpeg`, and `ffprobe`. Eliminates `ENOENT` binary lookup failures under isolated process environments (like Jest workers or environments where Homebrew binaries aren't on system PATH) by ensuring injected `crateup-bin` PATH entries are always serialized to `uv_spawn`.
+- **Unified Rust Sidecar Binary Resolution (`src-tauri/src/similarity.rs`)**: Unified `get_fpcalc_path` and `get_ffmpeg_path` into `get_sidecar_binary_path` with an explicit fallback to `CARGO_MANIFEST_DIR/binaries` in dev mode, preventing missing binary errors during development before `crateup-bin` symlinks are created.
+- **ARG_MAX Risk Elimination (`src-tauri/src/lib.rs`, `node-sidecar/commit.js`)**: Replaced command-line string-interpolated `-e <script>` in `commit_changes` with a dedicated CLI runner in `commit.js` taking a temporary JSON config path. Guarantees unbounded scalability on collections with 10,000+ tracks without hitting macOS `ARG_MAX` / `E2BIG` limits. Added unit test in `tests/commit.test.js`.
+- **Direct Single-Process Sidecar Execution (`src-tauri/src/lib.rs`)**: Replaced double-nested Node child process spawning in `download_track_by_id` and `identify_track` with direct `run_node_args` invocations of `refetch.js` and `identify.js`, reducing process overhead and latency.
+- **Binary Bootstrap in Similarity Module (`node-sidecar/similarity.js`)**: Prepended `require('./bin-setup')` so standalone imports and external scripts reliably find bundled `fpcalc` and `ffmpeg` in `PATH`.
+- **AppleScript Path Sanitization (`node-sidecar/commit.js`)**: Stripped `\r` and `\n` control characters from `filePath` before escaping for `/usr/bin/osascript` Finder trash commands, preventing AppleScript statement breakage.
+- **AIFF / WAV ID3v2 Tag Writing Alignment (`node-sidecar/commit.js`)**: Added `-write_id3v2 1` when writing metadata tags to unresolved AIFF/WAV files in both in-place and copy modes, aligning with `mergeOriginalTags`.
+- **Unbuffered Python Stdio IPC (`node-sidecar/rpc.js`)**: Spawned Python sidecar with `-u` and `PYTHONUNBUFFERED=1` to guarantee instant stdio JSON-RPC transmission without pipe buffering.
+- **Explicit ARL Length Validation (`python-sidecar/download.py`)**: Replaced `assert len(written) > 100` with explicit `if len(written) <= 100: raise AssertionError(...)` to guarantee validation cannot be bypassed by Python optimization flags (`-O`).
+- **Retired Legacy CLI Stdio Interface (`node-sidecar/pipeline.js`)**: Cleaned up dead `readline` XML parsing loop that was superseded by native Rust XML parsing in Phase 24.
+- **Documentation Alignment (`AGENTS.md`)**: Updated repository tree to accurately reflect all current `node-sidecar/` and `python-sidecar/` modules.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 53 tests pass, `cargo check` 0 warnings, `cargo test` 19 tests pass (100%), `python-runtime/bin/pytest tests/` 9 tests pass.
+- **Next Task**: Field-test native tools with live Rekordbox database and audio files.
+
+## Previous session
 Deep Review Hardening & Performance Optimization:
 - **External Drive Safe Trashing (`node-sidecar/commit.js`)**: Hardened `safeTrashFile` against cross-filesystem `EXDEV` failures on external SSDs and USB sticks. Added macOS native Finder trash execution and verified cross-device copy-to-trash fallbacks before any source unlinking, eliminating the risk of permanent original track loss on external DJ drives.
 - **Similarity Engine Alignment (`node-sidecar/similarity.js`)**: Ported the bit-weight (Hamming weight) density pre-filter (`Math.abs(dA - dB) > 0.25`) into Node's `calculateSimilarity`, establishing mathematical alignment with the Rust Chromaprint engine and accelerating pipeline duplicate filtering.
