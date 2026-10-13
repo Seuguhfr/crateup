@@ -251,7 +251,7 @@ fn audit_library_blocking(
     }
 
     // Phase 2: content-match leftovers against title/stem-narrowed candidates.
-    let ffmpeg_path = get_ffmpeg_path(&window.app_handle());
+    let ffmpeg_path = get_ffmpeg_path(window.app_handle());
     let mut md5_memo: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
     let md5_of = |p: &std::path::Path, memo: &mut std::collections::HashMap<String, Option<String>>| -> Option<String> {

@@ -606,16 +606,24 @@ async fn reset_session(
     Ok(())
 }
 
-fn get_project_arl_path() -> Result<std::path::PathBuf, String> {
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let parent = manifest_dir.parent().ok_or("No parent for CARGO_MANIFEST_DIR")?;
-    Ok(parent.join(".arl"))
+fn get_project_arl_path() -> Option<std::path::PathBuf> {
+    #[cfg(debug_assertions)]
+    {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        if let Some(parent) = manifest_dir.parent() {
+            let p = parent.join(".arl");
+            if p.parent().map(|d| d.exists()).unwrap_or(false) {
+                return Some(p);
+            }
+        }
+    }
+    None
 }
 
 #[tauri::command]
 fn get_arl(app: tauri::AppHandle) -> String {
-    // 1. Try reading project .arl file
-    if let Ok(project_arl_path) = get_project_arl_path() {
+    // 1. Try reading project .arl file (dev/debug only)
+    if let Some(project_arl_path) = get_project_arl_path() {
         if project_arl_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&project_arl_path) {
                 let stripped = content.trim().to_string();
@@ -637,6 +645,16 @@ fn get_arl(app: tauri::AppHandle) -> String {
                 }
             }
         }
+
+        let app_support_config = home.join("Library/Application Support/deemix/.arl");
+        if app_support_config.exists() {
+            if let Ok(content) = std::fs::read_to_string(&app_support_config) {
+                let stripped = content.trim().to_string();
+                if !stripped.is_empty() {
+                    return stripped;
+                }
+            }
+        }
     }
 
     "".to_string()
@@ -646,9 +664,9 @@ fn get_arl(app: tauri::AppHandle) -> String {
 fn save_arl(app: tauri::AppHandle, arl: String) -> Result<(), String> {
     let trimmed = arl.trim();
 
-    // 1. Write to project .arl file
-    if let Ok(project_arl_path) = get_project_arl_path() {
-        std::fs::write(&project_arl_path, trimmed).map_err(|e| e.to_string())?;
+    // 1. Best-effort write to project .arl file in debug mode
+    if let Some(project_arl_path) = get_project_arl_path() {
+        let _ = std::fs::write(&project_arl_path, trimmed);
     }
 
     // 2. Write to ~/.config/deemix/.arl
@@ -660,6 +678,12 @@ fn save_arl(app: tauri::AppHandle, arl: String) -> Result<(), String> {
         let arl_file = deemix_config.join(".arl");
         if let Err(e) = std::fs::write(&arl_file, trimmed) {
             eprintln!("[save_arl] Failed to write to {}: {}", arl_file.display(), e);
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&arl_file, std::fs::Permissions::from_mode(0o600));
+            }
         }
 
         // 3. Write to ~/Library/Application Support/deemix/.arl
@@ -670,6 +694,12 @@ fn save_arl(app: tauri::AppHandle, arl: String) -> Result<(), String> {
         let arl_file_app_support = app_support_deemix.join(".arl");
         if let Err(e) = std::fs::write(&arl_file_app_support, trimmed) {
             eprintln!("[save_arl] Failed to write to {}: {}", arl_file_app_support.display(), e);
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&arl_file_app_support, std::fs::Permissions::from_mode(0o600));
+            }
         }
     }
 
@@ -786,7 +816,7 @@ async fn compare_playlists_acoustic(
 
     // Fingerprint everything left over, in parallel (cap 8, like ingestion).
     // Persistent cache first: repeat comparisons resolve instantly.
-    let mut fp_cache = fingerprint_cache::FingerprintCache::load(&window.app_handle());
+    let mut fp_cache = fingerprint_cache::FingerprintCache::load(window.app_handle());
     let jobs: Vec<(usize, usize, std::path::PathBuf)> = live_a
         .iter()
         .enumerate()
@@ -827,7 +857,7 @@ async fn compare_playlists_acoustic(
     }
 
     if !misses.is_empty() {
-        let fpcalc_path = get_fpcalc_path(&window.app_handle());
+        let fpcalc_path = get_fpcalc_path(window.app_handle());
         let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
         let mut tasks = Vec::new();
         for (side, idx, path) in misses {

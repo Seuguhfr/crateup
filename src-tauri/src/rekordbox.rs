@@ -114,7 +114,7 @@ fn is_rekordbox_running() -> bool {
         for line in ps_str.lines() {
             let cmd = line.trim();
             let cmd_lower = cmd.to_lowercase();
-            if let Some(last_part) = cmd_lower.split('/').last() {
+            if let Some(last_part) = cmd_lower.split('/').next_back() {
                 let last_part_trimmed = last_part.trim();
                 if last_part_trimmed == "rekordbox" || last_part_trimmed.starts_with("rekordbox ") {
                     return true;
@@ -215,10 +215,8 @@ fn cleanup_master_db_duplicates(tx: &rusqlite::Transaction) -> Result<usize, rus
             Ok((folder, filename, ids))
         })?;
 
-        for r in rows {
-            if let Ok(val) = r {
-                dup_rows.push(val);
-            }
+        for val in rows.flatten() {
+            dup_rows.push(val);
         }
     }
 
@@ -592,10 +590,10 @@ pub async fn execute_db_consolidation(
                 percentage: 0.0,
             });
             
-            let fpcalc_path = get_fpcalc_path(&window.app_handle());
+            let fpcalc_path = get_fpcalc_path(window.app_handle());
 
             let mut persistent_cache =
-                FingerprintCache::load(&window.app_handle());
+                FingerprintCache::load(window.app_handle());
             let mut paths_to_fingerprint = Vec::new();
             for track in &tracks {
                 let src_path = std::path::PathBuf::from(&track.folder_path);
@@ -693,7 +691,7 @@ pub async fn execute_db_consolidation(
             } else {
                 healthy_count += 1;
                 
-                let file_size = std::fs::metadata(&src_path).map(|m| m.len()).unwrap_or(0);
+                let file_size = std::fs::metadata(src_path).map(|m| m.len()).unwrap_or(0);
                 
                 let mut target_path: std::path::PathBuf;
                 let mut is_duplicate = false;
@@ -734,7 +732,7 @@ pub async fn execute_db_consolidation(
                     }
                 } else if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
                     let fp = fingerprint_cache.get(src_path).cloned().or_else(|| {
-                        let fpcalc_path = get_fpcalc_path(&window.app_handle());
+                        let fpcalc_path = get_fpcalc_path(window.app_handle());
                         get_audio_fingerprint(&fpcalc_path, src_path)
                     });
                     if let Some(fp_val) = fp {
@@ -793,19 +791,7 @@ pub async fn execute_db_consolidation(
                         _ => src_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Unknown Track".to_string()),
                     };
                     
-                    let truncated_stem = {
-                        let max_stem_len = 120;
-                        let mut truncated = String::new();
-                        let mut char_count = 0;
-                        for c in stem.chars() {
-                            if char_count >= max_stem_len {
-                                break;
-                            }
-                            truncated.push(c);
-                            char_count += 1;
-                        }
-                        truncated.trim_end().to_string()
-                    };
+                    let truncated_stem = stem.chars().take(120).collect::<String>().trim_end().to_string();
                     
                     let new_filename = format!("{}.{}", truncated_stem, ext);
                     
@@ -845,9 +831,9 @@ pub async fn execute_db_consolidation(
                     duplicate_count += 1;
                 } else if needs_write {
                     let op_result = match file_mode.as_str() {
-                        "move" => crate::safe_move_file(&src_path, &target_path),
-                        "hardlink" | "link" => std::fs::hard_link(&src_path, &target_path),
-                        _ => std::fs::copy(&src_path, &target_path).map(|_| ()),
+                        "move" => crate::safe_move_file(src_path, &target_path),
+                        "hardlink" | "link" => std::fs::hard_link(src_path, &target_path),
+                        _ => std::fs::copy(src_path, &target_path).map(|_| ()),
                     };
                     
                     if let Err(e) = op_result {

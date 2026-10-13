@@ -95,6 +95,10 @@ async def download_track(deezer_id: int, output_format: str, staged_path: str) -
             config_dir.mkdir(parents=True, exist_ok=True)
             arl_path = config_dir / ".arl"
             arl_path.write_text(arl.strip(), encoding="utf-8")
+            try:
+                os.chmod(arl_path, 0o600)
+            except Exception:
+                pass
             # Verify
             written = arl_path.read_text(encoding="utf-8").strip()
             print(f"[DOWNLOAD] ARL written to {arl_path}: {len(written)} chars", 

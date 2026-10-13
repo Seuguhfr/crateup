@@ -71,6 +71,17 @@ async def extract_sample(input_path: str, start_time: float, output_path: str) -
     if proc.returncode != 0:
         raise Exception(f"ffmpeg extraction failed: {stderr.decode('utf-8', errors='ignore')}")
 
+def _duration_delta(val: Any, target_duration: float) -> float:
+    if val is None:
+        return float('inf')
+    try:
+        dur = float(val)
+        if dur <= 0:
+            return float('inf')
+        return abs(dur - target_duration)
+    except (ValueError, TypeError):
+        return float('inf')
+
 async def search_deezer(title: str, artist: str, target_duration: Optional[float] = None) -> Optional[int]:
     # URL encode parameters
     headers = {
@@ -104,7 +115,7 @@ async def search_deezer(title: str, artist: str, target_duration: Optional[float
                                 if target_duration is not None and target_duration > 0:
                                     best_track = min(
                                         valid_tracks,
-                                        key=lambda t: abs(float(t.get('duration', target_duration)) - target_duration)
+                                        key=lambda t: _duration_delta(t.get('duration'), target_duration)
                                     )
                                 else:
                                     best_track = valid_tracks[0]

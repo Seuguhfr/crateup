@@ -49,11 +49,39 @@ struct ProgressPayload {
 }
 
 fn unescape_xml(s: &str) -> String {
-    s.replace("&quot;", "\"")
+    let mut intermediate = s
+        .replace("&quot;", "\"")
         .replace("&apos;", "'")
         .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
+        .replace("&gt;", ">");
+
+    if intermediate.contains("&#") {
+        let mut result = String::with_capacity(intermediate.len());
+        let mut rest = intermediate.as_str();
+        while let Some(start) = rest.find("&#") {
+            result.push_str(&rest[..start]);
+            let after = &rest[start + 2..];
+            if let Some(semi) = after.find(';') {
+                let entity_val = &after[..semi];
+                let decoded_char = if entity_val.starts_with('x') || entity_val.starts_with('X') {
+                    u32::from_str_radix(&entity_val[1..], 16).ok().and_then(char::from_u32)
+                } else {
+                    entity_val.parse::<u32>().ok().and_then(char::from_u32)
+                };
+                if let Some(ch) = decoded_char {
+                    result.push(ch);
+                    rest = &after[semi + 1..];
+                    continue;
+                }
+            }
+            result.push_str("&#");
+            rest = after;
+        }
+        result.push_str(rest);
+        intermediate = result;
+    }
+
+    intermediate.replace("&amp;", "&")
 }
 
 fn extract_attribute(line: &str, attr: &str) -> Option<String> {
@@ -82,10 +110,9 @@ fn decode_location(location: &str) -> Option<String> {
         
     let mut final_path = decoded;
     
-    if cfg!(target_os = "windows") {
-        if final_path.starts_with('/') && final_path.len() >= 3 && final_path.as_bytes()[2] == b':' {
-            final_path.remove(0);
-        }
+    if cfg!(target_os = "windows")
+        && final_path.starts_with('/') && final_path.len() >= 3 && final_path.as_bytes()[2] == b':' {
+        final_path.remove(0);
     }
     
     Some(final_path)
@@ -541,10 +568,8 @@ fn clean_fuzzy(s: &str) -> String {
             in_parentheses += 1;
         } else if (c == ')' || c == ']') && in_parentheses > 0 {
             in_parentheses -= 1;
-        } else if in_parentheses == 0 {
-            if c.is_alphanumeric() {
-                cleaned.push(c.to_ascii_lowercase());
-            }
+        } else if in_parentheses == 0 && c.is_alphanumeric() {
+            cleaned.push(c.to_ascii_lowercase());
         }
     }
     
@@ -591,6 +616,7 @@ fn encode_location(path: &std::path::Path) -> String {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_safe_clone(
     window: tauri::Window,
     xml_path: String,
@@ -670,7 +696,7 @@ pub async fn execute_safe_clone(
         if paths_len > 0 {
             // Persistent cache first: unchanged files skip fpcalc entirely.
             let mut persistent_cache =
-                FingerprintCache::load(&window.app_handle());
+                FingerprintCache::load(window.app_handle());
             let mut misses: Vec<std::path::PathBuf> = Vec::new();
             let mut completed = 0;
             for path in track_paths {
@@ -690,7 +716,7 @@ pub async fn execute_safe_clone(
                 });
             }
             if !misses.is_empty() {
-                let fpcalc_path = get_fpcalc_path(&window.app_handle());
+                let fpcalc_path = get_fpcalc_path(window.app_handle());
                 let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
                 let mut tasks = Vec::new();
 
@@ -807,7 +833,7 @@ pub async fn execute_safe_clone(
                         let bpm = extract_attribute(trimmed_track, "AverageBpm").unwrap_or_default();
                         let _year = extract_attribute(trimmed_track, "Year").unwrap_or_default();
                         
-                        let file_size = std::fs::metadata(&src_path)
+                        let file_size = std::fs::metadata(src_path)
                             .map(|m| m.len())
                             .unwrap_or(0);
                         
@@ -845,7 +871,7 @@ pub async fn execute_safe_clone(
                             }
                         } else if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
                             let fp = fingerprint_cache.get(src_path).cloned().or_else(|| {
-                                let fpcalc_path = get_fpcalc_path(&window.app_handle());
+                                let fpcalc_path = get_fpcalc_path(window.app_handle());
                                 get_audio_fingerprint(&fpcalc_path, src_path)
                             });
                             if let Some(fp_val) = fp {
@@ -908,19 +934,7 @@ pub async fn execute_safe_clone(
                                 _ => src_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Unknown Track".to_string()),
                             };
 
-                            let truncated_stem = {
-                                let max_stem_len = 120;
-                                let mut truncated = String::new();
-                                let mut char_count = 0;
-                                for c in stem.chars() {
-                                    if char_count >= max_stem_len {
-                                        break;
-                                    }
-                                    truncated.push(c);
-                                    char_count += 1;
-                                }
-                                truncated.trim_end().to_string()
-                            };
+                            let truncated_stem = stem.chars().take(120).collect::<String>().trim_end().to_string();
 
                             let new_filename = format!("{}.{}", truncated_stem, ext);
                             
@@ -964,9 +978,9 @@ pub async fn execute_safe_clone(
                             duplicate_count += 1;
                         } else if needs_write {
                             let op_result = match file_mode.as_str() {
-                                "move" => crate::safe_move_file(&src_path, &target_path),
-                                "hardlink" | "link" => std::fs::hard_link(&src_path, &target_path),
-                                _ => std::fs::copy(&src_path, &target_path).map(|_| ()),
+                                "move" => crate::safe_move_file(src_path, &target_path),
+                                "hardlink" | "link" => std::fs::hard_link(src_path, &target_path),
+                                _ => std::fs::copy(src_path, &target_path).map(|_| ()),
                             };
                             
                             if let Err(e) = op_result {
@@ -1443,10 +1457,7 @@ fn match_library_track(
     // No artist tag: fuzzy may still prove it by sound on title candidates.
     if fuzzy {
         if let Some(cands) = by_title.get(&title) {
-            let staged_fp = match fuzzy_fp {
-                Some(fp) => fp,
-                None => return None, // no sound to prove with: stay conservative
-            };
+            let staged_fp = fuzzy_fp?;
             for &li in cands {
                 if live(li).is_none() || !ext_ok(li) {
                     continue;
@@ -1519,21 +1530,21 @@ fn match_library_tracks(
         }
     }
     let fuzzy = ["fuzzy", "tier3", "t3"].contains(&dedup_depth);
-    let mut fp_cache = FingerprintCache::load(&window.app_handle());
-    let fpcalc_path = get_fpcalc_path(&window.app_handle());
-    for idx in 0..total {
-        if tracks[idx].is_missing {
+    let mut fp_cache = FingerprintCache::load(window.app_handle());
+    let fpcalc_path = get_fpcalc_path(window.app_handle());
+    for (idx, track) in tracks.iter().enumerate().take(total) {
+        if track.is_missing {
             continue;
         }
         let staged_fp: Option<Vec<u32>> = if fuzzy {
             fp_cache
-                .get_full(&tracks[idx].source_path)
+                .get_full(&track.source_path)
                 .map(|(fp, _)| fp)
         } else {
             None
         };
         if let Some(db_path) = match_library_track(
-            &tracks[idx],
+            track,
             &by_path,
             &by_filename,
             &by_song,
@@ -1561,6 +1572,7 @@ fn match_library_tracks(
 
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_playlist_ingestion(
     window: tauri::Window,
     staged_files: Vec<String>,
@@ -1581,7 +1593,7 @@ pub async fn execute_playlist_ingestion(
         return Err(format!("Destination directory does not exist: {}", destination_path));
     }
     
-    let ffmpeg_path = get_ffmpeg_path(&window.app_handle());
+    let ffmpeg_path = get_ffmpeg_path(window.app_handle());
     
     let total = staged_files.len();
     let mut processed = 0;
@@ -1658,8 +1670,8 @@ pub async fn execute_playlist_ingestion(
     let library_links: std::collections::HashMap<usize, std::path::PathBuf>;
 
     if dedup_depth == "fuzzy" || dedup_depth == "tier3" || dedup_depth == "t3" {
-        let fpcalc_path = get_fpcalc_path(&window.app_handle());
-        let ffmpeg_path = get_ffmpeg_path(&window.app_handle());
+        let fpcalc_path = get_fpcalc_path(window.app_handle());
+        let ffmpeg_path = get_ffmpeg_path(window.app_handle());
         
         let _ = window.emit("ingest-consolidation-progress", ConsolidationProgressPayload {
             filename: "Pre-analyzing audio files...".to_string(),
@@ -1671,17 +1683,17 @@ pub async fn execute_playlist_ingestion(
         // Precompute raw MD5 and fingerprints in parallel.
         // Persistent cache first: unchanged files resolve instantly.
         let mut persistent_cache =
-            FingerprintCache::load(&window.app_handle());
+            FingerprintCache::load(window.app_handle());
         let mut tasks = Vec::new();
         let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
 
-        let mut healthy_indices = Vec::new();
-        for idx in 0..total {
-            if tracks[idx].is_missing {
-                continue;
-            }
-            healthy_indices.push(idx);
-        }
+        let healthy_indices: Vec<usize> = tracks
+            .iter()
+            .enumerate()
+            .take(total)
+            .filter(|(_, t)| !t.is_missing)
+            .map(|(idx, _)| idx)
+            .collect();
 
         let mut precomputed = std::collections::HashMap::new();
         let healthy_len = healthy_indices.len();
@@ -1992,7 +2004,7 @@ pub async fn execute_playlist_ingestion(
                 crate::safe_move_file(&track.source_path, &target_file_path)
             }
             "link" => {
-                if let Err(_) = std::fs::hard_link(&track.source_path, &target_file_path) {
+                if std::fs::hard_link(&track.source_path, &target_file_path).is_err() {
                     std::fs::copy(&track.source_path, &target_file_path).map(|_| ())
                 } else {
                     Ok(())
@@ -2105,8 +2117,8 @@ pub async fn execute_playlist_ingestion(
     xml_content.push_str("    <NODE Type=\"0\" Name=\"Root\">\n");
     xml_content.push_str(&format!("      <NODE Type=\"1\" Name=\"{}\" KeyType=\"0\" Entries=\"{}\">\n", escape_xml(&playlist_name), healthy_staged_count));
     
-    for idx in 0..total {
-        if tracks[idx].is_missing {
+    for (idx, track) in tracks.iter().enumerate().take(total) {
+        if track.is_missing {
             continue;
         }
         
@@ -2201,7 +2213,7 @@ pub async fn update_rekordbox_xml(
             approved_remapping.insert(orig_p.to_string_lossy().to_lowercase(), new_path_buf);
         }
 
-        let file = std::fs::File::open(&xml_p).map_err(|e| format!("Failed to open XML: {}", e))?;
+        let file = std::fs::File::open(xml_p).map_err(|e| format!("Failed to open XML: {}", e))?;
         let mut reader = std::io::BufReader::new(file);
         let mut xml_out = String::new();
         let mut line_buf = String::new();
@@ -2287,6 +2299,13 @@ mod tests {
         let line = r#"<TRACK TrackID="1" Name="First Track" Location="file://localhost/Users/hugues/Music/First.mp3">"#;
         assert_eq!(extract_attribute(line, "TrackID"), Some("1".to_string()));
         assert_eq!(extract_attribute(line, "Location"), Some("file://localhost/Users/hugues/Music/First.mp3".to_string()));
+    }
+
+    #[test]
+    fn test_unescape_xml() {
+        assert_eq!(unescape_xml("Guns N&#39; Roses"), "Guns N' Roses");
+        assert_eq!(unescape_xml("Rock &#x26; Roll"), "Rock & Roll");
+        assert_eq!(unescape_xml("&quot;Hello &amp; World&#x27;s&quot;"), "\"Hello & World's\"");
     }
 
     #[test]

@@ -4,6 +4,7 @@ const os = require('os');
 const child_process = require('child_process');
 
 require('./bin-setup');
+const { saveLedger } = require('./ledger');
 
 
 /**
@@ -285,6 +286,27 @@ function safeTrashFile(filePath) {
   } catch (e) {}
 }
 
+function swapAndSafeTrash(tmpFilePath, targetAbsPath, originalAbsPath, strategy) {
+  if (strategy === 'replace' && originalAbsPath === targetAbsPath && fs.existsSync(originalAbsPath)) {
+    const origBackup = originalAbsPath + `.orig-backup-${process.pid}-${Date.now()}`;
+    fs.renameSync(originalAbsPath, origBackup);
+    try {
+      fs.renameSync(tmpFilePath, targetAbsPath);
+    } catch (swapErr) {
+      if (fs.existsSync(origBackup) && !fs.existsSync(targetAbsPath)) {
+        try { fs.renameSync(origBackup, targetAbsPath); } catch (_) {}
+      }
+      throw swapErr;
+    }
+    safeTrashFile(origBackup);
+  } else {
+    fs.renameSync(tmpFilePath, targetAbsPath);
+    if (strategy === 'replace' && originalAbsPath !== targetAbsPath && fs.existsSync(originalAbsPath)) {
+      safeTrashFile(originalAbsPath);
+    }
+  }
+}
+
 function cleanProxyFile(entry, stagedAbsPath, rootPath) {
   const candidates = [];
   if (entry && entry.proxy_path) {
@@ -419,11 +441,8 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
               if (fs.existsSync(tmpClonePath)) fs.unlinkSync(tmpClonePath);
               throw err;
             }
-            // Atomically replace targetAbsPath
-            fs.renameSync(tmpClonePath, targetAbsPath);
-            if (strategy === 'replace' && originalAbsPath !== targetAbsPath && fs.existsSync(originalAbsPath)) {
-              safeTrashFile(originalAbsPath);
-            }
+            // Atomically replace targetAbsPath and safely trash original
+            swapAndSafeTrash(tmpClonePath, targetAbsPath, originalAbsPath, strategy);
 
             writeLog('DUPLICATE', `${artistTitle}  →  cloned from committed copy`);
             entry.status = 'committed';
@@ -453,11 +472,8 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
               if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
               throw err;
             }
-            // Atomically replace targetAbsPath
-            fs.renameSync(tmpPath, targetAbsPath);
-            if (strategy === 'replace' && originalAbsPath !== targetAbsPath && fs.existsSync(originalAbsPath)) {
-              safeTrashFile(originalAbsPath);
-            }
+            // Atomically replace targetAbsPath and safely trash original
+            swapAndSafeTrash(tmpPath, targetAbsPath, originalAbsPath, strategy);
 
             // Delete the staged file from crateup-staging/ after copying
             if (fs.existsSync(stagedAbsPath)) {
@@ -599,8 +615,12 @@ async function commit(ledgerPath, decisions, outputPath, outputStrategy, keepLed
     }
   }
 
-  // Save the modified ledger back to disk
-  fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+  // Save the modified ledger back to disk (atomic write-through + cache refresh)
+  try {
+    saveLedger(rootPath, ledger);
+  } catch (_) {
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf8');
+  }
 
   // Phase C: Clean up staging folder in its entirety (only on successful commit)
   if (failures.length === 0) {
@@ -656,7 +676,9 @@ module.exports = {
   commit,
   getFileMetadata,
   getAudioTags,
-  mergeOriginalTags
+  mergeOriginalTags,
+  safeTrashFile,
+  swapAndSafeTrash
 };
 
 if (require.main === module) {

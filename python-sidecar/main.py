@@ -70,6 +70,9 @@ async def main() -> None:
             sys.stdout.flush()
         else:
             log(f"Received unknown method: {method}")
+            resp = {"id": msg_id, "error": f"unknown_method: {method}"}
+            sys.stdout.write(json.dumps(resp) + "\n")
+            sys.stdout.flush()
 
 if __name__ == "__main__":
     try:

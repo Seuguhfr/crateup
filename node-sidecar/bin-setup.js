@@ -35,7 +35,19 @@ function setupBinaries() {
     const binaries = ['ffmpeg', 'ffprobe', 'fpcalc'];
     for (const bin of binaries) {
       const targetLinkPath = path.join(binDir, bin);
-      const sourceFilePath = path.join(activeBinDir, `${bin}${suffix}`);
+      let isBroken = false;
+      try {
+        const lstat = fs.lstatSync(targetLinkPath);
+        if (lstat.isSymbolicLink() && !fs.existsSync(targetLinkPath)) {
+          isBroken = true;
+        }
+      } catch (_) {}
+
+      if (isBroken) {
+        try {
+          fs.unlinkSync(targetLinkPath);
+        } catch (_) {}
+      }
 
       if (!fs.existsSync(targetLinkPath)) {
         if (fs.existsSync(sourceFilePath)) {

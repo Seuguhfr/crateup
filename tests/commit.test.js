@@ -323,4 +323,41 @@ describe('Commit Phase Module', () => {
     expect(fs.existsSync(replacedPath)).toBe(true);
     expect(fs.readFileSync(replacedPath, 'utf8')).toBe('cli upgraded content');
   });
+
+  test('in-place replacement with identical extension replaces content cleanly and invokes safe trash', async () => {
+    const origPath = path.join(testRoot, 'SameExt - Track.mp3');
+    fs.writeFileSync(origPath, 'low quality 128kbps mp3');
+
+    const stagingDir = path.join(testRoot, 'crateup-staging');
+    fs.mkdirSync(stagingDir, { recursive: true });
+    const stagedPath = path.join(stagingDir, 'SameExt - Track.mp3');
+    fs.writeFileSync(stagedPath, 'high quality 320kbps mp3');
+
+    const ledger = {
+      session_id: 'test-same-ext-uuid',
+      root_path: testRoot,
+      output_format: 'mp3',
+      files: {
+        '/SameExt - Track.mp3': {
+          status: 'downloaded',
+          deezer_id: 88888,
+          staged_path: 'crateup-staging/SameExt - Track.mp3',
+          proxy_path: null
+        }
+      }
+    };
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const decisions = new Map([
+      ['/SameExt - Track.mp3', 'approved']
+    ]);
+
+    const result = await commit(ledgerPath, decisions, '', 'replace', true);
+
+    expect(result.success).toBe(true);
+    expect(result.failures).toEqual([]);
+    expect(fs.existsSync(origPath)).toBe(true);
+    // Replacement content is in place
+    expect(fs.readFileSync(origPath, 'utf8')).toBe('high quality 320kbps mp3');
+  });
 });

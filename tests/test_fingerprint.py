@@ -135,3 +135,26 @@ async def test_search_deezer_multi_release_duration_matching():
         # Target duration 190s should pick ID 101 (delta 10s)
         chosen_id_radio = await search_deezer('Song', 'Artist', target_duration=190.0)
         assert chosen_id_radio == 101
+
+@pytest.mark.asyncio
+async def test_search_deezer_handles_null_duration():
+    from unittest.mock import MagicMock
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.json = AsyncMock(return_value={
+        'data': [
+            {'id': 404, 'title': 'Song (Promo)', 'duration': None},
+            {'id': 505, 'title': 'Song (Standard)', 'duration': 240},
+        ]
+    })
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=None)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_resp
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch('aiohttp.ClientSession', return_value=mock_session):
+        chosen_id = await search_deezer('Song', 'Artist', target_duration=240.0)
+        assert chosen_id == 505

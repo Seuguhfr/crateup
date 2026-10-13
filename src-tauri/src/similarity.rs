@@ -113,8 +113,7 @@ pub fn get_audio_fingerprint(fpcalc_path: &std::path::Path, file_path: &std::pat
     
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines() {
-        if line.starts_with("FINGERPRINT=") {
-            let fp_str = &line["FINGERPRINT=".len()..];
+        if let Some(fp_str) = line.strip_prefix("FINGERPRINT=") {
             let fingerprint: Vec<u32> = fp_str
                 .split(',')
                 .filter_map(|s| s.trim().parse::<u32>().ok())
@@ -146,8 +145,7 @@ pub fn get_raw_audio_md5(ffmpeg_path: &std::path::Path, file_path: &std::path::P
     
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines() {
-        if line.starts_with("MD5=") {
-            let md5_str = &line["MD5=".len()..];
+        if let Some(md5_str) = line.strip_prefix("MD5=") {
             return Some(md5_str.trim().to_lowercase());
         }
     }
@@ -171,8 +169,8 @@ pub fn calculate_similarity(fp1: &[u32], fp2: &[u32], threshold: f64) -> f64 {
     let len2 = fp2.len();
     let max_len = std::cmp::max(len1, len2);
     let min_len = std::cmp::min(len1, len2);
-    // If lengths differ by more than 20%, skip comparing (only for files of substantial length)
-    if max_len > 10 && max_len - min_len > (max_len * 20) / 100 {
+    // If lengths differ by more than 20%, skip comparing (only for files of substantial length > 60 frames ~5s)
+    if max_len > 60 && max_len - min_len > (max_len * 20) / 100 {
         return 0.0;
     }
     
@@ -212,9 +210,8 @@ pub fn calculate_similarity(fp1: &[u32], fp2: &[u32], threshold: f64) -> f64 {
         let threshold_bits = ((k_u as f64) * threshold * 32.0) as usize;
         let mut matching_bits = 0;
         let mut possible_failed = false;
-        let mut count = 0;
         
-        for i in start_a..end_a {
+        for (count, i) in (start_a..end_a).enumerate() {
             let x = a[i as usize];
             let y = b[(i + d) as usize];
             matching_bits += 32 - (x ^ y).count_ones() as usize;
@@ -226,7 +223,6 @@ pub fn calculate_similarity(fp1: &[u32], fp2: &[u32], threshold: f64) -> f64 {
                     break;
                 }
             }
-            count += 1;
         }
         
         if !possible_failed {
@@ -306,7 +302,7 @@ mod tests {
         }
         let low = calculate_similarity(&base, &other, 0.80);
         assert!(
-            low >= 0.80 && low < 0.90,
+            (0.80..0.90).contains(&low),
             "expected ~0.833 at threshold 0.80, got {}",
             low
         );
