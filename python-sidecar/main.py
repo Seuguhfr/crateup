@@ -62,6 +62,8 @@ async def main() -> None:
             try:
                 result = await download_track(deezer_id, output_format, staged_path)
                 resp = {"id": msg_id, "result": result}
+            except ValueError as ve:
+                resp = {"id": msg_id, "error": str(ve)}
             except Exception as e:
                 log(f"Error downloading: {e}")
                 resp = {"id": msg_id, "error": "download_failed"}

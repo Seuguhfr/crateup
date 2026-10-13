@@ -25,11 +25,17 @@ jest.mock('../node-sidecar/rpc', () => {
           if (params.path.includes('downloadfailed')) {
             return { deezer_id: 99999, title: 'Download Failed Track', artist: 'Artist' };
           }
+          if (params.path.includes('missingarl')) {
+            return { deezer_id: 88888, title: 'Missing ARL Track', artist: 'Artist' };
+          }
           return { deezer_id: 12345, title: 'Mock Song', artist: 'Mock Artist' };
         }
         if (method === 'download') {
           if (params.deezer_id === 99999) {
             throw new Error('download_failed');
+          }
+          if (params.deezer_id === 88888) {
+            throw new Error('missing_arl');
           }
           // Simulate creating the output file in mock download
           mockFs.mkdirSync(mockPath.dirname(params.staged_path), { recursive: true });
@@ -59,6 +65,7 @@ describe('Pipeline Loop Orchestrator', () => {
     fs.writeFileSync(path.join(testRoot, 'unidentified.mp3'), 'dummy');
     fs.writeFileSync(path.join(testRoot, 'notondeezer.mp3'), 'dummy');
     fs.writeFileSync(path.join(testRoot, 'downloadfailed.mp3'), 'dummy');
+    fs.writeFileSync(path.join(testRoot, 'missingarl.mp3'), 'dummy');
   });
 
   afterEach(() => {
@@ -78,6 +85,7 @@ describe('Pipeline Loop Orchestrator', () => {
     expect(ledger.files['/unidentified.mp3'].status).toBe('unidentified');
     expect(ledger.files['/notondeezer.mp3'].status).toBe('not_on_deezer');
     expect(ledger.files['/downloadfailed.mp3'].status).toBe('download_failed');
+    expect(ledger.files['/missingarl.mp3'].status).toBe('download_failed');
 
     const ledgerPath = path.join(testRoot, '.crateup-progress.json');
     expect(fs.existsSync(ledgerPath)).toBe(true);
@@ -100,5 +108,25 @@ describe('Pipeline Loop Orchestrator', () => {
 
     expect(fs.existsSync(ledger.files['/track1.mp3'].staged_path)).toBe(true);
     expect(fs.existsSync(ledger.files['/track2.mp3'].staged_path)).toBe(true);
+  });
+
+  test('pipeline CLI parses fileList from a JSON file path', () => {
+    const file1 = path.join(testRoot, 'cli-track.mp3');
+    fs.writeFileSync(file1, 'dummy');
+    const tmpFileList = path.join(testRoot, 'temp-filelist.json');
+    fs.writeFileSync(tmpFileList, JSON.stringify([file1]));
+
+    const child_process = require('child_process');
+    const res = child_process.spawnSync(process.execPath, [
+      path.join(__dirname, '../node-sidecar/pipeline.js'),
+      testRoot,
+      'flac',
+      tmpFileList
+    ], { env: { ...process.env, NODE_ENV: 'test' } });
+
+    expect(res.status).toBe(0);
+    const ledgerPath = path.join(testRoot, '.crateup-progress.json');
+    const diskLedger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+    expect(diskLedger.files['/cli-track.mp3']).toBeDefined();
   });
 });

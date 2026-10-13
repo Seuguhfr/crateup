@@ -21,7 +21,7 @@ function scanDir(dir, rootPath, filesList = []) {
       scanDir(fullPath, rootPath, filesList);
     } else if (entry.isFile()) {
       const ext = path.extname(name).toLowerCase();
-      if (['.mp3', '.flac', '.aiff', '.wav', '.m4a'].includes(ext)) {
+      if (['.mp3', '.flac', '.aiff', '.aif', '.wav', '.m4a'].includes(ext)) {
         let relPath = path.relative(rootPath, fullPath);
         // Normalize slashes to forward slashes for cross-platform consistency
         relPath = relPath.split(path.sep).join('/');

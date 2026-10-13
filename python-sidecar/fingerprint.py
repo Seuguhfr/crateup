@@ -145,9 +145,16 @@ async def fingerprint_file(file_path: str) -> Dict[str, Any]:
     last_error = None
     
     for attempt in range(1, attempts + 1):
-        min_offset = 0.20 * duration
-        max_offset = 0.75 * duration
-        start_offset = random.uniform(min_offset, max_offset)
+        # Smart-Slice Fingerprinting (§3.2 SPEC.md)
+        if attempt == 1:
+            if duration > 180.0:
+                start_offset = min(120.0, max(0.0, duration - 15.0))
+            else:
+                start_offset = min(30.0, max(0.0, duration - 15.0))
+        else:
+            min_offset = 0.20 * duration
+            max_offset = max(min_offset, 0.75 * duration)
+            start_offset = random.uniform(min_offset, max_offset)
         
         log(f"[Attempt {attempt}/{attempts}] Extracting 15s sample starting at {start_offset:.2f}s")
         

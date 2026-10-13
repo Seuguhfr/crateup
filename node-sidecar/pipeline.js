@@ -287,6 +287,12 @@ async function runPipeline(rootPath, outputFormat, fileList = null, skipHighQual
             staged_path: stagedAbsPath
           });
         } catch (err) {
+          if (err.message && err.message.includes('missing_arl')) {
+            log(`Download aborted for ${relPath}: No Deezer ARL token configured (missing_arl). Configure your ARL in Settings.`);
+            ledger.files[relPath].status = 'download_failed';
+            saveLedger(rootPath, ledger);
+            continue;
+          }
           log(`Download failed for ${relPath}: ${err.message}. Retrying in 10 seconds...`);
           await new Promise(resolve => setTimeout(resolve, process.env.NODE_ENV === 'test' ? 0 : 10000));
           
@@ -411,7 +417,11 @@ if (require.main === module) {
         skipDeezerMax = true;
       } else {
         try {
-          fileList = JSON.parse(args[i]);
+          if (fs.existsSync(args[i]) && fs.statSync(args[i]).isFile()) {
+            fileList = JSON.parse(fs.readFileSync(args[i], 'utf8'));
+          } else {
+            fileList = JSON.parse(args[i]);
+          }
         } catch (err) {
           console.error("Failed to parse fileList argument:", err);
         }

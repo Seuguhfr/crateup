@@ -50,6 +50,19 @@ function setupBinaries() {
       }
 
       if (!fs.existsSync(targetLinkPath)) {
+        const candidateNames = [`${bin}${suffix}`, bin];
+        let sourceFilePath = null;
+        for (const name of candidateNames) {
+          const candidatePath = path.join(activeBinDir, name);
+          if (fs.existsSync(candidatePath)) {
+            sourceFilePath = candidatePath;
+            break;
+          }
+        }
+        if (!sourceFilePath) {
+          sourceFilePath = path.join(activeBinDir, `${bin}${suffix}`);
+        }
+
         if (fs.existsSync(sourceFilePath)) {
           try {
             fs.symlinkSync(sourceFilePath, targetLinkPath);

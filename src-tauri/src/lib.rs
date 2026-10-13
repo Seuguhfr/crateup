@@ -334,10 +334,27 @@ fn start_pipeline(
             command_args.push("--skip-deezer-max".to_string());
         }
 
-        if let Some(ref list) = file_list {
+        let temp_list_file = if let Some(ref list) = file_list {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let temp_path = std::env::temp_dir().join(format!(
+                "crateup-pipeline-filelist-{}-{}.json",
+                std::process::id(),
+                nanos
+            ));
             let list_json = serde_json::to_string(list).unwrap_or_default();
-            command_args.push(list_json);
-        }
+            if std::fs::write(&temp_path, list_json).is_ok() {
+                command_args.push(temp_path.to_string_lossy().to_string());
+                Some(temp_path)
+            } else {
+                command_args.push(serde_json::to_string(list).unwrap_or_default());
+                None
+            }
+        } else {
+            None
+        };
 
         eprintln!(
             "[DEBUG] Spawning sidecar: node\n  Args: {:?}\n  Cwd: {:?}\n  PATH: {}",
@@ -347,6 +364,9 @@ fn start_pipeline(
         let sidecar_cmd = match app.shell().sidecar("node") {
             Ok(cmd) => cmd,
             Err(e) => {
+                if let Some(ref p) = temp_list_file {
+                    let _ = std::fs::remove_file(p);
+                }
                 let err_msg = format!("Failed to initialize sidecar 'node': {}", e);
                 eprintln!("[ERROR] {}", err_msg);
                 let _ = app.emit("pipeline-log", serde_json::json!({ "line": format!("{}\n", err_msg) }));
@@ -364,6 +384,9 @@ fn start_pipeline(
         let (mut rx, child) = match spawn_res {
             Ok(res) => res,
             Err(e) => {
+                if let Some(ref p) = temp_list_file {
+                    let _ = std::fs::remove_file(p);
+                }
                 let err_msg = format!("Failed to spawn sidecar: {} (Check if 'node' binary is on PATH. Current PATH: {})", e, new_path);
                 eprintln!("[ERROR] {}", err_msg);
                 let _ = app.emit("pipeline-log", serde_json::json!({ "line": format!("{}\n", err_msg) }));
@@ -404,6 +427,10 @@ fn start_pipeline(
             let manager = app.state::<PipelineManager>();
             let mut guard = manager.0.lock().await;
             *guard = None;
+        }
+
+        if let Some(ref p) = temp_list_file {
+            let _ = std::fs::remove_file(p);
         }
     });
 }

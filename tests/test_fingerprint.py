@@ -158,3 +158,32 @@ async def test_search_deezer_handles_null_duration():
     with patch('aiohttp.ClientSession', return_value=mock_session):
         chosen_id = await search_deezer('Song', 'Artist', target_duration=240.0)
         assert chosen_id == 505
+
+@pytest.mark.asyncio
+@patch('os.path.exists', return_value=True)
+@patch('fingerprint.Shazam')
+@patch('fingerprint.search_deezer')
+@patch('fingerprint.extract_sample')
+@patch('fingerprint.get_audio_duration')
+async def test_fingerprint_attempt1_smart_slice_offset(mock_duration, mock_extract, mock_search, mock_shazam_class, mock_exists):
+    mock_shazam_instance = AsyncMock()
+    mock_shazam_instance.recognize.return_value = {
+        'track': {'title': 'Track', 'subtitle': 'Artist'}
+    }
+    mock_shazam_class.return_value = mock_shazam_instance
+    mock_search.return_value = 12345
+    mock_extract.return_value = None
+
+    # Long track (>180s): attempt 1 must anchor at 120.0s (§3.2 SPEC.md)
+    mock_duration.return_value = 300.0
+    await fingerprint_file("/dummy/long_track.mp3")
+    mock_extract.assert_called_once()
+    assert mock_extract.call_args[0][1] == 120.0
+
+    mock_extract.reset_mock()
+
+    # Short track (<=180s): attempt 1 must anchor at 30.0s (§3.2 SPEC.md)
+    mock_duration.return_value = 100.0
+    await fingerprint_file("/dummy/short_track.mp3")
+    mock_extract.assert_called_once()
+    assert mock_extract.call_args[0][1] == 30.0

@@ -53,6 +53,7 @@ const readyState = {
 let lockInterval = null;
 let watchdogRetried = false;
 let watchdogTimer = null;
+let wavWarningShown = false;
 function waveSurfer() {
     const w = window.WaveSurfer;
     return w ?? null;
@@ -441,6 +442,35 @@ async function readLedgerAndBoot() {
     renderQueue();
     refreshDock();
     await loadTrack(currentIndex);
+    checkWavWarningModal();
+}
+function checkWavWarningModal() {
+    if (wavWarningShown)
+        return;
+    if (ledger?.output_format?.toLowerCase() !== "wav")
+        return;
+    wavWarningShown = true;
+    const root = document.createElement("div");
+    root.className = "modal-backdrop show";
+    root.id = "rv-wav-warning-modal";
+    root.innerHTML = `
+    <div class="modal" role="dialog" aria-label="WAV Format Warning" style="width:min(500px,92vw)">
+      <div class="modal-title" style="color:var(--orange)">WAV Format Warning</div>
+      <p class="muted small" style="margin:8px 0 16px;line-height:1.5">
+        Warning: WAV files do not reliably support custom ID3 tags. Genre, rating, and comment fields may be dropped by your playback software. Consider using FLAC for lossless quality with full tag support.
+      </p>
+      <div class="modal-actions">
+        <button class="btn primary" id="wav-warning-dismiss">I Understand</button>
+      </div>
+    </div>`;
+    document.body.appendChild(root);
+    const close = () => root.remove();
+    root.addEventListener("click", (e) => {
+        const t = e.target;
+        if (t === root || t.closest("#wav-warning-dismiss")) {
+            close();
+        }
+    });
 }
 export function renderReviewScreen(el, source, callbacks) {
     leaveReview();
@@ -467,6 +497,8 @@ export function leaveReview() {
         window.clearInterval(lockInterval);
         lockInterval = null;
     }
+    document.getElementById("rv-wav-warning-modal")?.remove();
+    wavWarningShown = false;
     res = null;
     cb = null;
     ledger = null;

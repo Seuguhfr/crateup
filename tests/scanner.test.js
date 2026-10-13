@@ -38,6 +38,14 @@ describe('Directory Scanner and Ledger Init', () => {
     expect(sorted[2]).toBe('/track2.FLAC');
   });
 
+  test('scanDir detects .aif and .aiff files', () => {
+    fs.writeFileSync(path.join(testRoot, 'sample.aif'), 'dummy');
+    fs.writeFileSync(path.join(testRoot, 'sample.aiff'), 'dummy');
+    const files = scanDir(testRoot, testRoot);
+    expect(files).toContain('/sample.aif');
+    expect(files).toContain('/sample.aiff');
+  });
+
   test('initLedger initializes a new ledger file', () => {
     const ledger = initLedger(testRoot, 'flac');
     expect(ledger.session_id).toBeDefined();
