@@ -7,9 +7,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use tauri::Emitter;
 use tauri::Manager;
-use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::CommandEvent;
-
 use crate::fingerprint_cache::FingerprintCache;
 use crate::rekordbox::list_library_entries;
 use crate::similarity::{
@@ -19,105 +16,15 @@ use crate::similarity::{
 
 #[tauri::command]
 pub fn get_xml_track_count(xml_path: String) -> Result<usize, String> {
-    let content = std::fs::read_to_string(&xml_path).map_err(|e| e.to_string())?;
-    Ok(content.matches("Location=\"").count())
-}
-
-async fn run_pipeline_rpc(app: &tauri::AppHandle, request_json: String) -> Result<String, String> {
-    let node_sidecar_dir = crate::resolve_node_sidecar_dir(app)?;
-    let pipeline_js = node_sidecar_dir.join("pipeline.js");
-    let new_path = crate::build_sidecar_env_path(app, &node_sidecar_dir);
-
-    let sidecar_cmd = app.shell()
-        .sidecar("node")
-        .map_err(|e| e.to_string())?
-        .args(&[pipeline_js.to_string_lossy().to_string()])
-        .current_dir(node_sidecar_dir)
-        .env("PATH", new_path);
-
-    let (mut rx, mut child) = sidecar_cmd.spawn().map_err(|e| e.to_string())?;
-
-    child.write(format!("{}\n", request_json).as_bytes()).map_err(|e| e.to_string())?;
-
-    let mut response = String::new();
-    while let Some(event) = rx.recv().await {
-        match event {
-            CommandEvent::Stdout(line_bytes) => {
-                response = String::from_utf8_lossy(&line_bytes).to_string();
-                break;
-            }
-            CommandEvent::Stderr(line_bytes) => {
-                let err_msg = String::from_utf8_lossy(&line_bytes).to_string();
-                eprintln!("[RPC Error] {}", err_msg);
-            }
-            CommandEvent::Terminated(_) => {
-                break;
-            }
-            _ => {}
-        }
+    let file = File::open(&xml_path).map_err(|e| format!("Failed to open XML file: {}", e))?;
+    let mut reader = BufReader::new(file);
+    let mut count = 0;
+    let mut line = String::new();
+    while reader.read_line(&mut line).map_err(|e| e.to_string())? > 0 {
+        count += line.matches("Location=\"").count();
+        line.clear();
     }
-
-    let _ = child.kill();
-
-    Ok(response)
-}
-
-#[tauri::command]
-pub async fn parse_playlists(app: tauri::AppHandle, xml_path: String) -> Result<String, String> {
-    let req = serde_json::json!({
-        "id": "parse_playlists_req",
-        "method": "parse_playlists",
-        "params": {
-            "xml_path": xml_path
-        }
-    });
-    let resp_str = run_pipeline_rpc(&app, req.to_string()).await?;
-    let resp: serde_json::Value = serde_json::from_str(&resp_str).map_err(|e| e.to_string())?;
-    if let Some(err) = resp.get("error") {
-        return Err(err.as_str().unwrap_or("Unknown error").to_string());
-    }
-    let result = resp.get("result").ok_or("Missing result in JSON-RPC response")?;
-    Ok(serde_json::to_string(result).map_err(|e| e.to_string())?)
-}
-
-#[tauri::command]
-pub async fn get_playlist_tracks(app: tauri::AppHandle, xml_path: String, playlist_name: String) -> Result<Vec<String>, String> {
-    let req = serde_json::json!({
-        "id": "get_playlist_tracks_req",
-        "method": "get_playlist_tracks",
-        "params": {
-            "xml_path": xml_path,
-            "playlist_name": playlist_name
-        }
-    });
-    let resp_str = run_pipeline_rpc(&app, req.to_string()).await?;
-    let resp: serde_json::Value = serde_json::from_str(&resp_str).map_err(|e| e.to_string())?;
-    if let Some(err) = resp.get("error") {
-        return Err(err.as_str().unwrap_or("Unknown error").to_string());
-    }
-    let result = resp.get("result").ok_or("Missing result in JSON-RPC response")?;
-    let paths: Vec<String> = serde_json::from_value(result.clone()).map_err(|e| e.to_string())?;
-    Ok(paths)
-}
-
-#[tauri::command]
-pub async fn get_folder_tracks(app: tauri::AppHandle, xml_path: String, folder_name: String) -> Result<Vec<String>, String> {
-    let req = serde_json::json!({
-        "id": "get_folder_tracks_req",
-        "method": "get_folder_tracks",
-        "params": {
-            "xml_path": xml_path,
-            "folder_name": folder_name
-        }
-    });
-    let resp_str = run_pipeline_rpc(&app, req.to_string()).await?;
-    let resp: serde_json::Value = serde_json::from_str(&resp_str).map_err(|e| e.to_string())?;
-    if let Some(err) = resp.get("error") {
-        return Err(err.as_str().unwrap_or("Unknown error").to_string());
-    }
-    let result = resp.get("result").ok_or("Missing result in JSON-RPC response")?;
-    let paths: Vec<String> = serde_json::from_value(result.clone()).map_err(|e| e.to_string())?;
-    Ok(paths)
+    Ok(count)
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -182,6 +89,296 @@ fn decode_location(location: &str) -> Option<String> {
     }
     
     Some(final_path)
+}
+
+#[derive(Clone, Debug)]
+struct RawNode {
+    name: String,
+    node_type: String, // "folder" or "playlist"
+    entry_count: Option<usize>,
+    children: Vec<RawNode>,
+    tracks: Vec<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistUiNode {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tracks: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<PlaylistUiNode>>,
+}
+
+fn count_tracks(node: &RawNode) -> usize {
+    if node.node_type == "playlist" {
+        node.entry_count.unwrap_or(node.tracks.len())
+    } else {
+        node.children.iter().map(count_tracks).sum()
+    }
+}
+
+fn map_tree_for_ui(node: &RawNode) -> PlaylistUiNode {
+    let (entry_count, total_tracks) = if node.node_type == "playlist" {
+        (Some(node.entry_count.unwrap_or(node.tracks.len())), None)
+    } else {
+        (None, Some(count_tracks(node)))
+    };
+    let children = if node.node_type == "folder" && !node.children.is_empty() {
+        Some(node.children.iter().map(map_tree_for_ui).collect())
+    } else {
+        None
+    };
+    PlaylistUiNode {
+        name: node.name.clone(),
+        node_type: node.node_type.clone(),
+        entry_count,
+        total_tracks,
+        children,
+    }
+}
+
+fn parse_playlists_xml_tree(
+    xml_path: &str,
+) -> Result<(std::collections::HashMap<String, String>, Vec<RawNode>), String> {
+    let file = File::open(xml_path).map_err(|e| format!("Failed to open XML file: {}", e))?;
+    let mut reader = BufReader::new(file);
+
+    let mut collection = std::collections::HashMap::new();
+    let mut in_collection = false;
+    let mut in_playlists = false;
+
+    let mut stack: Vec<RawNode> = Vec::new();
+    let mut root_children: Vec<RawNode> = Vec::new();
+
+    let mut line_buf = String::new();
+    let mut remainder = String::new();
+
+    while reader.read_line(&mut line_buf).map_err(|e| e.to_string())? > 0 {
+        let mut text = std::mem::take(&mut remainder);
+        text.push_str(&line_buf);
+        line_buf.clear();
+
+        let mut pos = 0;
+        while let Some(start_offset) = text[pos..].find('<') {
+            let start = pos + start_offset;
+            let end = match text[start..].find('>') {
+                Some(e) => start + e,
+                None => {
+                    remainder = text[start..].to_string();
+                    break;
+                }
+            };
+
+            let tag = &text[start..=end];
+            pos = end + 1;
+
+            if tag.starts_with("<?") || tag.starts_with("<!--") {
+                continue;
+            }
+
+            if tag.starts_with("<COLLECTION") {
+                in_collection = true;
+                continue;
+            } else if tag.starts_with("</COLLECTION") {
+                in_collection = false;
+                continue;
+            } else if tag.starts_with("<PLAYLISTS") {
+                in_playlists = true;
+                continue;
+            } else if tag.starts_with("</PLAYLISTS") {
+                in_playlists = false;
+                continue;
+            }
+
+            if in_collection && tag.starts_with("<TRACK") {
+                if let (Some(id), Some(loc)) = (
+                    extract_attribute(tag, "TrackID"),
+                    extract_attribute(tag, "Location"),
+                ) {
+                    if let Some(decoded) = decode_location(&loc) {
+                        collection.insert(id, decoded);
+                    }
+                }
+            } else if in_playlists {
+                if tag.starts_with("</NODE") {
+                    if let Some(finished) = stack.pop() {
+                        if let Some(parent) = stack.last_mut() {
+                            parent.children.push(finished);
+                        } else {
+                            root_children.push(finished);
+                        }
+                    }
+                } else if tag.starts_with("<NODE") {
+                    let is_self_closing = tag.trim_end().ends_with("/>");
+                    let name = extract_attribute(tag, "Name").unwrap_or_default();
+                    let type_attr = extract_attribute(tag, "Type").unwrap_or_default();
+                    let node_type = if type_attr == "0" {
+                        "folder".to_string()
+                    } else {
+                        "playlist".to_string()
+                    };
+                    let entry_count = extract_attribute(tag, "Entries")
+                        .and_then(|e| e.parse::<usize>().ok());
+
+                    let node = RawNode {
+                        name,
+                        node_type,
+                        entry_count,
+                        children: Vec::new(),
+                        tracks: Vec::new(),
+                    };
+
+                    if is_self_closing {
+                        if let Some(parent) = stack.last_mut() {
+                            parent.children.push(node);
+                        } else {
+                            root_children.push(node);
+                        }
+                    } else {
+                        stack.push(node);
+                    }
+                } else if tag.starts_with("<TRACK") {
+                    if let Some(key) = extract_attribute(tag, "Key") {
+                        if let Some(current) = stack.last_mut() {
+                            current.tracks.push(key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    while let Some(finished) = stack.pop() {
+        if let Some(parent) = stack.last_mut() {
+            parent.children.push(finished);
+        } else {
+            root_children.push(finished);
+        }
+    }
+
+    Ok((collection, root_children))
+}
+
+fn find_playlist_tracks<'a>(nodes: &'a [RawNode], target: &str) -> Option<&'a [String]> {
+    for node in nodes {
+        if node.node_type == "playlist" && node.name == target {
+            return Some(&node.tracks);
+        }
+        if !node.children.is_empty() {
+            if let Some(found) = find_playlist_tracks(&node.children, target) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn find_folder_node<'a>(nodes: &'a [RawNode], target: &str) -> Option<&'a RawNode> {
+    for node in nodes {
+        if node.node_type == "folder" && node.name == target {
+            return Some(node);
+        }
+        if !node.children.is_empty() {
+            if let Some(found) = find_folder_node(&node.children, target) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn collect_tracks_from_folder(
+    node: &RawNode,
+    out: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    if node.node_type == "playlist" {
+        for t in &node.tracks {
+            if seen.insert(t.clone()) {
+                out.push(t.clone());
+            }
+        }
+    } else {
+        for child in &node.children {
+            collect_tracks_from_folder(child, out, seen);
+        }
+    }
+}
+
+pub fn parse_playlists_inner(xml_path: &str) -> Result<String, String> {
+    let (_collection, root_children) = parse_playlists_xml_tree(xml_path)?;
+    let root_node = root_children.iter().find(|n| n.name == "ROOT");
+    let top_level: Vec<&RawNode> = if let Some(root) = root_node {
+        root.children.iter().collect()
+    } else {
+        root_children.iter().collect()
+    };
+    let ui_nodes: Vec<PlaylistUiNode> = top_level.into_iter().map(map_tree_for_ui).collect();
+    serde_json::to_string(&ui_nodes).map_err(|e| e.to_string())
+}
+
+pub fn get_playlist_tracks_inner(xml_path: &str, playlist_name: &str) -> Result<Vec<String>, String> {
+    let (collection, root_children) = parse_playlists_xml_tree(xml_path)?;
+    let track_ids = match find_playlist_tracks(&root_children, playlist_name) {
+        Some(tracks) => tracks,
+        None => return Ok(Vec::new()),
+    };
+    let paths = track_ids
+        .iter()
+        .filter_map(|key| collection.get(key).cloned())
+        .collect();
+    Ok(paths)
+}
+
+pub fn get_folder_tracks_inner(xml_path: &str, folder_name: &str) -> Result<Vec<String>, String> {
+    let (collection, root_children) = parse_playlists_xml_tree(xml_path)?;
+    let folder_node = match find_folder_node(&root_children, folder_name) {
+        Some(f) => f,
+        None => return Ok(Vec::new()),
+    };
+    let mut track_keys = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    collect_tracks_from_folder(folder_node, &mut track_keys, &mut seen);
+
+    let paths = track_keys
+        .iter()
+        .filter_map(|key| collection.get(key).cloned())
+        .collect();
+    Ok(paths)
+}
+
+#[tauri::command]
+pub async fn parse_playlists(_app: tauri::AppHandle, xml_path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || parse_playlists_inner(&xml_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_playlist_tracks(
+    _app: tauri::AppHandle,
+    xml_path: String,
+    playlist_name: String,
+) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || get_playlist_tracks_inner(&xml_path, &playlist_name))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_folder_tracks(
+    _app: tauri::AppHandle,
+    xml_path: String,
+    folder_name: String,
+) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || get_folder_tracks_inner(&xml_path, &folder_name))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn get_track_name(line: &str) -> String {
@@ -2192,6 +2389,67 @@ mod tests {
         assert!(upgraded_xml.contains("Location=\"file://localhost/Music/NewSong1.flac\""));
         // Song 2 was skipped, so Location remains OldSong2.mp3
         assert!(upgraded_xml.contains("Location=\"file://localhost/Music/OldSong2.mp3\""));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_native_xml_playlists_parsing() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "crateup-xml-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let xml_path = temp_dir.join("collection.xml");
+        let xml_content = r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <COLLECTION Entries="3">
+    <TRACK TrackID="10" Location="file://localhost/Users/test/Track%2010.mp3" />
+    <TRACK TrackID="20" Location="file://localhost/Users/test/Track%2020.mp3" />
+    <TRACK TrackID="30" Location="file://localhost/Users/test/Track%2030.mp3" />
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT">
+      <NODE Type="0" Name="Parent Folder">
+        <NODE Type="1" Name="Playlist A" Entries="2">
+          <TRACK Key="10" />
+          <TRACK Key="20" />
+        </NODE>
+        <NODE Type="0" Name="Subfolder">
+          <NODE Type="1" Name="Playlist B" Entries="2">
+            <TRACK Key="20" />
+            <TRACK Key="30" />
+          </NODE>
+          <NODE Type="1" Name="Empty" Entries="0" />
+        </NODE>
+      </NODE>
+    </NODE>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>"#;
+        std::fs::write(&xml_path, xml_content).unwrap();
+
+        // 1. Test streaming get_xml_track_count
+        let count = get_xml_track_count(xml_path.to_string_lossy().to_string()).unwrap();
+        assert_eq!(count, 3);
+
+        // 2. Test parse_playlists_inner
+        let json_tree = parse_playlists_inner(&xml_path.to_string_lossy()).unwrap();
+        let nodes: Vec<PlaylistUiNode> = serde_json::from_str(&json_tree).unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].name, "Parent Folder");
+        assert_eq!(nodes[0].node_type, "folder");
+        assert_eq!(nodes[0].total_tracks, Some(4)); // Playlist A (2) + Playlist B (2) + Empty (0)
+
+        // 3. Test get_playlist_tracks_inner
+        let tracks_a = get_playlist_tracks_inner(&xml_path.to_string_lossy(), "Playlist A").unwrap();
+        assert_eq!(tracks_a, vec!["/Users/test/Track 10.mp3", "/Users/test/Track 20.mp3"]);
+
+        // 4. Test get_folder_tracks_inner (deduplicates Track 20 across subfolders)
+        let folder_tracks = get_folder_tracks_inner(&xml_path.to_string_lossy(), "Parent Folder").unwrap();
+        assert_eq!(folder_tracks, vec!["/Users/test/Track 10.mp3", "/Users/test/Track 20.mp3", "/Users/test/Track 30.mp3"]);
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }

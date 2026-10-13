@@ -223,10 +223,12 @@ function getUniquePath(targetPath) {
 
 function safeTrashFile(filePath) {
   if (!fs.existsSync(filePath)) return;
-  try {
-    const home = os.homedir();
-    const trashDir = path.join(home, '.Trash');
-    if (fs.existsSync(trashDir)) {
+  const home = os.homedir();
+  const trashDir = path.join(home, '.Trash');
+
+  // 1. Try atomic rename into ~/.Trash (succeeds on same filesystem)
+  if (fs.existsSync(trashDir)) {
+    try {
       const base = path.basename(filePath);
       const ext = path.extname(base);
       const stem = path.basename(base, ext);
@@ -238,10 +240,45 @@ function safeTrashFile(filePath) {
       }
       fs.renameSync(filePath, trashTarget);
       return;
+    } catch (e) {
+      // Cross-device (EXDEV on external SSD/USB) or permission error - proceed to fallbacks below
     }
-  } catch (e) {
-    // Cross-device or permission fallback
   }
+
+  // 2. On macOS, ask Finder to move to Trash (handles volume-local .Trashes on external drives)
+  if (process.platform === 'darwin') {
+    try {
+      const escaped = filePath.replace(/["\\]/g, '\\$&');
+      child_process.execFileSync(
+        '/usr/bin/osascript',
+        ['-e', `tell application "Finder" to delete POSIX file "${escaped}"`],
+        { stdio: 'ignore', timeout: 5000 }
+      );
+      if (!fs.existsSync(filePath)) return;
+    } catch (_) {}
+  }
+
+  // 3. Cross-device fallback: copy into ~/.Trash, verify it exists, then unlink source
+  if (fs.existsSync(trashDir)) {
+    try {
+      const base = path.basename(filePath);
+      const ext = path.extname(base);
+      const stem = path.basename(base, ext);
+      let trashTarget = path.join(trashDir, base);
+      let counter = 1;
+      while (fs.existsSync(trashTarget)) {
+        trashTarget = path.join(trashDir, `${stem} (${counter})${ext}`);
+        counter++;
+      }
+      fs.copyFileSync(filePath, trashTarget);
+      if (fs.existsSync(trashTarget) && fs.statSync(trashTarget).size === fs.statSync(filePath).size) {
+        fs.unlinkSync(filePath);
+        return;
+      }
+    } catch (_) {}
+  }
+
+  // 4. Last-resort fallback
   try {
     fs.unlinkSync(filePath);
   } catch (e) {}

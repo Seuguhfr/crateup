@@ -117,7 +117,7 @@ export function renderSettings(el: HTMLElement): void {
             <button class="btn sm" id="set-arl-save">Save</button>
           </div>
           <p class="muted small" id="set-arl-status" style="margin:6px 0 0">Checking…</p>
-          <p class="muted small" style="margin:2px 0 0">Deezer → DevTools → Cookies → arl. Stored on this machine; required for downloads.</p>
+          <p class="muted small" style="margin:2px 0 0">Deezer → DevTools → Cookies → arl. Stored on this machine; required for downloads (Lossless FLAC/AIFF requires a Deezer Premium/HiFi subscription).</p>
         </div>
         <div class="sect">
           <h3>Storage</h3>

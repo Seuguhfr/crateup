@@ -1218,6 +1218,7 @@ function openCommitModal() {
           <input type="radio" class="chk" name="commit-rekordbox-action" value="none" ${isDb || isXml ? "" : "checked"} />
           <span class="of">Leave Rekordbox alone<span class="ob">Files move on disk; Rekordbox is not touched.</span></span>
         </label>
+        <p class="muted small" style="margin:8px 0 0;font-size:11px">ℹ Cue points, hot cues, beatgrids, and playlists are preserved. (If a new master differs in silence lead-in, beatgrid alignment can be fine-tuned in Rekordbox).</p>
         <p id="commit-rekordbox-lock-warning" class="warn-text hidden" style="margin:6px 0 0">Rekordbox is running. Close it before updating the database, or choose “Leave Rekordbox alone”.</p>
       </div>
       <div class="modal-actions">

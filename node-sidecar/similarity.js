@@ -63,6 +63,19 @@ function calculateSimilarity(fp1, fp2) {
   const [A, B] = len1 <= len2 ? [fp1, fp2] : [fp2, fp1];
   const N = A.length;
   const M = B.length;
+
+  // Bit-Weight (Hamming Weight) Density Filter with safe/loose 25% margin (for tracks > 10 frames)
+  if (minLen > 10) {
+    let onesA = 0;
+    for (let i = 0; i < N; i++) onesA += popcount(A[i]);
+    let onesB = 0;
+    for (let i = 0; i < M; i++) onesB += popcount(B[i]);
+    const dA = onesA / (N * 32);
+    const dB = onesB / (M * 32);
+    if (Math.abs(dA - dB) > 0.25) {
+      return 0;
+    }
+  }
   
   const minOverlap = Math.min(60, N);
   let maxSim = 0;

@@ -134,6 +134,7 @@ All messages are newline-delimited JSON on stdio.
 - [x] Phase 21: Embedded standalone Python runtime (Option B): fully self-contained CPython 3.12 bundle for Apple Silicon (`aarch64-apple-darwin`), reproducible `scripts/setup-python-runtime.sh`, packaged in `CrateUp.app/Contents/Resources/_up_/python-runtime`, zero external Python / Homebrew / Xcode CLI dependency.
 - [x] Phase 22: Deep architectural review remediation: multi-release duration matching (§3.5 SPEC.md), original metadata tag merging (§5.1 SPEC.md), AIFF proxy MP3 filename alignment, Rekordbox technical audio properties sync, and SQLCipher test suite (17 Rust / 51 Jest / 9 Pytest passing).
 - [x] Phase 23: Comprehensive review remediation: pipeline duplicate reuse (§3.4), Rekordbox XML export (§6.5), atomic Rust ledger writes, and incremental review DOM updates (18 Rust / 52 Jest / 9 Pytest passing).
+- [x] Phase 24: Deep review hardening & performance optimization: external drive safe trashing on EXDEV, acoustic similarity engine density alignment, native Rust XML playlist parsing (eliminating Node subprocess spawns for XML inspection), streaming XML track counting, and cue/beatgrid + Deezer HiFi UI advisories (19 Rust / 52 Jest / 9 Pytest passing, 0 warnings).
 
 ## Session handoff protocol
 At the END of every session, before quitting:
@@ -141,6 +142,16 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Deep Review Hardening & Performance Optimization:
+- **External Drive Safe Trashing (`node-sidecar/commit.js`)**: Hardened `safeTrashFile` against cross-filesystem `EXDEV` failures on external SSDs and USB sticks. Added macOS native Finder trash execution and verified cross-device copy-to-trash fallbacks before any source unlinking, eliminating the risk of permanent original track loss on external DJ drives.
+- **Similarity Engine Alignment (`node-sidecar/similarity.js`)**: Ported the bit-weight (Hamming weight) density pre-filter (`Math.abs(dA - dB) > 0.25`) into Node's `calculateSimilarity`, establishing mathematical alignment with the Rust Chromaprint engine and accelerating pipeline duplicate filtering.
+- **Native Rust XML Playlist Parsing (`src-tauri/src/xml.rs`)**: Replaced `run_pipeline_rpc` (which spawned a Node.js process to parse XML) with native, streaming in-memory parsing in Rust for `parse_playlists`, `get_playlist_tracks`, and `get_folder_tracks`. Eliminates subprocess spawning overhead and child process leakage during XML browsing. Added `test_native_xml_playlists_parsing` in `xml.rs`.
+- **O(1) Streaming XML Track Counter (`src-tauri/src/xml.rs`)**: Refactored `get_xml_track_count` to use `BufReader` line streaming instead of loading entire XML files into contiguous memory strings, preventing memory spikes on large collections.
+- **Review & Settings Advisories**: Added cue point and beatgrid preservation advisory notices in the upgrader commit modal (`ui/src/upgrader/review.ts`), and clarified Deezer Premium/HiFi account requirements for lossless downloads in Settings (`ui/src/views.ts`).
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 52 tests pass, `cargo check` 0 warnings, `cargo test` 19 tests pass (100%), `python-runtime/bin/pytest tests/` 9 tests pass.
+- **Next Task**: Field-test native tools with live Rekordbox database and audio files.
+
+## Previous session
 Comprehensive Review Remediation:
 - **Pre-download Duplicate Reuse (§3.4 SPEC.md)**: Implemented `findExistingStagedDownload` in `node-sidecar/pipeline.js` to look up previously downloaded tracks with matching `deezerId` within the current session. Reuses existing staged audio and waveform preview proxies without triggering redundant network downloads or anti-ban rate limiting. Added unit test in `tests/pipeline.test.js`.
 - **Upgrader Rekordbox XML Export Option (§6.5 SPEC.md)**: Implemented `update_rekordbox_xml` in `src-tauri/src/xml.rs` using unreserved URI character preservation (`PATH_ENCODE_SET`). Registered Tauri handler in `src-tauri/src/lib.rs` and frontend client in `ui/src/api.ts`. Added "Export upgraded XML" radio option in commit modal (`ui/src/upgrader/review.ts`) when source is XML, updated `ui/src/store.ts`, `ui/src/upgrader/source.ts`, and `ui/src/upgrader/view.ts` to preserve `xmlPath`, and surfaced the output XML path in the commit results modal. Added Rust unit test `test_update_rekordbox_xml`.
