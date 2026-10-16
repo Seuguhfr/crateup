@@ -57,8 +57,13 @@ const assert = (cond, name) => {
   s.setSession({ outputFormat: 'flac' });
   assert(s.getSession().outputFormat === 'flac', 'setSession compat patches current');
 
+  const orderBefore = s.listSessions().map((x) => x.id);
   assert(s.enterSession(a.id) === true, 'enter switches');
   assert(s.getCurrentId() === a.id, 'current switched');
+  assert(
+    JSON.stringify(s.listSessions().map((x) => x.id)) === JSON.stringify(orderBefore),
+    'enterSession preserves stable order without shuffling'
+  );
   assert(s.enterSession('nope') === false, 'enter unknown false');
   s.closeSession();
   assert(s.getSession() === null, 'close clears current');

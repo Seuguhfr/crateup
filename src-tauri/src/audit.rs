@@ -56,9 +56,13 @@ pub(crate) struct AuditReport {
     pub(crate) outside_db: Vec<String>,
     /// Db rows pointing at missing files (info only).
     pub(crate) missing_db: Vec<String>,
+    /// Non-local streaming / cloud tracks (spotify, tidal, soundcloud, etc).
+    pub(crate) streaming_db: Vec<String>,
     pub(crate) skipped_dirs: Vec<String>,
     /// Leftover bytes (dupes + orphans). Twin groups waste 0 by design.
     pub(crate) bytes_wasted: u64,
+    /// Fake lossless transcodes detected by Spek Guard.
+    pub(crate) fake_lossless: Vec<String>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -169,6 +173,16 @@ pub async fn audit_library(
     .map_err(|e| format!("Blocking task failed to join: {}", e))?
 }
 
+fn is_streaming_uri(p: &str) -> bool {
+    let lower = p.to_lowercase();
+    lower.starts_with("spotify:")
+        || lower.starts_with("tidal:")
+        || lower.starts_with("soundcloud:")
+        || lower.starts_with("beatport:")
+        || lower.starts_with("http://")
+        || lower.starts_with("https://")
+}
+
 fn audit_library_blocking(
     window: &tauri::Window,
     library_root: &std::path::Path,
@@ -183,15 +197,21 @@ fn audit_library_blocking(
         std::collections::HashMap::new();
     let mut db_devs: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let mut missing_db: Vec<String> = Vec::new();
+    let mut streaming_db: Vec<String> = Vec::new();
     for e in entries.iter() {
+        let p_str = e.path.to_string_lossy().into_owned();
+        if is_streaming_uri(&p_str) {
+            streaming_db.push(p_str);
+            continue;
+        }
         let norm = norm_fs_path(&e.path);
         db_paths.insert(norm);
         match std::fs::metadata(&e.path) {
-            Err(_) => missing_db.push(e.path.to_string_lossy().into_owned()),
+            Err(_) => missing_db.push(p_str),
             Ok(meta) => {
                 db_inode.insert(
                     (meta.dev(), meta.ino()),
-                    (e.path.to_string_lossy().into_owned(), meta.nlink()),
+                    (p_str, meta.nlink()),
                 );
                 db_devs.insert(meta.dev());
             }
@@ -220,7 +240,7 @@ fn audit_library_blocking(
         .iter()
         .map(|e| e.path.to_string_lossy().into_owned())
         .filter(|p| {
-            !missing_db.contains(p) && {
+            !missing_db.contains(p) && !streaming_db.contains(p) && {
                 let n = p.replace('\\', "/").to_lowercase();
                 !(n == root_norm || n.starts_with(&format!("{}/", root_norm)))
             }
@@ -230,6 +250,8 @@ fn audit_library_blocking(
     outside_db.dedup();
     missing_db.sort();
     missing_db.dedup();
+    streaming_db.sort();
+    streaming_db.dedup();
 
     // Phase 1: walk the library folder.
     emit_progress(window, "scan", 0, 0);
@@ -320,12 +342,37 @@ fn audit_library_blocking(
         });
     }
 
+fn top_level_group_folder(p: &std::path::Path, search_roots: &[String]) -> String {
+    let p_norm = norm_fs_path(p);
+    for root in search_roots {
+        let r_norm = norm_fs_path(std::path::Path::new(root));
+        let prefix = format!("{}/", r_norm);
+        if p_norm.starts_with(&prefix) {
+            let rel = &p_norm[prefix.len()..];
+            if let Some(first_slash) = rel.find('/') {
+                let top_dir = format!("{}/{}", r_norm, &rel[..first_slash]);
+                if std::path::Path::new(&top_dir).is_dir() {
+                    return top_dir;
+                }
+            }
+            return r_norm;
+        }
+    }
+    p.parent()
+        .map(|d| d.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
     // Phase 3: stray-link sweep over search roots (same device only).
     emit_progress(window, "sweep", 0, 0);
     let mut twin_paths: std::collections::HashMap<(u64, u64), Vec<String>> =
         std::collections::HashMap::new();
     for root in search_roots {
         let root_path = std::path::PathBuf::from(root);
+        let root_p_norm = norm_fs_path(&root_path);
+        if root_p_norm == root_norm || root_p_norm.starts_with(&format!("{}/", root_norm)) {
+            continue;
+        }
         if !root_path.is_dir() {
             skipped_dirs.push(root.clone());
             continue;
@@ -360,17 +407,15 @@ fn audit_library_blocking(
         paths.sort();
         paths.dedup();
         for p in paths {
-            if norm_fs_path(std::path::Path::new(&p)) == db_norm {
+            let p_norm = norm_fs_path(std::path::Path::new(&p));
+            if p_norm == db_norm || p_norm == root_norm || p_norm.starts_with(&format!("{}/", root_norm)) {
                 continue;
             }
             if !seen_twins.insert(p.clone()) {
                 continue;
             }
             twins_found_extra += 1;
-            let folder = std::path::Path::new(&p)
-                .parent()
-                .map(|d| d.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            let folder = top_level_group_folder(std::path::Path::new(&p), search_roots);
             folders.entry(folder).or_default().push(p);
         }
     }
@@ -389,6 +434,27 @@ fn audit_library_blocking(
     leftovers.sort_by(|a, b| a.path.cmp(&b.path));
     skipped_dirs.sort();
     skipped_dirs.dedup();
+
+    // Phase 4: Spek Guard transcode check on walked files with lossless extensions
+    let mut fake_lossless: Vec<String> = Vec::new();
+    let lossless_files: Vec<&WalkedFile> = lib_files
+        .iter()
+        .filter(|f| {
+            let ext = f.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            matches!(ext.as_str(), "flac" | "wav" | "aiff" | "aif")
+        })
+        .collect();
+    let total_lossless = lossless_files.len();
+    for (idx, f) in lossless_files.iter().enumerate() {
+        if idx % 10 == 0 {
+            emit_progress(window, "spek_guard", idx, total_lossless);
+        }
+        if crate::waveform::check_is_transcode(&ffmpeg_path, &f.path) == Some(true) {
+            fake_lossless.push(f.path.to_string_lossy().into_owned());
+        }
+    }
+    fake_lossless.sort();
+
     emit_progress(window, "done", 1, 1);
 
     Ok(AuditReport {
@@ -401,8 +467,10 @@ fn audit_library_blocking(
         twins_total_extra,
         outside_db,
         missing_db,
+        streaming_db,
         skipped_dirs,
         bytes_wasted,
+        fake_lossless,
     })
 }
 

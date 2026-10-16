@@ -3,14 +3,16 @@
 //! commit-time path sync. Extracted from lib.rs.
 
 use rusqlite::OptionalExtension;
+use std::sync::{Mutex, OnceLock};
 use tauri::Emitter;
 use tauri::Manager;
 
 use crate::fingerprint_cache::FingerprintCache;
 use crate::similarity::{
-    calculate_similarity, get_audio_fingerprint, get_fpcalc_path, is_better_quality,
-    sanitize_threshold,
+    get_audio_fingerprint, get_ffmpeg_path, get_fpcalc_path,
+    is_better_quality_transcode_aware, sanitize_threshold,
 };
+use crate::waveform::check_is_transcode;
 use crate::xml::{sanitize_filename, ConsolidationProgressPayload, ResultPayload};
 
 fn get_rekordbox_db_path() -> Result<std::path::PathBuf, String> {
@@ -328,6 +330,208 @@ pub async fn check_rekordbox_status() -> Result<RekordboxStatus, String> {
     })
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RekordboxBackup {
+    pub filename: String,
+    pub created_at: String,
+    pub size_bytes: u64,
+    pub is_active: bool,
+    pub is_newer_than_active: bool,
+    pub total_tracks: usize,
+    pub intact_tracks: usize,
+    pub missing_tracks: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RollbackResult {
+    pub restored_filename: String,
+    pub created_safety_backup: Option<String>,
+    pub total_tracks: usize,
+    pub intact_tracks: usize,
+    pub missing_tracks: usize,
+    pub healed_paths_count: usize,
+}
+
+type HealthCacheKey = (String, u64, u64);
+type HealthStats = (usize, usize, usize);
+type HealthMap = std::collections::HashMap<HealthCacheKey, HealthStats>;
+
+static BACKUP_HEALTH_CACHE: OnceLock<Mutex<HealthMap>> = OnceLock::new();
+
+fn get_health_cache() -> &'static Mutex<HealthMap> {
+    BACKUP_HEALTH_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+pub fn files_are_identical(path_a: &std::path::Path, path_b: &std::path::Path) -> bool {
+    let meta_a = match std::fs::metadata(path_a) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    let meta_b = match std::fs::metadata(path_b) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    if meta_a.len() != meta_b.len() {
+        return false;
+    }
+    let mut file_a = match std::fs::File::open(path_a) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut file_b = match std::fs::File::open(path_b) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut buf_a = [0u8; 65536];
+    let mut buf_b = [0u8; 65536];
+    use std::io::Read;
+    loop {
+        let n_a = match file_a.read(&mut buf_a) {
+            Ok(n) => n,
+            Err(_) => return false,
+        };
+        let n_b = match file_b.read(&mut buf_b) {
+            Ok(n) => n,
+            Err(_) => return false,
+        };
+        if n_a != n_b {
+            return false;
+        }
+        if n_a == 0 {
+            return true;
+        }
+        if buf_a[..n_a] != buf_b[..n_b] {
+            return false;
+        }
+    }
+}
+
+pub fn get_backup_disk_health(
+    backup_path: &std::path::Path,
+    filename: &str,
+    size_bytes: u64,
+    mtime_secs: u64,
+) -> (usize, usize, usize) {
+    let cache_key = (filename.to_string(), size_bytes, mtime_secs);
+    if let Ok(guard) = get_health_cache().lock() {
+        if let Some(val) = guard.get(&cache_key) {
+            return *val;
+        }
+    }
+
+    let (total, intact, missing) = if let Ok(conn) = open_rekordbox_db_readonly(backup_path) {
+        if let Ok(mut stmt) = conn.prepare("SELECT FolderPath FROM djmdContent WHERE FolderPath IS NOT NULL AND FolderPath != ''") {
+            if let Ok(mut rows) = stmt.query([]) {
+                let mut tot = 0usize;
+                let mut inc = 0usize;
+                while let Ok(Some(row)) = rows.next() {
+                    if let Ok(path) = row.get::<_, String>(0) {
+                        tot += 1;
+                        if std::path::Path::new(&path).exists() {
+                            inc += 1;
+                        }
+                    }
+                }
+                (tot, inc, tot.saturating_sub(inc))
+            } else {
+                (0, 0, 0)
+            }
+        } else {
+            (0, 0, 0)
+        }
+    } else {
+        (0, 0, 0)
+    };
+
+    if let Ok(mut guard) = get_health_cache().lock() {
+        guard.insert(cache_key, (total, intact, missing));
+    }
+
+    (total, intact, missing)
+}
+
+pub fn extract_backup_date_from_str(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 8 {
+        return None;
+    }
+    for i in 0..=(bytes.len() - 8) {
+        if i > 0 && bytes[i - 1].is_ascii_digit() {
+            continue;
+        }
+        if !bytes[i..i + 8].iter().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let year: u32 = s[i..i + 4].parse().ok()?;
+        let month: u32 = s[i + 4..i + 6].parse().ok()?;
+        let day: u32 = s[i + 6..i + 8].parse().ok()?;
+        if !(2000..=2099).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+            continue;
+        }
+        let y_str = &s[i..i + 4];
+        let m_str = &s[i + 4..i + 6];
+        let d_str = &s[i + 6..i + 8];
+
+        if i + 8 < bytes.len() && bytes[i + 8] == b'_' {
+            let rest = &s[i + 9..];
+            let rest_bytes = rest.as_bytes();
+            // Case A: 6 digits (HHMMSS)
+            if rest_bytes.len() >= 6 && rest_bytes[0..6].iter().all(|b| b.is_ascii_digit()) {
+                let hour: u32 = rest[0..2].parse().unwrap_or(99);
+                let min: u32 = rest[2..4].parse().unwrap_or(99);
+                let sec: u32 = rest[4..6].parse().unwrap_or(99);
+                if hour < 24 && min < 60 && sec < 60 {
+                    return Some(format!(
+                        "{}-{}-{} {:02}:{:02}:{:02}",
+                        y_str, m_str, d_str, hour, min, sec
+                    ));
+                }
+            }
+            // Case B: 4 digits (HHMM)
+            if rest_bytes.len() >= 4 && rest_bytes[0..4].iter().all(|b| b.is_ascii_digit()) {
+                let not_followed_by_digit = rest_bytes.len() == 4 || !rest_bytes[4].is_ascii_digit();
+                if not_followed_by_digit {
+                    let hour: u32 = rest[0..2].parse().unwrap_or(99);
+                    let min: u32 = rest[2..4].parse().unwrap_or(99);
+                    if hour < 24 && min < 60 {
+                        return Some(format!(
+                            "{}-{}-{} {:02}:{:02}:00",
+                            y_str, m_str, d_str, hour, min
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Case C: Date only
+        return Some(format!("{}-{}-{} 00:00:00", y_str, m_str, d_str));
+    }
+    None
+}
+
+pub fn parse_backup_date(filename: &str, metadata: Option<&std::fs::Metadata>) -> String {
+    if let Some(d) = extract_backup_date_from_str(filename) {
+        return d;
+    }
+    if let Some(meta) = metadata {
+        if let Ok(mtime) = meta.modified() {
+            if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                let secs = dur.as_secs();
+                if let Ok(out) = std::process::Command::new("/bin/date")
+                    .args(["-r", &secs.to_string(), "+%Y-%m-%d %H:%M:%S"])
+                    .output()
+                {
+                    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if !s.is_empty() {
+                        return s;
+                    }
+                }
+            }
+        }
+    }
+    filename.to_string()
+}
+
 #[tauri::command]
 pub async fn get_db_backups() -> Result<Vec<String>, String> {
     let db_path = get_rekordbox_db_path()?;
@@ -339,11 +543,68 @@ pub async fn get_db_backups() -> Result<Vec<String>, String> {
     for entry in std::fs::read_dir(db_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let filename = entry.file_name().to_string_lossy().to_string();
-        if filename.starts_with("master.db.backup_") {
+        if filename.starts_with("master.db.backup_") && !filename.ends_with("-wal") && !filename.ends_with("-shm") {
             backups.push(filename);
         }
     }
-    backups.sort_by(|a, b| b.cmp(a));
+    backups.sort_by(|a, b| {
+        let date_a = parse_backup_date(a, None);
+        let date_b = parse_backup_date(b, None);
+        date_b.cmp(&date_a).then_with(|| b.cmp(a))
+    });
+    Ok(backups)
+}
+
+#[tauri::command]
+pub async fn list_rekordbox_backups() -> Result<Vec<RekordboxBackup>, String> {
+    let db_path = get_rekordbox_db_path()?;
+    let db_dir = db_path.parent().ok_or_else(|| "Failed to get database parent directory".to_string())?;
+    if !db_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut backups = Vec::new();
+    for entry in std::fs::read_dir(db_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let filename = entry.file_name().to_string_lossy().to_string();
+        if filename.starts_with("master.db.backup_") && !filename.ends_with("-wal") && !filename.ends_with("-shm") {
+            let metadata = entry.metadata().ok();
+            let size_bytes = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+            let mtime_secs = metadata
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let created_at = parse_backup_date(&filename, metadata.as_ref());
+            let backup_path = db_dir.join(&filename);
+            let is_active = if db_path.exists() {
+                files_are_identical(&db_path, &backup_path)
+            } else {
+                false
+            };
+            let (total_tracks, intact_tracks, missing_tracks) =
+                get_backup_disk_health(&backup_path, &filename, size_bytes, mtime_secs);
+
+            backups.push(RekordboxBackup {
+                filename,
+                created_at,
+                size_bytes,
+                is_active,
+                is_newer_than_active: false,
+                total_tracks,
+                intact_tracks,
+                missing_tracks,
+            });
+        }
+    }
+    backups.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.filename.cmp(&a.filename)));
+
+    if let Some(active_pos) = backups.iter().position(|b| b.is_active) {
+        for b in &mut backups[0..active_pos] {
+            b.is_newer_than_active = true;
+        }
+    }
+
     Ok(backups)
 }
 
@@ -579,76 +840,126 @@ pub async fn execute_db_consolidation(
         let mut duplicate_count = 0;
         let mut processed_list = Vec::new();
         let mut duplicate_list = Vec::new();
+        let mut superseded_paths = Vec::new();
         let mut missing_list = Vec::new();
         
         let mut fingerprint_cache: std::collections::HashMap<std::path::PathBuf, Vec<u32>> = std::collections::HashMap::new();
-        if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
-            let _ = window.emit("rebuilder-consolidation-progress", ConsolidationProgressPayload {
-                filename: "Pre-analyzing audio files...".to_string(),
-                processed: 0,
-                total: 0,
-                percentage: 0.0,
-            });
-            
-            let fpcalc_path = get_fpcalc_path(window.app_handle());
+        let mut transcode_cache: std::collections::HashMap<std::path::PathBuf, bool> = std::collections::HashMap::new();
 
-            let mut persistent_cache =
-                FingerprintCache::load(window.app_handle());
-            let mut paths_to_fingerprint = Vec::new();
+        let need_fuzzy = dedup_depth == "fuzzy" || dedup_depth == "tier3";
+        let need_dedup_check = cross_format == "smart" || dedup_depth == "standard" || dedup_depth == "tier2" || need_fuzzy;
+
+        if need_dedup_check {
+            let mut persistent_cache = FingerprintCache::load(window.app_handle());
+            let fpcalc_path = get_fpcalc_path(window.app_handle());
+            let ffmpeg_path = get_ffmpeg_path(window.app_handle());
+
+            struct PreTask {
+                path: std::path::PathBuf,
+                need_fp: bool,
+                need_tc: bool,
+            }
+            let mut tasks_to_run = Vec::new();
+
             for track in &tracks {
                 let src_path = std::path::PathBuf::from(&track.folder_path);
                 if !src_path.exists() {
                     continue;
                 }
-                // Persistent cache first: unchanged files skip fpcalc entirely.
-                if let Some(fp) = persistent_cache.get(&src_path) {
-                    fingerprint_cache.insert(src_path, fp);
+                let ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                let is_lossless = matches!(ext.as_str(), "flac" | "wav" | "aiff" | "aif");
+
+                let mut need_fp = false;
+                if need_fuzzy {
+                    if let Some(fp) = persistent_cache.get(&src_path) {
+                        fingerprint_cache.insert(src_path.clone(), fp);
+                    } else {
+                        need_fp = true;
+                    }
+                }
+
+                let mut need_tc = false;
+                if is_lossless {
+                    if let Some(tc) = persistent_cache.get_transcode(&src_path) {
+                        transcode_cache.insert(src_path.clone(), tc);
+                    } else {
+                        need_tc = true;
+                    }
                 } else {
-                    paths_to_fingerprint.push(src_path);
+                    transcode_cache.insert(src_path.clone(), false);
+                }
+
+                if need_fp || need_tc {
+                    tasks_to_run.push(PreTask {
+                        path: src_path,
+                        need_fp,
+                        need_tc,
+                    });
                 }
             }
-            
-            let paths_len = paths_to_fingerprint.len();
-            if paths_len > 0 {
+
+            let tasks_len = tasks_to_run.len();
+            if tasks_len > 0 {
+                let _ = window.emit("rebuilder-consolidation-progress", ConsolidationProgressPayload {
+                    filename: "Pre-analyzing audio files...".to_string(),
+                    processed: 0,
+                    total: tasks_len,
+                    percentage: 0.0,
+                });
                 let handle = tokio::runtime::Handle::current();
                 let results = handle.block_on(async {
                     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
-                    let mut tasks = Vec::new();
-                    for path in paths_to_fingerprint {
-                        let fpcalc_path_clone = fpcalc_path.clone();
+                    let mut spawned = Vec::new();
+                    for task in tasks_to_run {
+                        let fpcalc = fpcalc_path.clone();
+                        let ffmpeg = ffmpeg_path.clone();
                         let sem_clone = sem.clone();
-                        tasks.push(tokio::spawn(async move {
+                        spawned.push(tokio::spawn(async move {
                             let _permit = sem_clone.acquire().await.unwrap();
-                            let path_clone = path.clone();
-                            let fp = tokio::task::spawn_blocking(move || {
-                                get_audio_fingerprint(&fpcalc_path_clone, &path_clone)
-                            }).await.ok().flatten();
-                            (path, fp)
+                            let p = task.path.clone();
+                            tokio::task::spawn_blocking(move || {
+                                let fp = if task.need_fp {
+                                    get_audio_fingerprint(&fpcalc, &p)
+                                } else {
+                                    None
+                                };
+                                let tc = if task.need_tc {
+                                    check_is_transcode(&ffmpeg, &p).unwrap_or(false)
+                                } else {
+                                    false
+                                };
+                                (p, fp, tc, task.need_tc)
+                            }).await.ok()
                         }));
                     }
-                    
+
                     let mut resolved = Vec::new();
                     let mut completed = 0;
-                    for task in tasks {
-                        if let Ok(res) = task.await {
+                    for s in spawned {
+                        if let Ok(Some(res)) = s.await {
                             resolved.push(res);
                         }
                         completed += 1;
-                        let percentage = (completed as f64 * 100.0) / paths_len as f64;
+                        let percentage = (completed as f64 * 100.0) / tasks_len as f64;
                         let _ = window.emit("rebuilder-consolidation-progress", ConsolidationProgressPayload {
-                            filename: format!("Acoustic Analysis: {}/{} files", completed, paths_len),
+                            filename: format!("Audio Pre-Analysis: {}/{} files", completed, tasks_len),
                             processed: completed,
-                            total: paths_len,
+                            total: tasks_len,
                             percentage,
                         });
                     }
                     resolved
                 });
-                
-                for (path, fp_opt) in results {
+
+                for (path, fp_opt, tc_val, was_tc_checked) in results {
                     if let Some(fp) = fp_opt {
-                        persistent_cache.insert(&path, fp.clone());
-                        fingerprint_cache.insert(path, fp);
+                        fingerprint_cache.insert(path.clone(), fp.clone());
+                        persistent_cache.insert_all(&path, fp, None, if was_tc_checked { Some(tc_val) } else { None });
+                    } else if was_tc_checked {
+                        persistent_cache.insert_transcode(&path, tc_val);
+                    }
+                    if was_tc_checked {
+                        transcode_cache.insert(path, tc_val);
                     }
                 }
                 persistent_cache.save();
@@ -657,14 +968,18 @@ pub async fn execute_db_consolidation(
         
         let mut processed_strict_map: std::collections::HashMap<(u64, String), (std::path::PathBuf, String)> = std::collections::HashMap::new();
         let mut processed_standard_map: std::collections::HashMap<(String, String), (std::path::PathBuf, String, u64, String)> = std::collections::HashMap::new();
-        let mut processed_fingerprints: Vec<(Vec<u32>, std::path::PathBuf, String, u64, String)> = Vec::new();
+        let mut processed_fingerprints: Vec<crate::similarity::FingerprintEntry> = Vec::new();
+        let mut candidate_index = crate::similarity::CandidatePriorityIndex::new();
+        let mut last_progress_emit = std::time::Instant::now();
+        let mut last_emit_processed = 0usize;
         
         let dest_dir = std::path::Path::new(&destination_path);
         if !dest_dir.exists() {
             return Err(format!("Destination directory does not exist: {}", destination_path));
         }
         
-        let tx = conn.transaction().map_err(|e| format!("Failed to start database transaction: {}", e))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| format!("Failed to start database transaction: {}", e))?;
         
         for track in &tracks {
             processed += 1;
@@ -681,13 +996,18 @@ pub async fn execute_db_consolidation(
                     0.0
                 };
                 
-                let progress = ConsolidationProgressPayload {
-                    filename: format!("(Missing) {}", filename_str),
-                    processed,
-                    total,
-                    percentage,
-                };
-                let _ = window.emit("rebuilder-consolidation-progress", progress);
+                let is_last = processed == total;
+                if is_last || (processed - last_emit_processed >= 10 && last_progress_emit.elapsed() >= std::time::Duration::from_millis(40)) {
+                    last_progress_emit = std::time::Instant::now();
+                    last_emit_processed = processed;
+                    let progress = ConsolidationProgressPayload {
+                        filename: format!("(Missing) {}", filename_str),
+                        processed,
+                        total,
+                        percentage,
+                    };
+                    let _ = window.emit("rebuilder-consolidation-progress", progress);
+                }
             } else {
                 healthy_count += 1;
                 
@@ -723,7 +1043,9 @@ pub async fn execute_db_consolidation(
                             is_duplicate = true;
                             duplicate_target_path = Some(prev_path.clone());
                             duplicate_keeper_id = Some(prev_id.clone());
-                            if is_better_quality(&current_ext, file_size, prev_ext, prev_size) {
+                            let cur_tc = *transcode_cache.get(src_path).unwrap_or(&false);
+                            let prev_tc = *transcode_cache.get(prev_path).unwrap_or(&false);
+                            if is_better_quality_transcode_aware(&current_ext, file_size, cur_tc, prev_ext, prev_size, prev_tc) {
                                 should_swap_duplicate = true;
                                 swap_prev_path = Some(prev_path.clone());
                                 swap_prev_id = Some(prev_id.clone());
@@ -736,24 +1058,46 @@ pub async fn execute_db_consolidation(
                         get_audio_fingerprint(&fpcalc_path, src_path)
                     });
                     if let Some(fp_val) = fp {
-                        for (prev_fp, prev_path, prev_ext, prev_size, prev_id) in &processed_fingerprints {
-                            let sim = calculate_similarity(&fp_val, prev_fp, threshold);
-                            if sim > threshold {
-                                let current_ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-                                if cross_format == "smart" || prev_ext == &current_ext {
-                                    is_duplicate = true;
-                                    duplicate_target_path = Some(prev_path.clone());
-                                    duplicate_keeper_id = Some(prev_id.clone());
-                                    if is_better_quality(&current_ext, file_size, prev_ext, *prev_size) {
-                                        should_swap_duplicate = true;
-                                        swap_prev_path = Some(prev_path.clone());
-                                        swap_prev_id = Some(prev_id.clone());
-                                    }
-                                    break;
+                        let current_ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                        let entry = crate::similarity::FingerprintEntry::new(
+                            fp_val,
+                            src_path.to_path_buf(),
+                            current_ext.clone(),
+                            file_size,
+                            track.id.clone(),
+                            &track.artist,
+                            &track.title,
+                        );
+
+                        let prioritized = candidate_index.get_prioritized_candidates(
+                            &entry.title_tokens,
+                            processed_fingerprints.len(),
+                        );
+
+                        for cand_idx in prioritized {
+                            let prev_entry = &processed_fingerprints[cand_idx];
+                            let sim = crate::similarity::calculate_similarity_with_profiles(
+                                &entry.fp,
+                                Some(&entry.profile),
+                                &prev_entry.fp,
+                                Some(&prev_entry.profile),
+                                threshold,
+                            );
+                            if sim > threshold && (cross_format == "smart" || prev_entry.ext == current_ext) {
+                                is_duplicate = true;
+                                duplicate_target_path = Some(prev_entry.path.clone());
+                                duplicate_keeper_id = Some(prev_entry.id.clone());
+                                let cur_tc = *transcode_cache.get(src_path).unwrap_or(&false);
+                                let prev_tc = *transcode_cache.get(&prev_entry.path).unwrap_or(&false);
+                                if is_better_quality_transcode_aware(&current_ext, file_size, cur_tc, &prev_entry.ext, prev_entry.size, prev_tc) {
+                                    should_swap_duplicate = true;
+                                    swap_prev_path = Some(prev_entry.path.clone());
+                                    swap_prev_id = Some(prev_entry.id.clone());
                                 }
+                                break;
                             }
                         }
-                        current_fp = Some(fp_val);
+                        current_fp = Some(entry);
                     }
                 }
 
@@ -858,6 +1202,7 @@ pub async fn execute_db_consolidation(
                             target_path.to_string_lossy().to_string(),
                             src_path.to_string_lossy().to_string()
                         ]);
+                        superseded_paths.push(src_path.to_string_lossy().to_string());
                     } else {
                         let update_res = tx.execute(
                             "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE ID = ?",
@@ -905,23 +1250,23 @@ pub async fn execute_db_consolidation(
                             let key = (track.artist.to_lowercase(), track.title.to_lowercase());
                             processed_standard_map.insert(key, (target_path.clone(), current_ext, file_size, track.id.clone()));
                         } else if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
-                            if let Some(fp_val) = current_fp {
+                            if let Some(mut entry) = current_fp {
+                                entry.path = target_path.clone();
                                 let mut updated = false;
                                 if let Some(ref p_path) = swap_prev_path {
-                                    for entry in &mut processed_fingerprints {
-                                        if &entry.1 == p_path {
-                                            entry.0 = fp_val.clone();
-                                            entry.1 = target_path.clone();
-                                            entry.2 = current_ext.clone();
-                                            entry.3 = file_size;
-                                            entry.4 = track.id.clone();
+                                    for (idx, prev) in processed_fingerprints.iter_mut().enumerate() {
+                                        if &prev.path == p_path {
+                                            *prev = entry.clone();
+                                            candidate_index.insert(idx, &entry.title_tokens);
                                             updated = true;
                                             break;
                                         }
                                     }
                                 }
                                 if !updated {
-                                    processed_fingerprints.push((fp_val, target_path.clone(), current_ext, file_size, track.id.clone()));
+                                    let idx = processed_fingerprints.len();
+                                    candidate_index.insert(idx, &entry.title_tokens);
+                                    processed_fingerprints.push(entry);
                                 }
                             }
                         }
@@ -934,27 +1279,35 @@ pub async fn execute_db_consolidation(
                     0.0
                 };
                 
-                let label_prefix = if is_duplicate {
-                    "(Duplicate) "
-                } else if !copy_success {
-                    "(Failed) "
-                } else {
-                    ""
-                };
-                
-                let progress = ConsolidationProgressPayload {
-                    filename: format!("{}{}", label_prefix, filename_str),
-                    processed,
-                    total,
-                    percentage,
-                };
-                let _ = window.emit("rebuilder-consolidation-progress", progress);
+                let is_last = processed == total;
+                if is_last || (processed - last_emit_processed >= 10 && last_progress_emit.elapsed() >= std::time::Duration::from_millis(40)) {
+                    last_progress_emit = std::time::Instant::now();
+                    last_emit_processed = processed;
+                    let label_prefix = if is_duplicate {
+                        "(Duplicate) "
+                    } else if !copy_success {
+                        "(Failed) "
+                    } else {
+                        ""
+                    };
+                    
+                    let progress = ConsolidationProgressPayload {
+                        filename: format!("{}{}", label_prefix, filename_str),
+                        processed,
+                        total,
+                        percentage,
+                    };
+                    let _ = window.emit("rebuilder-consolidation-progress", progress);
+                }
             }
         }
         
         let _ = cleanup_master_db_duplicates(&tx);
         tx.commit().map_err(|e| format!("Failed to commit database changes: {}", e))?;
         
+        superseded_paths.sort();
+        superseded_paths.dedup();
+
         Ok(ResultPayload {
             success: true,
             healthy_count,
@@ -965,36 +1318,107 @@ pub async fn execute_db_consolidation(
             processed_list: Some(processed_list),
             duplicate_list: Some(duplicate_list),
             library_matched_count: 0,
+            superseded_paths: Some(superseded_paths),
         })
     }).await.map_err(|e| format!("Blocking task failed to join: {}", e))?
 }
 
 #[tauri::command]
-pub async fn rollback_to_latest_backup() -> Result<String, String> {
+pub async fn rollback_to_latest_backup() -> Result<RollbackResult, String> {
+    let backups = get_db_backups().await?;
+    if backups.is_empty() {
+        return Err("No database backups found to restore.".to_string());
+    }
+    rollback_to_backup(backups[0].clone(), None).await
+}
+
+#[tauri::command]
+pub async fn rollback_to_backup(
+    backup_filename: String,
+    keep_valid_paths: Option<bool>,
+) -> Result<RollbackResult, String> {
+    if !backup_filename.starts_with("master.db.backup_")
+        || backup_filename.contains('/')
+        || backup_filename.contains('\\')
+        || backup_filename.contains("..")
+    {
+        return Err(format!("Invalid backup filename: {}", backup_filename));
+    }
+
     if is_rekordbox_running() {
         return Err("Rekordbox process is active; database is locked. Close Rekordbox first.".to_string());
     }
     let db_path = get_rekordbox_db_path()?;
     let db_dir = db_path.parent().ok_or_else(|| "Failed to get database parent directory".to_string())?;
-    
-    let backups = get_db_backups().await?;
-    if backups.is_empty() {
-        return Err("No database backups found to restore.".to_string());
+
+    let backup_path = db_dir.join(&backup_filename);
+    if !backup_path.exists() {
+        return Err(format!("Backup file not found: {}", backup_filename));
     }
-    
-    let latest_backup = &backups[0];
-    let backup_path = db_dir.join(latest_backup);
-    
+
+    // 1. Auto-protect unsaved live state:
+    // If live master.db exists and does NOT match ANY existing backup file in db_dir,
+    // automatically create a safety snapshot before restoring.
+    let mut created_safety_backup = None;
+    if db_path.exists() {
+        let mut live_matches_any = false;
+        if let Ok(entries) = std::fs::read_dir(db_dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if fname.starts_with("master.db.backup_") && !fname.ends_with("-wal") && !fname.ends_with("-shm") {
+                    let candidate = db_dir.join(&fname);
+                    if files_are_identical(&db_path, &candidate) {
+                        live_matches_any = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !live_matches_any {
+            let ts = get_backup_timestamp();
+            let safety_name = format!("master.db.backup_{}_pre_rollback", ts);
+            let safety_path = db_dir.join(&safety_name);
+            let _ = std::fs::copy(&db_path, &safety_path);
+
+            let live_wal = db_dir.join("master.db-wal");
+            if live_wal.exists() {
+                let safety_wal_name = format!("{}-wal", safety_name);
+                let safety_wal = db_dir.join(&safety_wal_name);
+                let _ = std::fs::copy(&live_wal, &safety_wal);
+            }
+            created_safety_backup = Some(safety_name);
+        }
+    }
+
+    // 2. If keep_valid_paths is requested, harvest valid disk paths from the live database
+    let mut live_valid_paths = std::collections::HashMap::new();
+    if keep_valid_paths.unwrap_or(false) && db_path.exists() {
+        if let Ok(conn_live) = open_rekordbox_db_readonly(&db_path) {
+            if let Ok(mut stmt) = conn_live.prepare("SELECT ID, FolderPath, FileNameL FROM djmdContent WHERE FolderPath IS NOT NULL AND FolderPath != ''") {
+                if let Ok(mut rows) = stmt.query([]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        let id: String = row.get(0).unwrap_or_default();
+                        let folder_path: String = row.get(1).unwrap_or_default();
+                        let file_name: String = row.get(2).unwrap_or_default();
+                        if !id.is_empty() && !folder_path.is_empty() && std::path::Path::new(&folder_path).exists() {
+                            live_valid_paths.insert(id, (folder_path, file_name));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Restore the backup database over live master.db (NEVER deletes any backup!)
     std::fs::copy(&backup_path, &db_path)
         .map_err(|e| format!("Failed to restore backup: {}", e))?;
-        
+
     let wal_path = db_dir.join("master.db-wal");
-    let backup_wal_name = format!("{}-wal", latest_backup);
+    let backup_wal_name = format!("{}-wal", backup_filename);
     let backup_wal_path = db_dir.join(&backup_wal_name);
 
     if backup_wal_path.exists() {
         let _ = std::fs::copy(&backup_wal_path, &wal_path);
-        let _ = crate::safe_delete_file(&backup_wal_path);
     } else if wal_path.exists() {
         let _ = std::fs::remove_file(&wal_path);
     }
@@ -1004,10 +1428,124 @@ pub async fn rollback_to_latest_backup() -> Result<String, String> {
         let _ = std::fs::remove_file(&shm_path);
     }
 
+    // 4. Perform smart path healing if requested
+    let mut healed_paths_count = 0;
+    if keep_valid_paths.unwrap_or(false) && !live_valid_paths.is_empty() {
+        if let Ok(conn_restored) = open_rekordbox_db(&db_path) {
+            if let Ok(mut stmt) = conn_restored.prepare("SELECT ID, FolderPath FROM djmdContent WHERE FolderPath IS NOT NULL AND FolderPath != ''") {
+                let mut updates = Vec::new();
+                if let Ok(mut rows) = stmt.query([]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        let id: String = row.get(0).unwrap_or_default();
+                        let folder_path: String = row.get(1).unwrap_or_default();
+                        if !std::path::Path::new(&folder_path).exists() {
+                            if let Some((live_folder, live_file)) = live_valid_paths.get(&id) {
+                                updates.push((id, live_folder.clone(), live_file.clone()));
+                            }
+                        }
+                    }
+                }
+                drop(stmt);
+                for (id, live_folder, live_file) in updates {
+                    if conn_restored.execute(
+                        "UPDATE djmdContent SET FolderPath = ?, FileNameL = ? WHERE ID = ?",
+                        rusqlite::params![live_folder, live_file, id],
+                    ).is_ok() {
+                        healed_paths_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Compute health stats of restored database
+    let (total_tracks, intact_tracks, missing_tracks) = {
+        if let Ok(conn_check) = open_rekordbox_db_readonly(&db_path) {
+            if let Ok(mut stmt) = conn_check.prepare("SELECT FolderPath FROM djmdContent WHERE FolderPath IS NOT NULL AND FolderPath != ''") {
+                if let Ok(mut rows) = stmt.query([]) {
+                    let mut tot = 0usize;
+                    let mut inc = 0usize;
+                    while let Ok(Some(row)) = rows.next() {
+                        if let Ok(path) = row.get::<_, String>(0) {
+                            tot += 1;
+                            if std::path::Path::new(&path).exists() {
+                                inc += 1;
+                            }
+                        }
+                    }
+                    (tot, inc, tot.saturating_sub(inc))
+                } else {
+                    (0, 0, 0)
+                }
+            } else {
+                (0, 0, 0)
+            }
+        } else {
+            (0, 0, 0)
+        }
+    };
+
+    Ok(RollbackResult {
+        restored_filename: backup_filename,
+        created_safety_backup,
+        total_tracks,
+        intact_tracks,
+        missing_tracks,
+        healed_paths_count,
+    })
+}
+
+#[tauri::command]
+pub async fn trash_superseded_files(paths: Vec<String>) -> Result<usize, String> {
+    let mut count = 0;
+    for p in paths {
+        let path = std::path::PathBuf::from(&p);
+        if path.exists() {
+            if let Ok(()) = crate::safe_delete_file(&path) {
+                count += 1;
+                if let Some(parent) = path.parent() {
+                    if parent.exists() {
+                        if let Ok(entries) = std::fs::read_dir(parent) {
+                            if entries.count() == 0 {
+                                let _ = std::fs::remove_dir(parent);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn delete_db_backup(backup_filename: String) -> Result<String, String> {
+    if !backup_filename.starts_with("master.db.backup_")
+        || backup_filename.contains('/')
+        || backup_filename.contains('\\')
+        || backup_filename.contains("..")
+    {
+        return Err(format!("Invalid backup filename: {}", backup_filename));
+    }
+
+    let db_path = get_rekordbox_db_path()?;
+    let db_dir = db_path.parent().ok_or_else(|| "Failed to get database parent directory".to_string())?;
+    let backup_path = db_dir.join(&backup_filename);
+
+    if !backup_path.exists() {
+        return Err(format!("Backup file not found: {}", backup_filename));
+    }
+
     crate::safe_delete_file(&backup_path)
-        .map_err(|e| format!("Successfully restored database, but failed to move backup to trash: {}", e))?;
-        
-    Ok(latest_backup.clone())
+        .map_err(|e| format!("Failed to delete backup file: {}", e))?;
+
+    let backup_wal_name = format!("{}-wal", backup_filename);
+    let backup_wal_path = db_dir.join(&backup_wal_name);
+    if backup_wal_path.exists() {
+        let _ = crate::safe_delete_file(&backup_wal_path);
+    }
+
+    Ok(backup_filename)
 }
 
 fn get_all_child_playlist_ids(
@@ -1284,12 +1822,31 @@ pub async fn get_folder_tracks_from_db(folder_name: String) -> Result<Vec<String
     }).await.map_err(|e| e.to_string())?
 }
 
+pub fn shift_cues_for_content(
+    conn: &rusqlite::Connection,
+    content_id: &str,
+    offset_ms: i32,
+) -> rusqlite::Result<usize> {
+    if offset_ms == 0 {
+        return Ok(0);
+    }
+
+    conn.execute(
+        "UPDATE djmdCue SET
+            InMsec = CASE WHEN (InMsec + ?1) < 0 THEN 0 ELSE (InMsec + ?1) END,
+            OutMsec = CASE WHEN OutMsec >= 0 THEN (CASE WHEN (OutMsec + ?1) < 0 THEN 0 ELSE (OutMsec + ?1) END) ELSE OutMsec END
+         WHERE ContentID = ?2",
+        rusqlite::params![offset_ms, content_id],
+    )
+}
+
 #[tauri::command]
 pub async fn update_rekordbox_db_directly(
     ledger_path: String,
     decisions: std::collections::HashMap<String, String>,
     output_path: String,
     output_strategy: String,
+    auto_shift_cues: Option<bool>,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let live_db_path = get_rekordbox_db_path()?;
@@ -1426,6 +1983,22 @@ pub async fn update_rekordbox_db_directly(
                     );
                 }
             }
+
+            if auto_shift_cues.unwrap_or(true) {
+                if let Some(offset_ms) = entry.get("offset_ms").and_then(|v| v.as_i64()).map(|v| v as i32) {
+                    if offset_ms != 0 {
+                        let content_id_opt: Option<String> = tx.query_row(
+                            "SELECT ID FROM djmdContent WHERE FolderPath = ? OR lower(FolderPath) = lower(?)",
+                            rusqlite::params![&new_abs_path_str, &new_abs_path_str],
+                            |row| row.get(0),
+                        ).ok();
+
+                        if let Some(ref cid) = content_id_opt {
+                            let _ = shift_cues_for_content(&tx, cid, offset_ms);
+                        }
+                    }
+                }
+            }
         }
 
         let _ = cleanup_master_db_duplicates(&tx);
@@ -1546,5 +2119,141 @@ mod tests {
         let ts = get_backup_timestamp();
         assert!(!ts.is_empty());
         assert!(ts.len() >= 8);
+    }
+
+    #[test]
+    fn test_parse_backup_date() {
+        let d1 = parse_backup_date("master.db.backup_20261014_204139", None);
+        assert_eq!(d1, "2026-10-14 20:41:39");
+
+        let d2 = parse_backup_date("master.db.backup_20261006_1431", None);
+        assert_eq!(d2, "2026-10-06 14:31:00");
+
+        let d3 = parse_backup_date("master.db.backup_fix_dedup_20260801", None);
+        assert_eq!(d3, "2026-08-01 00:00:00");
+
+        let unknown = parse_backup_date("other_name.db", None);
+        assert_eq!(unknown, "other_name.db");
+    }
+
+    #[test]
+    fn test_backup_chronological_sorting() {
+        let mut backups = vec![
+            "master.db.backup_fix_dedup_20260801".to_string(),
+            "master.db.backup_20261014_204139".to_string(),
+            "master.db.backup_20261006_1431".to_string(),
+        ];
+        backups.sort_by(|a, b| {
+            let date_a = parse_backup_date(a, None);
+            let date_b = parse_backup_date(b, None);
+            date_b.cmp(&date_a).then_with(|| b.cmp(a))
+        });
+        assert_eq!(
+            backups,
+            vec![
+                "master.db.backup_20261014_204139".to_string(),
+                "master.db.backup_20261006_1431".to_string(),
+                "master.db.backup_fix_dedup_20260801".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_shift_cues_for_content() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE djmdCue (
+                ID TEXT PRIMARY KEY,
+                ContentID TEXT,
+                InMsec INTEGER,
+                OutMsec INTEGER
+            );
+            INSERT INTO djmdCue VALUES ('c1', 'track1', 500, -1);
+            INSERT INTO djmdCue VALUES ('c2', 'track1', 1000, 5000);
+            INSERT INTO djmdCue VALUES ('c3', 'track2', 200, -1);",
+        ).unwrap();
+
+        // Positive shift (+45 ms)
+        let shifted = shift_cues_for_content(&conn, "track1", 45).unwrap();
+        assert_eq!(shifted, 2);
+
+        let (in_msec, out_msec): (i32, i32) = conn
+            .query_row("SELECT InMsec, OutMsec FROM djmdCue WHERE ID = 'c1'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(in_msec, 545);
+        assert_eq!(out_msec, -1); // Sentinel untouched
+
+        let (in_msec2, out_msec2): (i32, i32) = conn
+            .query_row("SELECT InMsec, OutMsec FROM djmdCue WHERE ID = 'c2'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(in_msec2, 1045);
+        assert_eq!(out_msec2, 5045);
+
+        // Track 2 untouched
+        let in_msec3: i32 = conn
+            .query_row("SELECT InMsec FROM djmdCue WHERE ID = 'c3'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(in_msec3, 200);
+
+        // Negative shift with clamping to 0 (-600 ms on track1)
+        shift_cues_for_content(&conn, "track1", -600).unwrap();
+        let in_msec_clamped: i32 = conn
+            .query_row("SELECT InMsec FROM djmdCue WHERE ID = 'c1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(in_msec_clamped, 0); // 545 - 600 clamped to 0
+    }
+
+    #[test]
+    fn test_files_are_identical() {
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let file_a = temp_dir.join(format!("test_identical_a_{}.bin", pid));
+        let file_b = temp_dir.join(format!("test_identical_b_{}.bin", pid));
+        let file_c = temp_dir.join(format!("test_identical_c_{}.bin", pid));
+        let file_d = temp_dir.join(format!("test_identical_d_{}.bin", pid));
+
+        std::fs::write(&file_a, b"hello world 1234567890").unwrap();
+        std::fs::write(&file_b, b"hello world 1234567890").unwrap();
+        std::fs::write(&file_c, b"hello world 1234567891").unwrap(); // same len, different byte
+        std::fs::write(&file_d, b"hello").unwrap(); // different len
+
+        assert!(files_are_identical(&file_a, &file_b));
+        assert!(!files_are_identical(&file_a, &file_c));
+        assert!(!files_are_identical(&file_a, &file_d));
+
+        let _ = std::fs::remove_file(&file_a);
+        let _ = std::fs::remove_file(&file_b);
+        let _ = std::fs::remove_file(&file_c);
+        let _ = std::fs::remove_file(&file_d);
+    }
+
+    #[test]
+    fn test_backup_health_cache() {
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let test_audio = temp_dir.join(format!("test_track_{}.mp3", pid));
+        std::fs::write(&test_audio, b"fake audio").unwrap();
+
+        let dummy_backup = temp_dir.join(format!("test_backup_health_{}.db", pid));
+        std::fs::write(&dummy_backup, b"dummy").unwrap();
+
+        let fname = format!("test_backup_health_{}.db", pid);
+        // Direct insertion and retrieval from cache
+        let (tot, inc, mis) = get_backup_disk_health(&dummy_backup, &fname, 12345, 99999);
+        assert_eq!((tot, inc, mis), (0, 0, 0));
+
+        // Insert custom entry into cache
+        if let Ok(mut guard) = get_health_cache().lock() {
+            guard.insert((fname.clone(), 12345, 99999), (1400, 1390, 10));
+        }
+        let cached = get_backup_disk_health(&dummy_backup, &fname, 12345, 99999);
+        assert_eq!(cached, (1400, 1390, 10));
+
+        let _ = std::fs::remove_file(&test_audio);
+        let _ = std::fs::remove_file(&dummy_backup);
     }
 }

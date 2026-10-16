@@ -1,67 +1,78 @@
 # CrateUp — Agent Briefing
 
 ## What this project is
-A personal macOS desktop app (Tauri v2) that upgrades a DJ music library by:
-1. Scanning a folder of audio files
-2. Fingerprinting each track via Shazam (shazamio Python library)
-3. Downloading high-quality replacements via Deezer (Deemix Python library)
-4. Presenting each original/replacement pair for manual approval in a UI
-5. Committing approved replacements to disk and updating a Rekordbox XML file
+A personal macOS desktop app (Tauri v2) that provides a comprehensive suite for DJ music library curation and quality upgrading:
+1. **Quality Upgrader**: Scans audio folders or Rekordbox playlists, fingerprints tracks via Shazam (`shazamio`), downloads lossless/Hi-Fi replacements via Deezer (`deemix`), calculates acoustic similarity (Chromaprint / `fpcalc`), provides a pro-DJ dual-deck verification UI with beat-scrub synchronization, and commits replacements directly to disk, Rekordbox `master.db` (SQLCipher), and Rekordbox XML.
+2. **Library Cleaner**: Identifies duplicate tracks across playlists and library collection, safely trashing superseded low-quality files and merging metadata.
+3. **Playlist Ingestion Hub**: Ingests external track folders or playlists, checking existing library files before downloading to eliminate duplicates, and staging new additions.
+4. **Playlist Compare**: Compares two Rekordbox playlists or XML exports, isolating tracks common to both sets vs tracks unique to Set A or Set B.
+5. **Library Audit**: Deep filesystem & database integrity audit identifying missing files, dead links, orphans, duplicate audio hashes, zero-byte files, and empty folder trees with safe macOS Trash cleanup.
 
-Full spec is in `SPEC.md`. Read it before touching any module.
+All architectural specifications, core audio domain rules, and progress ledger contracts are maintained directly in this file (`AGENTS.md`). The legacy v1.0 draft specification is archived at `docs/archive/SPEC-v1.0-draft.md`.
 
 ## Tech stack
 | Layer | Technology |
 |---|---|
 | Desktop shell | Tauri v2 (Rust) |
 | UI | HTML + CSS + TypeScript (in Tauri WebView) |
-| Backend logic | Node.js sidecar (spawned by Tauri) |
-| Python bridge | Standalone CPython 3.12 bundle (Apple Silicon; spawned by Node via stdio JSON-RPC) |
+| Backend logic | Native Rust (Tauri v2 + Tokio async runtime) |
+| Python bridge | Standalone CPython 3.12 bundle (Apple Silicon; spawned by Rust via multiplexed stdio JSON-RPC) |
 | Fingerprinting | shazamio (Python) |
 | Downloading | Deemix core (Python) |
 | Transcoding | FFmpeg (bundled binary) |
 | Waveform UI | WaveSurfer.js |
-| State | .crateup-progress.json (flat JSON ledger) |
+| State | `.crateup-progress.json` (flat JSON ledger) |
 
-## Repository structure (target — build toward this)
+## Repository structure
 ```
 crateup/
-├── AGENTS.md              ← this file
-├── SPEC.md                ← full product spec (source of truth)
+├── AGENTS.md              ← this file (single source of truth for architecture and rules)
 ├── src-tauri/             ← Tauri/Rust shell
+│   ├── src/lib.rs         ← core IPC handlers, background processes, sidecar bootstrapping
+│   ├── src/pipeline.rs    ← 3-lane concurrent producer-consumer pipeline (Tokio mpsc + jitter throttling)
+│   ├── src/scanner.rs     ← recursive directory walker, bitrate probing & ledger initializer
+│   ├── src/commit.rs      ← file move, ID3 tag merge, swapAndSafeTrash, EXDEV fallback
+│   ├── src/deezer.rs      ← native async Deezer client (ARL validation, track ID parsing, link resolver)
+│   ├── src/python_rpc.rs  ← multiplexed async JSON-RPC stdio bridge to python-sidecar
+│   ├── src/waveform.rs    ← PCM audio decimation & 256-bucket waveform peak pre-computation
+│   ├── src/ledger.rs      ← thread-safe mtime/size cached ledger with atomic tmp-rename persistence
+│   ├── src/rekordbox.rs   ← direct SQLCipher master.db reading, consolidation, backup/rollback
+│   ├── src/xml.rs         ← O(1) streaming Rekordbox XML parser, validator, and updater
+│   ├── src/audit.rs       ← library audit walker, stray link detection, trash integration
+│   ├── src/similarity.rs  ← acoustic fingerprint scoring, quality comparison helpers
+│   └── src/fingerprint_cache.rs ← mtime-keyed in-memory & disk fpcalc cache
 ├── ui/                    ← HTML/CSS/TS frontend
-├── node-sidecar/          ← Node.js pipeline orchestrator
-│   ├── index.js           ← entry point, spawns Python sidecar
-│   ├── bin-setup.js       ← bundled binaries bootstrap
-│   ├── scanner.js         ← directory traversal + ledger init
-│   ├── pipeline.js        ← orchestrates fingerprint → download loop (with ThrottleQueue)
-│   ├── commit.js          ← final file move + XML update + CLI runner
-│   ├── identify.js        ← single-track identification CLI
-│   ├── refetch.js         ← single-track download & similarity CLI
-│   ├── similarity.js      ← Chromaprint & raw MD5 comparison
-│   ├── ledger.js          ← ledger resolution, cache & atomic persistence
-│   └── rpc.js             ← JSON-RPC helpers (Node ↔ Python)
+│   ├── src/upgrader/      ← Quality Upgrader arc (source, configure, run, review, commit)
+│   ├── src/cleaner/       ← Library Cleaner (strategy, intake, modifiers, run, summary)
+│   ├── src/ingestion/     ← Playlist Ingestion Hub (stage, configure, run, summary)
+│   ├── src/audit/         ← Library Audit tool (picker, walk, results, trashing)
+│   ├── src/compare.ts     ← Playlist Compare tool
+│   ├── src/store.ts       ← multi-session state management & persistence
+│   ├── src/tools.ts       ← tool registry (pipeline vs utility kinds, nav routing)
+│   ├── src/jobs.ts        ← unified background jobs protocol & shared progress UI
+│   ├── src/source-access.ts ← unified XML/db picking & track list resolution
+│   └── src/policy.ts      ← match threshold policy & settings
 ├── python-sidecar/        ← Python fingerprint + download engine
 │   ├── main.py            ← entry point, reads JSON-RPC from stdin
-│   ├── fingerprint.py     ← shazamio wrapper + duration matching
+│   ├── fingerprint.py     ← shazamio wrapper + smart-slice + duration matching
 │   └── download.py        ← deemix wrapper + transcode
-├── python-runtime/        ← standalone relocatable CPython 3.12 bundle
+├── python-runtime/        ← standalone relocatable CPython 3.12 bundle (Apple Silicon)
 ├── scripts/               ← automation scripts (setup-python-runtime.sh)
 ├── test-library/          ← small folder of MP3s for manual testing
-└── tests/                 ← automated tests
+└── tests/                 ← automated tests (Rust, Jest, Pytest)
 ```
 
-## IPC contract (Node ↔ Python) — NEVER change without updating both sides
+## IPC contract (Rust ↔ Python) — NEVER change without updating both sides
 All messages are newline-delimited JSON on stdio.
 
-**Node → Python requests:**
+**Rust → Python requests:**
 ```json
 { "id": "uuid", "method": "fingerprint", "params": { "path": "/abs/path/to/file.mp3" } }
 { "id": "uuid", "method": "download",    "params": { "deezer_id": 123456789, "output_format": "flac", "staged_path": "/abs/path" } }
 { "id": "uuid", "method": "ping",        "params": {} }
 ```
 
-**Python → Node responses:**
+**Python → Rust responses:**
 ```json
 { "id": "uuid", "result": { "deezer_id": 123456789, "title": "Track", "artist": "Artist" } }
 { "id": "uuid", "result": { "staged_path": "/abs/path/to/file.flac" } }
@@ -81,11 +92,60 @@ All messages are newline-delimited JSON on stdio.
       "status": "pending | downloaded | unidentified | not_on_deezer | download_failed | committed | skipped",
       "deezer_id": 123456789,
       "staged_path": "crateup-staging/relative/path/to/track.flac",
-      "proxy_path": null
+      "proxy_path": null,
+      "similarity_score": 0.98,
+      "audio_bit_identical": false,
+      "decision": "pending | approved | skipped",
+      "original_bitrate": 256,
+      "staged_bitrate": 920,
+      "deezer_origin": false,
+      "original_abs_path": "/abs/path/to/track.mp3",
+      "artist": "Artist Name",
+      "title": "Track Title"
     }
   }
 }
 ```
+
+## Core Audio & Domain Rules
+
+### §3.2 Smart-Slice Fingerprint Anchors
+For each file, audio duration is probed via container headers. A 15-second sample is extracted for Shazam identification:
+- **Duration > 180s (3 minutes)**: Attempt 1 extraction starts at `120.0s` (02:00) into the track (past intros, into main vocal/hook).
+- **Duration ≤ 180s**: Attempt 1 extraction starts at `30.0s` (00:30).
+- **Retry attempts 2 & 3**: Randomized start offsets within valid audio bounds.
+
+### §3.3 Anti-Ban Throttling
+Two independent `ThrottleQueue` instances prevent IP and account rate-limiting:
+- **Shazam queue**: 3–7 second randomized delay between consecutive Shazam queries.
+- **Deezer queue**: 3–7 second randomized delay between consecutive Deezer/Deemix queries.
+
+### §3.4 Pre-Download Duplicate Reuse
+Before initiating a Deezer download, the pipeline checks the session ledger for existing staged downloads with the same `deezerId`. If a duplicate is found, the existing staged file and waveform preview proxy are reused immediately, bypassing redundant network downloads and throttling delays.
+
+### §3.5 Multi-Release Duration Matching
+When Deezer returns multiple releases for a track, `search_deezer` selects the candidate release with the minimum absolute delta `|duration_original - duration_deezer|`. This ensures extended club mixes are not replaced by radio edits or short compilation trims.
+
+### §3.10 Verification Deck Focus & Scrub Model
+- Top Deck = Original file; Bottom Deck = Staged upgrade (or AIFF proxy MP3).
+- Focus defaults to Staged replacement upon track load.
+- Focus border highlights active deck for Spacebar playback and arrow seeking.
+- Synchronized scrub mode (<kbd>L</kbd> / Link button) syncs playheads between decks for instant beatmatched A/B comparison.
+
+### §3.12 WAV ID3 Tag Limitations
+WAV ID3v2 tags are non-standard across hardware media players and may be dropped by Rekordbox/CDJs. A non-blocking warning modal is displayed if WAV is selected, advising FLAC or AIFF for full tagging reliability.
+
+### §5.1 Metadata Tag Merge Priority
+When committing approved upgrades, metadata tags are merged into the replacement file:
+- **From Deezer** (overwrites original): Title, Artist, Album, Year, Cover Art, BPM, Key, Track Number.
+- **From Original File** (preserved verbatim): Comments, Genres, Star Rating.
+
+### §5.2 POPM Star Rating Encoding
+Star ratings are written using the standard Rekordbox ID3 `POPM` (Popularimeter) frame.
+
+### §6.0 Rekordbox Dual-Engine Integration
+- **Direct SQLCipher Database**: Reads and writes Rekordbox `master.db` directly using non-blocking WAL-checkpointed connections, automatic timestamped backups (`master.db.backup.<timestamp>`), and atomic rollback on error.
+- **XML Export Bridge**: High-performance $O(1)$ streaming XML updater that rewrites track `<Location>` URIs while preserving all hot cues, beat grids, memory cues, and playlist hierarchies.
 
 ## Coding rules (follow these in every file)
 - Node.js: CommonJS (`require`), no TypeScript, ES2022 features OK
@@ -143,6 +203,88 @@ All messages are newline-delimited JSON on stdio.
 - [x] Phase 26: Deep Review Remediation & Zero-Warning Codebase: Same-extension safe trashing (`swapAndSafeTrash`), release ARL path non-fatal fallback, atomic ledger persistence in commit CLI, Python `search_deezer` None duration tolerance, broken symlink self-healing in `/tmp/crateup-bin`, JSON-RPC unknown method error handling over stdout, strict 0600 file permissions for plaintext ARL files, numeric XML entity parsing (`&#NNN;` & `&#xHHH;`), 60-second similarity length threshold alignment across Rust & Node, and zero-warning Clippy cleanup (20 Rust / 54 Jest / 10 Pytest passing, 0 warnings).
 - [x] Phase 27: Comprehensive Review Remediation & Pipeline Hardening: Binary bootstrap `ReferenceError` fix (`bin-setup.js`), `ARG_MAX` elimination in `start_pipeline` via temp JSON file passing, `.aif` audio extension alignment (`scanner.js`), Smart-Slice fingerprint offset anchors (§3.2 SPEC.md), Deezer `missing_arl` error propagation & fast abort, and WAV ID3 tag limitation warning modal in Review (§3.12 SPEC.md) (20 Rust / 56 Jest / 11 Pytest passing, 0 warnings).
 - [x] Phase 28: Pro-Audio UX Enhancements & Streaming XML Engine: Review decision backtrack/undo (`Cmd+Z` / `Z`), synchronized deck scrub mode (`L` key + deck link button), keyboard shortcuts cheat sheet modal (`?` / `h`), pulsating waveform skeleton decode loader, and $O(1)$ disk streaming for Rekordbox XML updates (20 Rust / 56 Jest / 11 Pytest passing, 0 warnings).
+- [x] Phase 29: Visual Decision Status & Review Usability Polish: Distinct approved (`✓ 100%`) vs skipped (`– 100%`) vs pending badges in Review queue, persistent center-stage decision pill (`✓ Approved` / `– Skipped` / `● Pending`), Enter/Backspace navigation fix on decided tracks, and comprehensive deck & waveform click focus handling.
+- [x] Phase 30: Progress Ledger Path Resolution & Dev/Prod Desync Fix: Resolved "os error 2" ledger read failure by unifying `ledgerNameForHost()` to `.crateup-progress.json` across all environments, adding sibling fallback (`.crateup-progress.json` $\leftrightarrow$ `.crateup-progress-dev.json`) in Rust `read_ledger_file` & `check_file_exists` and UI `finishRun()`.
+- [x] Phase 31: Production Edge Case Hardening & Deemix Fast-Fail Remediation: Eliminated 180s pipeline hangs on expired/missing Deezer ARL tokens by establishing pre-validation and interactive stdin isolation (`DEVNULL`) in `download.py`, fast-failing directly into ledger persistence without entering futile retry loops (`pipeline.js`, `refetch.js`), preserving `deezer_id` across failures, adding unit test coverage (`tests/refetch.test.js`, `tests/test_download.py`, `tests/pipeline.test.js`), and verifying production bundle integrity across all 5 suite tools (20 Rust / 60 Jest / 12 Pytest passing).
+- [x] Phase 32: Real-time Deezer ARL Validation & Proactive UX Alerts: Eliminated misleading "A token is saved on this machine" green status in Settings by building live Deezer gateway verification (`validate-arl.js`, Rust `check_arl_status`), showing verified account name & tier (`Connected as Hugues de Teyssier · Hi-Fi Lossless`) or explicit expiration warnings in red; added proactive pre-flight ARL verification banner on Upgrader Source screen, live ARL error banner on Run screen, and post-run Deezer advisory banner on Results screen; added dedicated test coverage (`tests/validate-arl.test.js`) (20 Rust / 65 Jest / 12 Pytest passing).
+- [x] Phase 33: UX Reliability, Backups Manager & False-Confidence Elimination:
+  - **Deezer URL Parsing in Review (`ui/src/upgrader/review.ts`, `utils.ts`)**: Auto-extracts numeric track IDs from full Deezer web URLs (`https://www.deezer.com/track/882920`, localized URLs, query parameters, mobile share links), providing immediate numeric reflection and eliminating paste rejections.
+  - **Network Error Isolation in Pipeline (`python-sidecar/fingerprint.py`, `main.py`, `node-sidecar/pipeline.js`)**: Isolated transport/DNS/timeout errors during Shazam fingerprinting (`aiohttp.ClientConnectorError`, `socket.gaierror`, etc.) to return `network_error` instead of silently stamping tracks as permanently `unidentified`. Preserves `pending` status and aborts cleanly if network is down.
+  - **Similarity Engine Failure vs True Mismatch (`node-sidecar/similarity.js`, `pipeline.js`, `refetch.js`, `ui/src/upgrader/review.ts`)**: Prevented `fpcalc`/`ffmpeg` decoding crashes from emitting misleading `0% match` (which previously claimed "potential mismatch"). Now stores `similarity_score: null` with `similarity_error` message, displayed with distinct `⚠ Calc` warning badges and explicit UI guidance.
+  - **Rekordbox Backups Manager with Date Selection & Safe Trashing (`src-tauri/src/rekordbox.rs`, `lib.rs`, `ui/src/views.ts`)**: Added full backup management to Settings allowing DJs to see formatted snapshot timestamps and file sizes, restore any past backup by date, and safely delete unneeded backups to macOS Trash.
+  - **Engine & Dependency Health Dashboard (`src-tauri/src/lib.rs`, `ui/src/views.ts`)**: Real-time status cards in Settings checking Chromaprint `fpcalc`, transcoder `ffmpeg`, embedded CPython 3.12 runtime, and Rekordbox `master.db` lock state.
+  - **Export Missed Tracks Wishlist (`ui/src/upgrader/run.ts`, `utils.ts`)**: Added 1-click "Export Missed (.csv)" and "Copy List" actions to the Results screen to allow DJs to easily buy missing tracks on Bandcamp/Beatport.
+  - **Test Suite Verification**: All 21 Cargo tests, 19 Jest test suites (66 tests), and 12 Pytest tests passing cleanly.
+- [x] Phase 34: Universal Review Audio Teardown & Route Guard:
+  - **WebAudio Orphaned Playback Fix (`ui/src/upgrader/review.ts`)**: Resolved WaveSurfer v7 bug where `backend: "WebAudio"` instances are marked as `isExternalMedia: true`, causing `wavesurfer.destroy()` to skip pausing the underlying player and leaving WebAudio `bufferNode` and `AudioContext` playing indefinitely in the background when detached from the DOM.
+  - **`stopAllReviewAudio()` Engine**: Unconditionally halts `bufferNode` playback, disconnects WebAudio nodes, suspends/closes `AudioContext`s, pauses and resets `HTMLMediaElement`s, sweeps document audio tags, and resets UI play glyphs.
+  - **Route & Session Navigation Guards (`ui/src/main.ts`, `ui/src/upgrader/view.ts`)**: Wired audio teardown into top-level route switching (`#/settings`, `#/home`, `#/cleaner`, `#/ingestion`, `#/compare`, `#/audit`), upgrader internal stage transitions, and sidebar session close/delete/switch handlers.
+  - **Window Lifecycle**: Registered `pagehide` and `beforeunload` teardown hooks.
+  - **Dedicated Test Coverage (`tests/audio-lifecycle.test.js`)**: Verified complete audio silencing, currentTime resets, and inactive teardown safety (21 Rust / 20 Jest suites [67 tests] / 12 Pytest passing).
+- [x] Phase 35: Deezer Short Link Auto-Resolution (`link.deezer.com/s/...`, `deezer.page.link/...`):
+  - **Redirect Follower Engine (`node-sidecar/resolve-deezer-url.js`)**: Built dedicated HTTP redirect follower that follows up to 5 hops with a 7s timeout and real User-Agent, parsing the redirect `location` headers, query parameters (`dest=`, `awf=`), and final destination for numeric Deezer track IDs.
+  - **Tauri IPC Command (`src-tauri/src/lib.rs`, `ui/src/api.ts`)**: Added `resolve_deezer_link` command bridging the Node sidecar redirect engine to the Tauri frontend.
+  - **Review UI Seamless Auto-Resolution (`ui/src/upgrader/review.ts`, `ui/src/upgrader/utils.ts`)**: When pasting into `#rv-deezer-id` or submitting via Enter/Refetch, automatically detects short links (`link.deezer.com`, `page.link`, etc.), resolves them in the background, displays real-time feedback (`Resolving link…` → `✓ Resolved to ID: 2415350`), and seamlessly downloads the high-quality replacement.
+  - **Test Suite Verification**: Added unit tests in `tests/resolve-deezer-url.test.js` and expanded `tests/upgrader-utils.test.js` (21 Rust / 21 Jest suites [71 tests] / 12 Pytest passing).
+
+## 6-Sprint Master Roadmap & Golden Sequencing Rule
+
+> [!IMPORTANT]
+> **Golden Sequencing Rule**: Do NOT implement new pipeline or DSP features inside `node-sidecar/*.js`. Complete Sprints 1–4 first (UI/UX overhaul + existing Rust modules), then retire `node-sidecar/` into native Rust in Sprint 5 (building the Producer-Consumer async lanes and waveform peak pre-computation directly into the new Rust upgrader module), and finally layer the Pro-DJ DSP features on top of the unified Rust backend in Sprint 6.
+> Run full verification (`npm run build:ui`, `npx jest`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `python-runtime/bin/pytest tests/`) at the end of every sprint pair before proceeding to the next.
+
+- [x] **Sprint 1: P0 Visual Glitches & Safety Polish**
+  - [x] 1. Metric whitespace & layout: Unified `.stat` / `.stats` across Cleaner, Ingestion, and Audit with `font-variant-numeric: tabular-nums` and `.toLocaleString()` (`1,409 processed`, `3 new files`, `1.1 GB reclaimable`).
+  - [x] 2. Settings Engine Health overflow (`lib.rs:903`, `views.ts`): Parsed `fpcalc` and `ffmpeg` down to clean labels (`Ready · fpcalc 1.5.1`, `Ready · FFmpeg 6.0`) with full raw stdout in `title` tooltips.
+  - [x] 3. Dark scrollbar corner (`app.css`): Added `::-webkit-scrollbar-corner { background: transparent; }`.
+  - [x] 4. Audit path wrapping (`ui/src/audit/`): Left-aligned all paths, applied middle-ellipsis truncation, and made `...and N more.` an interactive expand toggle.
+  - [x] 5. Ingestion & Audit list polish: Left-aligned staged track filenames, right-aligned file sizes, hid `Clear staged` when 0 files are staged, and replaced stark white square `[×]` buttons with subtle ghost icon buttons turning red on hover.
+  - [x] 6. Dropdown carets (`app.css`): Added SVG chevron (`⌄`) background to all `<select>` and `.pop` dropdowns across Upgrader, Cleaner, Ingestion, and Settings.
+  - [x] 7. Audit danger styling & Cleaner safety card: Restyled `Delete selected (N)` as danger red `Move N files to Trash` in the sticky dock; visually separated `Move superseded audio files to Trash` from the `Snapshot` rollback dropdown in Cleaner's completion card.
+- [x] **Sprint 2: Pro-DJ Review Deck Upgrades**
+  - [x] 1. Mouse controls (`review.ts`): Added clickable `[✓ Approve]` and `[✕ Skip]` buttons in the center diff bar alongside the decision status pill.
+  - [x] 2. Manual URL override on all tracks (`review.ts:1181`): Added a subtle `[Wrong match? Paste Deezer URL]` toggle on all tracks (including `"downloaded"`) so DJs can override false-positive Shazam matches with Deezer URLs or track IDs.
+  - [x] 3. Visual comparison diffing: Highlighted bitrate upgrades in green (`bitrate-upgrade`), flagged duration deltas >2s in amber (`dur-delta`, e.g. `3:42 (-7s Δ)`), and highlighted recording credit differences in amber (`diff-mismatch`).
+  - [x] 4. Remove dual timecode clutter: Stripped redundant top-right `00:00` / `--:--` deck header timecode, keeping only the bottom-right `elapsed / total` readout.
+- [x] **Sprint 3: Backend & Data Correctness**
+  - [x] 1. Fix Rekordbox backup sorting & timestamp parsing (`rekordbox.rs`, `views.ts`): Implemented `extract_backup_date_from_str` matching `YYYYMMDD_HHMMSS`, `YYYYMMDD_HHMM` (exact hour/min), and `.*_YYYYMMDD`, sorting chronologically descending; added Rust unit tests; capped Settings display to 5 newest backups with `Show all N backups ⌄` / `Show fewer` toggle.
+  - [x] 2. Audit streaming URI filtering & export (`audit.rs`, `views.ts`): Separated streaming protocols (`spotify:`, `tidal:`, `soundcloud:`, `beatport:`, `http://`, `https://`) into `streaming_db` so they aren't reported as missing local files; added `[Export missing (.csv)]` button and `[Consolidate N external tracks →]` cleaner handover.
+  - [x] 3. Global threshold label sync (`policy.ts`, `cleaner/view.ts`, `ingestion/view.ts`): Dynamically reflected similarity threshold (`≥90%`, `≥95%`) via `thresholdLabel` in both Cleaner and Ingestion deduplication dropdown options.
+- [x] **Sprint 4: Shell Architecture & Navigation Unification**
+  - [x] 1. Reclaim right inspector (`chrome.ts`, `app.css`, `source.ts`): Collapsed `.insp` when empty or containing placeholder via `.hidden`, expanding center card to full width; removed duplicate `DEEZER ACCESS` inspector in Upgrader Source screen in favor of Settings link.
+  - [x] 2. Upgrader stage-strip & dock truncation (`chrome.ts`, `run.ts`, `review.ts`): Aligned strip to `Source | Configure | Run | Review`; removed redundant `Next` card in Results screen; compacted secondary dock actions (`Back`, `Reset`, `Close`) and added `flex: 1; min-width: 0;` to `.dock-label` to prevent text truncation.
+  - [x] 3. Sidebar session icons & active contrast (`main.ts`, `app.css`): Mapped `s.tool` to tool-specific SVGs (disc for upgrader, broom for cleaner, folder-plus for ingestion, clipboard-check for audit); added high-contrast text and icon styling on active `.nv.on` rows; simplified top toolbar title paths and made Tauri bridge dot unobtrusive.
+  - [x] 4. Home cards, eyebrows & Compare tabs (`views.ts`, `compare/view.ts`): Added `04 · Playlist Compare` card to Home; standardized eyebrows across all tools to `01 · UPGRADER`, `02 · CLEANER`, `03 · INGESTION`, `04 · COMPARE`, `05 · AUDIT` with middle-dot (`·`); replaced Compare's 3 vertical scroll boxes with a 3-tab segmented switcher (`[Only in A (N)] [Only in B (N)] [In Both (N)]`) and moved `[Match leftovers by sound]` into the top `Playlists` card.
+- [x] **Sprint 5: Retire `node-sidecar/` into Native Rust + Concurrent Pipeline Lanes**
+  - [x] 1. Unified Rust modules: `src/ledger.rs` (thread-safe mtime/size cached ledger with atomic tmp-rename persistence), `src/deezer.rs` (native async Deezer client: ARL validation, track ID extraction, short link resolution), `src/python_rpc.rs` (multiplexed async JSON-RPC stdio bridge to python-sidecar), `src/scanner.rs` (recursive directory walker, bitrate probing, ledger initialization), `src/commit.rs` (file move, `swapAndSafeTrash`, cross-filesystem `EXDEV` fallback, `trash` crate, `ffmpeg` ID3v2/POPM tagging), `src/waveform.rs` (PCM audio decimation & 256-bucket peak pre-computation), `src/similarity.rs` (`compare_audio_files`).
+  - [x] 2. 3-Lane Producer-Consumer Tokio pipeline (`src/pipeline.rs`): Lane 1 (Shazam fingerprinting with 3–7s random jitter throttling and network error isolation), Lane 2 (Deezer downloads with §3.4 duplicate reuse and 3–7s jitter throttling), Lane 3 (Local Chromaprint DSP pool + 256-bucket waveform peak pre-computation). Python `main.py` upgraded to concurrent request dispatch via `asyncio.create_task` with `stdout_lock` to prevent head-of-line blocking.
+  - [x] 3. Instant waveform rendering (`ui/src/upgrader/review.ts`, `utils.ts`): Passed pre-computed peaks to `wsOrig.load(url, peaks)` and `wsStaged.load(url, peaks)` for 0ms visual rendering while background `WebAudio` decodes buffer for playback.
+  - [x] 4. Retirement: Deleted `node-sidecar/` directory and bundled `node-aarch64-apple-darwin` (~94MB binary eliminated); removed `binaries/node` and `node-sidecar` from `src-tauri/tauri.conf.json`; ported test coverage to Rust unit tests; verified all 11 Jest frontend suites, 32 Rust tests, and 12 Pytest tests.
+- [x] **Sprint 6: Pro-DJ Audio Intelligence Suite**
+  - [x] 1. Automatic beatgrid & hot-cue lead-in drift compensation: Cross-correlation of 1ms amplitude envelopes within `[-2000ms, +2000ms]` in `src/waveform.rs` (`compute_lead_in_offset`); Rekordbox XML tempo and cue shift in `src/xml.rs` (`shift_xml_cues_and_tempo`); Rekordbox SQLCipher direct `djmdCue` shift in `src/rekordbox.rs` (`shift_cues_for_content`) preserving `-1` loop-out sentinels; auto-shift checkbox in Review commit modal.
+  - [x] 2. Seamless offset-synced hot-swap & RMS gain matching in Review (`ui/src/upgrader/review.ts`): Live beat-aligned deck switching during playback with lead-in delta compensation; offset-compensated synchronized scrubbing (`L` key); RMS loudness matching toggle (`G` key) attenuating louder deck.
+  - [x] 3. Fake lossless / upscaled transcode detector ("Spek Guard"): 2nd-order Butterworth IIR filter check comparing energy above 16.5 kHz to mid-band (2.5 kHz–10 kHz) in `src/waveform.rs` (`check_is_transcode`, `evaluate_spectral_cutoff`); transcode-aware quality ranking in `src/similarity.rs` (`is_better_quality_transcode_aware`); Upgrader pipeline bypasses skipping on fake transcodes and badges them with `⚠ Fake Lossless`; Library Audit reports fake lossless files in `AuditReport` with 1-click handover to Upgrader.
+- [x] **Sprint 7: Field-Test Performance & UI Stabilization**
+  - [x] 1. Library Cleaner $O(N^2)$ Elimination (<20s on 1,500 tracks): Transcode status caching (`is_transcode: Option<bool>`) in `fingerprint_cache.rs` keyed by path + mtime + size; parallel Tokio pre-computation pool (8 permits) in `rekordbox.rs` and `xml.rs` eliminating all synchronous subprocess calls from comparison loops; 4x-strided coarse hopping pass in `similarity.rs` accelerating non-matching comparisons by ~12x.
+  - [x] 2. Native Drag-and-Drop in Ingestion Hub (`ui/src/ingestion/view.ts`, `ui/src/main.ts`): Replaced broken HTML5 drop with native `tauri://drag-drop` / `drag-enter` / `drag-over` / `drag-leave` event listeners and proper route teardown.
+  - [x] 3. Overhaul Library Audit Output & Pre-Ticked Orphans (`src-tauri/src/audit.rs`, `ui/src/audit/view.ts`): Strict root path prefix check to prevent library folder from scanning itself as stray twins; grouped stray twins by top-level subdirectory with collapsible toggles; split leftovers into `Provable Duplicates` (pre-ticked `[✓]`) and `Unreferenced Orphans` (unticked `[ ]`).
+  - [x] 4. Eliminate Playlist Compare Scroll Jump (`ui/src/compare/view.ts`): Replaced full-card re-renders with targeted `#cmp-results` DOM updates, preserving `scrollTop` across tab switches.
+  - [x] 5. Inspector Unhiding & Expanded Layout: Fixed inspector hiding bug in Review queue (`review.ts`, `chrome.ts`); added `.app:has(.insp.hidden) .ov .mx` (960px) and `.app:has(.insp.hidden) .dock` (padding 8px 28px) in `app.css`.
+- [x] **Sprint 8: Sub-Second Acoustic Deduplication & Consolidation Engine**
+  - [x] 1. Compiler dev profile optimization: Added `[profile.dev] opt-level = 2` with `incremental = false` and `[profile.dev.package."*"] opt-level = 2` in `Cargo.toml` for 25–40x faster bitwise execution in dev mode while avoiding macOS arm64 multi-CGU dead-strip linker errors.
+  - [x] 2. 4-Stage nanosecond O(1) rejection funnel in `src/similarity.rs`:
+    - Stage 1: Duration window relaxed to `±12%` or `max_len_diff <= 120` frames (~15s) accommodating YouTube outro/intro padding.
+    - Stage 2: 32-byte shift-invariant spectral bit-profile (`BitProfile([u8; 32])`) with relaxed $L_1$ distance cutoff `1800` (out of 8160) rejecting ~90% of unrelated tracks in ~3ns with 0% risk of false-rejecting true matches >= 0.88.
+    - Stage 3: Realistic offset cap widened to `MAX_OFFSET = 120` frames (`±15s`).
+    - Stage 4: Eliminated `step_by(4)` coarse hopping to prevent 250ms misalignment false negatives; implemented **Dual 16-Frame Anchor Probe** (8 `u64` XORs at 35% overlap AND 8 `u64` XORs at 65% overlap) evaluating **every integer offset** (step = 1). When either anchor scores `>= threshold - 0.12`, triggers full `u64`-packed overlap verification with early termination.
+  - [x] 3. Candidate priority ordering (`CandidatePriorityIndex`): Indexed normalized title/artist tokens to test true duplicates on comparison #1, skipping scanning previous tracks on duplicates.
+  - [x] 4. Consolidation loop I/O optimization (`rekordbox.rs`, `xml.rs`, `ui/src/cleaner/view.ts`): Replaced deferred transactions with `BEGIN IMMEDIATE`; throttled progress IPC events in Rust to at most once per 40ms / 10 tracks; throttled `updateSession` `localStorage` writes in UI to at most once per 100ms.
+  - [x] 5. Rust benchmark test (`test_deduplication_1500_benchmark`) & recall test (`test_sub_second_offset_non_multiple_of_4_recall`): Asserted 1,500 synthetic tracks with low auto-correlation (~55% at lag 1/2) and 50 planted duplicates at odd, non-multiple-of-4 offsets (`+1, +2, -3, +7, -11, +42...`) completes in **148ms** (< 250ms target) with 100% duplicate detection accuracy (50/50).
+- [x] **Sprint 9: Time-Machine Grade Backups, Disk Health Verification & Rollback Feedback**
+  - [x] 1. Active snapshot state & auto-save unsaved live state (`src-tauri/src/rekordbox.rs`, `ui/src/views.ts`): Fast byte comparison (`files_are_identical`) to detect if backup is byte-identical to live `master.db` (`is_active: bool`); badge newer backups with `↪ Newer snapshot (Redo)` (`is_newer_than_active: bool`); auto-protect unsaved live state before restoring (`master.db.backup_<timestamp>_pre_rollback`); never delete any backup file on rollback so users can freely jump backward and forward in time.
+  - [x] 2. Disk-health probe & smart path healing (`src-tauri/src/rekordbox.rs`, `ui/src/views.ts`): Probed `djmdContent` in backup SQLite files cached by `(filename, size_bytes, mtime_secs)` in `BACKUP_HEALTH_CACHE` to report `total_tracks`, `intact_tracks`, and `missing_tracks`; displayed on each row in Settings and in Cleaner dropdown (`1,397 on disk · 408 missing`); pre-restore warning & smart relink (`keep_valid_paths`) healing missing paths from live DB when live paths exist on disk.
+  - [x] 3. Explicit rollback feedback banner (`ui/src/cleaner/view.ts`, `ui/src/views.ts`): Displayed prominent inline green success banner `✓ Restored Rekordbox database to [Timestamp] ([N] tracks on disk, [H] paths healed)`; auto-refreshed backup list and engine health immediately so the active pill updates without page reload.
+  - [x] 4. Decouple & preview superseded audio files in Cleaner (`src-tauri/src/rekordbox.rs`, `ui/src/cleaner/view.ts`): Returned `superseded_paths: Vec<String>` in `ResultPayload`; decoupled audio file trashing from snapshot dropdown; when 0 duplicates, displayed *"No duplicate audio files needed removal in this run"*; when $N > 0$, displayed `Preview N superseded files ⌄` collapsible list and `Move N superseded audio files to Trash` button with inline confirmation via `trash_superseded_files`.
 
 ## Session handoff protocol
 At the END of every session, before quitting:
@@ -150,6 +292,185 @@ At the END of every session, before quitting:
 2. Add a "Last session" note below describing exactly what was done and what the next task is
 
 ## Last session
+Sprint 11 (Session List Stability, Home Resume Affordance & 16×16 Icon Legibility) Completed:
+- **Stable Sidebar Session Ordering (`ui/src/store.ts`, `tests/sessions.test.js`)**:
+  - `enterSession(id)` now strictly sets `currentId` and notifies subscribers without mutating `updatedAt` or reordering sessions, stopping the list from shuffling underneath the user's cursor.
+  - `openSession` inserts newly created sessions at the top (`sessions.unshift(session)`) and `listSessions()` returns `[...sessions]` in stable creation order.
+  - Added test assertion in `tests/sessions.test.js` validating that entering sessions maintains exact order without shuffling.
+- **Home Screen Resume Affordance Fix (`ui/src/views.ts`, `ui/src/main.ts`, `ui/styles/app.css`)**:
+  - Filtered Home cards' session status check to only unfinished sessions (`s.status === "running" || s.status === "review"`), ignoring finished (`done`) sessions and rendering clean right-arrows (`→`).
+  - Rendered interactive blue `Resume "${s.name}" →` button badges (`button.badge.b.resume-btn` with `data-resume-id="${s.id}"`).
+  - Added click interceptor in `main.ts` with `e.stopPropagation()` and `e.preventDefault()`, invoking `enterSession` and tool resume (`requestUpgraderResume`, etc.) to enter the active session directly, while clicking the card body opens fresh launchers.
+- **Crisp 16×16px Tool SVGs (`ui/src/tools.ts`)**:
+  - **Quality Upgrader**: Vertical acoustic bars waveform (`<path d="M2 8h1M5 5v6M8 2.5v11M11 5.5v5M14 8h-1"/>`).
+  - **Library Cleaner**: 4-point sparkle star (`✦`) with small accent sparkle.
+  - **Ingestion Hub**: Ingest tray / inbox with down-arrow (`<path d="M8 2v7m0 0L5.5 6.5M8 9l2.5-2.5M2.5 10.5v2..."/>`).
+  - **Playlist Compare**: 2-way opposing arrows (`⇄`).
+  - **Library Audit**: Classic magnifying glass (`🔍`) (`<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>`).
+- **Verification Suites**:
+  - 0 TypeScript compiler errors (`npm run build:ui`).
+  - 44 Rust unit tests passing (`cargo test`).
+  - 0 Clippy warnings (`cargo clippy --all-targets -- -D warnings`).
+  - 11 Jest suites passing (`npx jest`).
+  - 12 Pytest tests passing (`pytest tests/`).
+
+Sprint 10 (Icon Unification, Session State & Chrome Polish) Completed:
+- **Icon Unification (`ui/src/tools.ts`, `ui/src/main.ts`)**:
+  - Unified all tool icons to DJ-tailored SVGs (vinyl disc for Upgrader, broom for Cleaner, folder-plus for Ingestion, 2-way arrows for Compare, clipboard-check for Audit).
+  - Deleted duplicate hardcoded `sessionIcon()` in `main.ts` and rendered `toolById(sess.tool)?.icon` directly in the Sessions list, ensuring 100% visual consistency between `TOOLS` navigation and `SESSIONS`.
+- **Dynamic Home Cards & Editorial Copy (`ui/src/views.ts`)**:
+  - Replaced static green `Live` badges on Home launcher cards with dynamic `Resume →` or `${N} sessions →` badges when resumable sessions exist, or a subtle right-arrow `→` when fresh.
+  - Updated Home intro paragraph second sentence to: *"Every tool previews changes and safeguards your Rekordbox database before touching a single file."*
+- **Sidebar Dual-Highlighting & Accurate Session States (`ui/src/main.ts`, `ui/src/store.ts`, view files)**:
+  - Eliminated dual-highlight bug: session rows in the sidebar now only receive `.on` active styling when the user is currently on that session's tool route (`routeForTool(sess.tool) === currentRoute()`). When visiting Settings, Home, or other tools, only that active route is highlighted.
+  - Replaced indiscriminate `live` / `done` badges with precise lifecycle states: `running` (accent blue during execution), `review` (amber when awaiting user decisions), or `done` (neutral gray when finished).
+- **Toolbar Context & Product-Ready Footer (`ui/src/main.ts`, `ui/index.html`)**:
+  - Top-right toolbar context now displays friendly playlist names (`Playlist: ${playlistName}`) instead of raw filesystem session paths, and automatically clears on Home and Settings.
+  - Replaced developer-facing "Tauri connected" status in sidebar footer with "Engine ready" (or "Engine offline").
+- **Review Table De-Duplication (`ui/src/upgrader/review.ts`)**:
+  - Added `updateArtistRowVisibility()` to hide the redundant `Artist / Title` row in the `.kvr` comparison table whenever it is identical to the file basename on both sides, while preserving the row whenever metadata differs or flags a mismatch.
+- **Verification Suites**:
+  - 0 TypeScript compiler errors (`npm run build:ui`).
+  - 44 Rust unit tests passing (`cargo test`).
+  - 0 Clippy warnings (`cargo clippy --all-targets -- -D warnings`).
+  - 11 Jest suites passing (`npx jest`).
+  - 12 Pytest tests passing (`pytest tests/`).
+
+Sprint 9 (Time-Machine Grade Backups, Disk Health Verification & Rollback Feedback) Completed:
+- **Active Snapshot Tracking & Auto-Save Safety (`src-tauri/src/rekordbox.rs`, `ui/src/views.ts`)**:
+  - Implemented fast byte comparison (`files_are_identical`) with streaming 64KB buffers to detect when a backup matches live `master.db` (`is_active: bool`).
+  - Added chronological detection of newer snapshots (`is_newer_than_active: bool`) badged with `↪ Newer snapshot (Redo)` in Settings.
+  - Auto-protects unsaved live state before rollback: if live `master.db` does not match any existing backup file, automatically generates `master.db.backup_<timestamp>_pre_rollback`.
+  - Backups are NEVER deleted on restore or rollback, preserving full bidirectional time-travel.
+- **Disk Health Probe & Smart Path Healing (`src-tauri/src/rekordbox.rs`, `ui/src/views.ts`)**:
+  - Probes `djmdContent` across backups using read-only connections, cached in `BACKUP_HEALTH_CACHE` by `(filename, size_bytes, mtime_secs)`.
+  - Computes `total_tracks`, `intact_tracks`, and `missing_tracks` displayed on each row in Settings and in Cleaner snapshot dropdown.
+  - Prompts with smart relink (`keep_valid_paths: true`) when restoring a backup with missing files, restoring database records while preserving valid audio paths from current live locations.
+- **Decoupled Superseded File Preview & Trashing in Cleaner (`src-tauri/src/rekordbox.rs`, `ui/src/cleaner/view.ts`)**:
+  - `ResultPayload` returns exact deduplicated file paths in `superseded_paths: Option<Vec<String>>`.
+  - Cleaner completion card replaces opaque backup-diff deletion with decoupled superseded files management: shows *"No duplicate audio files needed removal in this run"* when 0 duplicates, or an expandable `Preview N superseded files ⌄` list and `Move N superseded audio files to Trash` button with confirmation.
+- **Explicit Rollback Feedback Banner (`ui/src/cleaner/view.ts`, `ui/src/views.ts`)**:
+  - Green banner confirms: `✓ Restored Rekordbox database to [Timestamp] ([N] tracks on disk, [H] paths healed · auto-saved previous state as master.db.backup_...)`.
+  - Immediate auto-refresh updates active backup badge and engine health indicators.
+- **Verification Suites**:
+  - 0 TypeScript compiler errors (`npm run build:ui`).
+  - 44 Rust unit tests passing (`cargo test`).
+  - 0 Clippy warnings (`cargo clippy --all-targets -- -D warnings`).
+  - 11 Jest suites passing (`npx jest`).
+  - 12 Pytest tests passing (`pytest tests/`).
+Sprint 8 (Sub-Second Acoustic Deduplication & False-Negative Recall Audit) Completed:
+- **Dev Profile Optimization (`Cargo.toml`)**:
+  - Configured `[profile.dev]` with `opt-level = 2` and `incremental = false` (plus `[profile.dev.package."*"] opt-level = 2`) eliminating unoptimized debug overhead during development and preventing macOS `ld: symbol(s) not found for architecture arm64` anonymous CGU symbol collisions.
+- **False-Negative Recall Audit & 4-Stage O(1) Funnel (`src-tauri/src/similarity.rs`)**:
+  - Eliminated `step_by(4)` coarse-hop false-negative trap (which failed when lead-in silence differed by 2 frames / ~250ms).
+  - Implemented Dual 16-frame anchor probe at 35% and 65% overlap with step=1 integer offset iteration (`start_offset..=end_offset`).
+  - Relaxed Stage 1 duration window to `±12%` / `120` frames (~15s).
+  - Relaxed Stage 2 `BitProfile` $L_1$ cutoff to `1800` (out of 8160).
+  - Widened Stage 3 `MAX_OFFSET` to `120` frames ($\pm 15$ seconds).
+- **Benchmark Unit Test & Recall Verification**:
+  - Deduplicating 1,500 tracks with low frame-to-frame auto-correlation and odd / non-multiple-of-4 offsets executed in **148ms** (< 250ms target) with 100% duplicate accuracy (50/50 planted duplicates detected, 1450 accepted).
+  - Added `test_sub_second_offset_non_multiple_of_4_recall` asserting 100% recall across odd offsets (`+1, +2, -3, +7, -11, +42`).
+  - 0 TypeScript compiler errors (`npm run build:ui`).
+  - 42 Rust unit tests passing (`cargo test`).
+  - 0 Clippy warnings (`cargo clippy --all-targets -- -D warnings`).
+  - 11 Jest suites passing (`npx jest`).
+  - 12 Pytest tests passing (`pytest tests/`).
+- **Audio Intelligence DSP & Waveform Core (`src-tauri/src/waveform.rs`)**:
+  - Implemented `analyze_audio_pcm` and `compute_audio_analysis` computing 256 normalized waveform peaks, track overall RMS loudness, and 1ms envelope over the first 30s in a single 8000 Hz decode pass.
+  - Implemented `compute_lead_in_offset`: cross-correlating 1ms amplitude envelopes across lags $\tau \in [-2000\text{ ms}, +2000\text{ ms}]$ with acoustic similarity ($\ge 0.85$) guardrails and correlation threshold $\ge 0.35$, adhering to sign convention `offset_ms = t_staged_ms - t_orig_ms`.
+  - Implemented "Spek Guard" transcode detector: 2nd-order Butterworth IIR highpass filter at 16.5 kHz and bandpass filter at 5.0 kHz at 44.1 kHz detecting brickwall lowpass cutoffs typical of upscaled lossy MP3s.
+  - Added unit tests: `test_peak_quantization_and_normalization`, `test_lead_in_offset_cross_correlation`, and `test_spek_guard_spectral_cutoff`.
+- **Progress Ledger Schema (`src-tauri/src/ledger.rs`, `ui/src/upgrader/utils.ts`)**:
+  - Expanded `FileEntry` with `orig_rms: Option<f32>`, `staged_rms: Option<f32>`, `offset_ms: Option<i32>`, and `is_transcode: Option<bool>`.
+- **Pipeline & Tauri IPC Integration (`src-tauri/src/pipeline.rs`, `src-tauri/src/lib.rs`)**:
+  - Lane 1 & `should_skip_deezer_max`: runs `check_is_transcode` to ensure fake lossless files are never skipped, flagging them with `entry.is_transcode = Some(true)`.
+  - Lane 3 & `download_track_by_id`: runs `compute_audio_analysis` on both files to populate peaks, RMS loudness, and `compute_lead_in_offset`, saving all audio intelligence metrics to disk.
+- **Rekordbox Beatgrid & Hot-Cue Auto-Shift (`src-tauri/src/xml.rs`, `src-tauri/src/rekordbox.rs`, `ui/src/upgrader/review.ts`)**:
+  - Native XML engine: `shift_xml_cues_and_tempo` shifts `<TEMPO Inizio="...">` and `<POSITION_MARK Start="..." End="...">` by `+ (offset_ms / 1000.0)` seconds, clamped at `0.000` and leaving `End="-1"` untouched.
+  - SQLite database engine: `shift_cues_for_content` updates `djmdCue` table in SQLCipher `master.db`, shifting `InMsec` and `OutMsec` clamped at `0`, preserving `OutMsec = -1` sentinels.
+  - Commit modal: Added `[✓] Auto-shift Rekordbox beatgrids & cue points by acoustic offset (Δt)` checkbox, threaded into `updateRekordboxDbDirectly` and `updateRekordboxXml`.
+- **Review Decks UX Enhancements (`ui/src/upgrader/review.ts`)**:
+  - Diff Bar Badges: displays detected offset badge (e.g. `Offset: +38 ms` or `0 ms aligned`) and `⚠ Fake Lossless` badge.
+  - Synchronized Scrubbing (`L` mode): shifts playheads by acoustic delta $\Delta t$.
+  - Seamless Live Hot-Swap: switching focus via `↑`/`↓` or deck click while playing pauses outgoing deck and resumes incoming deck at the offset-compensated timestamp with zero playback interruption.
+  - Match Gain (`G` key): RMS gain matching toggle attenuating louder deck via `ws.setVolume(min(1.0, quieter_rms / louder_rms))`.
+  - Shortcuts Modal: added `G` shortcut explanation.
+- **Library Audit Spek Guard Integration (`src-tauri/src/audit.rs`, `ui/src/audit/view.ts`)**:
+  - Added `fake_lossless: Vec<String>` to `AuditReport` and scanned walked lossless library files.
+  - Rendered `Fake Lossless Transcodes (N)` card in Audit results with `[Upgrade in CrateUp]` 1-click handover button.
+- **Quality Comparison Helpers (`src-tauri/src/similarity.rs`)**:
+  - Added `is_better_quality_transcode_aware` ensuring genuine 320k or real lossless always outranks fake transcodes.
+- **Verification Across All Suites**:
+  - 0 TypeScript compiler errors (`npm run build:ui`).
+  - 37 Rust unit tests passing (`cargo test --manifest-path src-tauri/Cargo.toml`).
+  - 0 Clippy warnings (`cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`).
+  - 11 Jest test suites / 11 tests passing (`npx jest`).
+  - 12 Pytest tests passing (`python-runtime/bin/pytest tests/`).
+
+## Previous session
+Phase 34: Universal Review Audio Teardown & Route Guard Elimination of Zombie Background Playback:
+- **WebAudio Orphaned Playback Bug Resolved (`ui/src/upgrader/review.ts`)**:
+  - Diagnosed exact root cause: WaveSurfer v7 with `backend: 'WebAudio'` instantiates an internal `WebAudioPlayer` (class `E`) and marks `isExternalMedia = true`. WaveSurfer's `destroy()` checks `isExternalMedia` before pausing and explicitly skips pausing/destroying `media`.
+  - When navigating away, `destroyPlayers()` set `wsOrig = null; wsStaged = null;`, detaching the playing WebAudio `bufferNode` and running `AudioContext` without any controls to stop it.
+- **Engine-Level `stopAllReviewAudio()` (`ui/src/upgrader/review.ts`)**:
+  - Implemented multi-layered audio teardown: unconditionally stops and disconnects `bufferNode`, suspends and closes active `AudioContext`s, calls `.pause()` and resets `currentTime = 0` on underlying media elements, pauses all document `<audio>` tags, and resets deck play button glyphs.
+  - Safe to call idempotently anytime from any context.
+- **Route & Session Navigation Guards (`ui/src/main.ts`, `ui/src/upgrader/view.ts`)**:
+  - Wired into `renderRoute()` so navigating to Settings (`#/settings`), Home, Cleaner, Ingestion, Compare, or Audit immediately silences all audio.
+  - Wired into internal Upgrader screen state transitions (`show()`, `resetUpgraderView()`, `openCommitModal()`).
+  - Wired into sidebar session actions (close session, delete session, enter session, route clicks).
+  - Added `pagehide` and `beforeunload` global window lifecycle listeners.
+- **Test Suite Verification**:
+  - Added `tests/audio-lifecycle.test.js` validating complete audio silencing, currentTime resets, and inactive teardown safety.
+  - 21 Rust unit tests passing (`cargo test --manifest-path src-tauri/Cargo.toml --lib`).
+  - 20 Jest suites / 67 tests passing (`npx jest`).
+  - 12 Pytest tests passing (`python-runtime/bin/pytest tests/`).
+  - 0 TypeScript errors (`npm run build:ui`).
+- **Next Task**: User live testing of audio route teardown and real-world Rekordbox upgrades.
+
+## Previous session
+Phase 33: UX Reliability, Backups Manager & False-Confidence Elimination:
+- **Deezer URL Parsing in Review (`ui/src/upgrader/review.ts`, `ui/src/upgrader/utils.ts`, `tests/upgrader-utils.test.js`)**:
+  - Implemented `extractDeezerTrackId(raw)` supporting full web URLs (standard, localized `/fr/track/`, query params `?utm_source=`, album track URLs), URIs (`track:882920`), and raw IDs.
+  - Updated `#rv-deezer-id` placeholder to `Deezer URL or ID…`. On refetch, automatically populates the extracted ID in the UI for instant feedback.
+- **Network Error Isolation in Pipeline (`python-sidecar/fingerprint.py`, `python-sidecar/main.py`, `node-sidecar/pipeline.js`, `tests/pipeline.test.js`)**:
+  - Added `is_network_error(exc)` in Python sidecar to detect connection drops, socket timeouts, DNS errors (`ClientConnectorError`, `socket.gaierror`, `TimeoutError`, etc.).
+  - Added exponential backoff retry within fingerprint attempts on network errors.
+  - Emits specific `network_error` RPC code instead of generic `unidentified`.
+  - In Node pipeline orchestrator, network failures preserve track `pending` status (preventing library tracks from being falsely stamped as `unidentified` during Wi-Fi drops) and clean abort after 3 consecutive connection drops.
+- **Similarity Calculation Failure vs True Mismatch (`node-sidecar/similarity.js`, `pipeline.js`, `refetch.js`, `ui/src/upgrader/review.ts`)**:
+  - In `compareAudioFiles`, when `fpcalc` or file decoding fails, returns `{ bitIdentical: false, similarity: null, error: ... }` rather than misleading `0.0`.
+  - In `pipeline.js` and `refetch.js`, persists `similarity_score: null` and `similarity_error: string`.
+  - In Review UI, displays `⚠ Calc` warning badge and why text *"Acoustic comparison failed (reason). Verify manually by listening."* instead of claiming an acoustic mismatch.
+- **Rekordbox Backups Manager (`src-tauri/src/rekordbox.rs`, `src-tauri/src/lib.rs`, `ui/src/api.ts`, `ui/src/views.ts`)**:
+  - Added `list_rekordbox_backups()`, `rollback_to_backup(filename)`, and `delete_db_backup(filename)` with path traversal guards and safe `-wal` handling.
+  - Built full management table in Settings displaying snapshot timestamps (e.g. `2026-10-14 17:30:00`), file sizes, a "Restore" button with confirm dialog, and a "Delete" button that sends old backups to macOS Trash.
+- **Engine & Dependency Health Dashboard (`src-tauri/src/lib.rs`, `ui/src/views.ts`)**:
+  - Built `check_engine_health` querying `fpcalc` version, `ffmpeg` version, embedded CPython 3.12 bundle version, and Rekordbox database presence/lock state.
+  - Displays color-coded real-time status pills in Settings.
+- **Export Missed Tracks Wishlist (`ui/src/upgrader/run.ts`, `ui/src/upgrader/utils.ts`, `tests/upgrader-utils.test.js`)**:
+  - Built `getMissedTracks(ledger)` collecting all unidentified, not_on_deezer, and download_failed tracks.
+  - Results screen offers 1-click "Export Missed (.csv)" (downloads CSV with Artist, Title, Status, Original Path) and "Copy List" (formats clean text wishlist for Bandcamp/Beatport).
+- **Verification**:
+  - 21 Rust unit tests passing (`cargo test --manifest-path src-tauri/Cargo.toml --lib`)
+  - 19 Jest suites / 66 tests passing (`npx jest`)
+  - 12 Pytest tests passing (`python-runtime/bin/pytest tests/`)
+  - 0 TypeScript compiler errors (`npm run build:ui`)
+  - 0 Rust warnings (`cargo check --manifest-path src-tauri/Cargo.toml`)
+  - Downloaded `André Rieu - The Second Waltz, Op. 99a.flac` (808 kb/s FLAC, 95.0% acoustic similarity).
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 19 suites / 65 tests pass (100%), `python-runtime/bin/pytest tests/` 12 tests pass (100%), `cargo test --lib` 20 tests pass (100%).
+- **Next Task**: Field-test with full Rekordbox library collection and commit phase.
+
+## Previous session
+Visual Decision Status & Review Usability Polish:
+- **Visual Decision Badges in Queue (`ui/src/upgrader/review.ts`, `ui/styles/app.css`)**: Upgraded `statusBadge()` and row rendering in the review queue to explicitly distinguish approved, skipped, and pending tracks. Approved tracks display `✓` prefix in green (`✓ 100%`), skipped tracks display `–` prefix in muted text (`– 100%`), and pending tracks display clean percentages (`100%`) or `…`.
+- **Center Stage Decision Status Pill (`ui/src/upgrader/review.ts`, `ui/styles/app.css`)**: Added `.decision-pill` to the center `.diff` bar beneath the waveforms. Displays `✓ Approved · Will upgrade` in emerald green, `– Skipped · Keep original` in muted gray, or `● Pending decision` in amber, updating instantaneously on hotkeys (<kbd>↵</kbd>, <kbd>⌫</kbd>, <kbd>Z</kbd>) or track clicks.
+- **Review Progression Fix (`ui/src/upgrader/review.ts`)**: Implemented `getNextReviewIndex()` to eliminate navigation freezes when all tracks are decided or when pressing Enter on unresolved tracks, enabling cyclic track reviewing.
+- **Deck & Waveform Click Focus Model (`ui/src/upgrader/review.ts`)**: Expanded click hit targets to the full deck cards and waveform canvases, defaulted focus to staged replacements on load, and auto-blurred active input fields.
+- **Verification**: `npm run build:ui` clean (0 errors), `npx jest` 17 suites / 56 tests pass (100%), `python-runtime/bin/pytest tests/` 11 tests pass (100%), `cargo test` 20 tests pass (100%).
+- **Next Task**: Field-test native tools with live Rekordbox database and audio files.
+
+## Previous session
 Pro-Audio UX Enhancements & Streaming XML Engine:
 - **Streaming XML Export Architecture (`src-tauri/src/xml.rs`)**: Refactored `update_rekordbox_xml` to stream mutated collection track nodes directly to a `.tmp` file via `BufWriter` with POSIX atomic replacement, eliminating multi-megabyte in-memory string accumulation and scaling to 50k+ track collections in $O(1)$ memory. Verified via `test_update_rekordbox_xml`.
 - **Review Decision Undo / Backtrack (`ui/src/upgrader/review.ts`)**: Implemented `decisionHistory` stack and `undoLastDecision()` triggered via `Cmd+Z` / `Z`. Reverts decision state in the ledger, updates queue badges and dock metrics, and immediately navigates back to the undone track for instant re-auditioning.

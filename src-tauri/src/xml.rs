@@ -11,8 +11,10 @@ use crate::fingerprint_cache::FingerprintCache;
 use crate::rekordbox::list_library_entries;
 use crate::similarity::{
     calculate_similarity, format_priority, get_audio_fingerprint, get_ffmpeg_path,
-    get_fpcalc_path, get_raw_audio_md5, is_better_quality, sanitize_threshold,
+    get_fpcalc_path, get_raw_audio_md5, is_better_quality, is_better_quality_transcode_aware,
+    sanitize_threshold,
 };
+use crate::waveform::check_is_transcode;
 
 #[tauri::command]
 pub fn get_xml_track_count(xml_path: String) -> Result<usize, String> {
@@ -38,6 +40,7 @@ pub(crate) struct ResultPayload {
     pub(crate) processed_list: Option<Vec<String>>,
     pub(crate) duplicate_list: Option<Vec<Vec<String>>>, // Vec of [kept_file, skipped_file] pairs
     pub(crate) library_matched_count: usize,
+    pub(crate) superseded_paths: Option<Vec<String>>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -517,6 +520,7 @@ async fn parse_and_validate_xml_inner(
         processed_list: None,
         duplicate_list: None,
         library_matched_count: 0,
+        superseded_paths: None,
     })
 }
 
@@ -638,18 +642,27 @@ pub async fn execute_safe_clone(
     let mut duplicate_count = 0;
     let mut processed_list = Vec::new();
     let mut duplicate_list = Vec::new();
+    let mut superseded_paths = Vec::new();
     let mut missing_list = Vec::new();
     let mut missing_track_ids: Vec<String> = Vec::new();
     let mut line_buf = String::new();
     
     let mut processed_strict_map: std::collections::HashMap<(u64, String), std::path::PathBuf> = std::collections::HashMap::new();
     let mut processed_standard_map: std::collections::HashMap<(String, String), (std::path::PathBuf, String, u64)> = std::collections::HashMap::new();
-    let mut processed_fingerprints: Vec<(Vec<u32>, std::path::PathBuf, String, u64)> = Vec::new();
+    let mut processed_fingerprints: Vec<crate::similarity::FingerprintEntry> = Vec::new();
+    let mut candidate_index = crate::similarity::CandidatePriorityIndex::new();
+    let mut last_progress_emit = std::time::Instant::now();
+    let mut last_emit_processed = 0usize;
     
     let mut xml_out = String::new();
     
     let mut fingerprint_cache: std::collections::HashMap<std::path::PathBuf, Vec<u32>> = std::collections::HashMap::new();
-    if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
+    let mut transcode_cache: std::collections::HashMap<std::path::PathBuf, bool> = std::collections::HashMap::new();
+
+    let need_fuzzy = dedup_depth == "fuzzy" || dedup_depth == "tier3";
+    let need_dedup_check = cross_format == "smart" || dedup_depth == "standard" || dedup_depth == "tier2" || need_fuzzy;
+
+    if need_dedup_check {
         let _ = window.emit("rebuilder-consolidation-progress", ConsolidationProgressPayload {
             filename: "Reading XML index...".to_string(),
             processed: 0,
@@ -694,58 +707,113 @@ pub async fn execute_safe_clone(
         
         let paths_len = track_paths.len();
         if paths_len > 0 {
-            // Persistent cache first: unchanged files skip fpcalc entirely.
-            let mut persistent_cache =
-                FingerprintCache::load(window.app_handle());
-            let mut misses: Vec<std::path::PathBuf> = Vec::new();
-            let mut completed = 0;
-            for path in track_paths {
-                if let Some(fp) = persistent_cache.get(&path) {
-                    fingerprint_cache.insert(path, fp);
-                } else {
-                    misses.push(path);
-                    continue;
-                }
-                completed += 1;
-                let percentage = (completed as f64 * 100.0) / paths_len as f64;
-                let _ = window.emit("rebuilder-consolidation-progress", ConsolidationProgressPayload {
-                    filename: format!("Acoustic Analysis: {}/{} files", completed, paths_len),
-                    processed: completed,
-                    total: paths_len,
-                    percentage,
-                });
+            let mut persistent_cache = FingerprintCache::load(window.app_handle());
+            let fpcalc_path = get_fpcalc_path(window.app_handle());
+            let ffmpeg_path = get_ffmpeg_path(window.app_handle());
+
+            struct PreTask {
+                path: std::path::PathBuf,
+                need_fp: bool,
+                need_tc: bool,
             }
-            if !misses.is_empty() {
-                let fpcalc_path = get_fpcalc_path(window.app_handle());
-                let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
-                let mut tasks = Vec::new();
+            let mut tasks_to_run = Vec::new();
 
-                for path in misses {
-                    let fpcalc_path_clone = fpcalc_path.clone();
-                    let sem_clone = sem.clone();
-                    tasks.push(tokio::spawn(async move {
-                        let _permit = sem_clone.acquire().await.unwrap();
-                        let path_clone = path.clone();
-                        let fp = tokio::task::spawn_blocking(move || {
-                            get_audio_fingerprint(&fpcalc_path_clone, &path_clone)
-                        }).await.ok().flatten();
-                        (path, fp)
-                    }));
+            for path in track_paths {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                let is_lossless = matches!(ext.as_str(), "flac" | "wav" | "aiff" | "aif");
+
+                let mut need_fp = false;
+                if need_fuzzy {
+                    if let Some(fp) = persistent_cache.get(&path) {
+                        fingerprint_cache.insert(path.clone(), fp);
+                    } else {
+                        need_fp = true;
+                    }
                 }
 
-                for task in tasks {
-                    if let Ok((path, Some(fp))) = task.await {
-                        persistent_cache.insert(&path, fp.clone());
-                        fingerprint_cache.insert(path, fp);
+                let mut need_tc = false;
+                if is_lossless {
+                    if let Some(tc) = persistent_cache.get_transcode(&path) {
+                        transcode_cache.insert(path.clone(), tc);
+                    } else {
+                        need_tc = true;
                     }
-                    completed += 1;
-                    let percentage = (completed as f64 * 100.0) / paths_len as f64;
-                    let _ = window.emit("rebuilder-consolidation-progress", ConsolidationProgressPayload {
-                        filename: format!("Acoustic Analysis: {}/{} files", completed, paths_len),
-                        processed: completed,
-                        total: paths_len,
-                        percentage,
+                } else {
+                    transcode_cache.insert(path.clone(), false);
+                }
+
+                if need_fp || need_tc {
+                    tasks_to_run.push(PreTask {
+                        path,
+                        need_fp,
+                        need_tc,
                     });
+                }
+            }
+
+            let tasks_len = tasks_to_run.len();
+            if tasks_len > 0 {
+                let _ = window.emit("rebuilder-consolidation-progress", ConsolidationProgressPayload {
+                    filename: "Pre-analyzing audio files...".to_string(),
+                    processed: 0,
+                    total: tasks_len,
+                    percentage: 0.0,
+                });
+                let handle = tokio::runtime::Handle::current();
+                let results = handle.block_on(async {
+                    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
+                    let mut spawned = Vec::new();
+                    for task in tasks_to_run {
+                        let fpcalc = fpcalc_path.clone();
+                        let ffmpeg = ffmpeg_path.clone();
+                        let sem_clone = sem.clone();
+                        spawned.push(tokio::spawn(async move {
+                            let _permit = sem_clone.acquire().await.unwrap();
+                            let p = task.path.clone();
+                            tokio::task::spawn_blocking(move || {
+                                let fp = if task.need_fp {
+                                    get_audio_fingerprint(&fpcalc, &p)
+                                } else {
+                                    None
+                                };
+                                let tc = if task.need_tc {
+                                    check_is_transcode(&ffmpeg, &p).unwrap_or(false)
+                                } else {
+                                    false
+                                };
+                                (p, fp, tc, task.need_tc)
+                            }).await.ok()
+                        }));
+                    }
+
+                    let mut resolved = Vec::new();
+                    let mut completed = 0;
+                    for s in spawned {
+                        if let Ok(Some(res)) = s.await {
+                            resolved.push(res);
+                        }
+                        completed += 1;
+                        let percentage = (completed as f64 * 100.0) / tasks_len as f64;
+                        let _ = window.emit("rebuilder-consolidation-progress", ConsolidationProgressPayload {
+                            filename: format!("Audio Pre-Analysis: {}/{} files", completed, tasks_len),
+                            processed: completed,
+                            total: tasks_len,
+                            percentage,
+                        });
+                    }
+                    resolved
+                });
+
+                for (path, fp_opt, tc_val, was_tc_checked) in results {
+                    if let Some(fp) = fp_opt {
+                        fingerprint_cache.insert(path.clone(), fp.clone());
+                        persistent_cache.insert_all(&path, fp, None, if was_tc_checked { Some(tc_val) } else { None });
+                    } else if was_tc_checked {
+                        persistent_cache.insert_transcode(&path, tc_val);
+                    }
+                    if was_tc_checked {
+                        transcode_cache.insert(path, tc_val);
+                    }
                 }
                 persistent_cache.save();
             }
@@ -815,14 +883,18 @@ pub async fn execute_safe_clone(
                             0.0
                         };
                         
-                        let progress = ConsolidationProgressPayload {
-                            filename: format!("(Missing) {}", filename_str),
-                            processed,
-                            total,
-                            percentage,
-                        };
-                        
-                        let _ = window.emit("rebuilder-consolidation-progress", progress);
+                        let is_last = processed == total;
+                        if is_last || (processed - last_emit_processed >= 10 && last_progress_emit.elapsed() >= std::time::Duration::from_millis(40)) {
+                            last_progress_emit = std::time::Instant::now();
+                            last_emit_processed = processed;
+                            let progress = ConsolidationProgressPayload {
+                                filename: format!("(Missing) {}", filename_str),
+                                processed,
+                                total,
+                                percentage,
+                            };
+                            let _ = window.emit("rebuilder-consolidation-progress", progress);
+                        }
                     } else {
                         // Increment healthy_count since exists is true
                         healthy_count += 1;
@@ -863,7 +935,9 @@ pub async fn execute_safe_clone(
                                 if cross_format == "smart" || prev_ext == &current_ext {
                                     is_duplicate = true;
                                     duplicate_target_path = Some(prev_path.clone());
-                                    if is_better_quality(&current_ext, file_size, prev_ext, prev_size) {
+                                    let cur_tc = *transcode_cache.get(src_path).unwrap_or(&false);
+                                    let prev_tc = *transcode_cache.get(prev_path).unwrap_or(&false);
+                                    if is_better_quality_transcode_aware(&current_ext, file_size, cur_tc, prev_ext, prev_size, prev_tc) {
                                         should_swap_duplicate = true;
                                         swap_prev_path = Some(prev_path.clone());
                                     }
@@ -875,22 +949,44 @@ pub async fn execute_safe_clone(
                                 get_audio_fingerprint(&fpcalc_path, src_path)
                             });
                             if let Some(fp_val) = fp {
-                                for (prev_fp, prev_path, prev_ext, prev_size) in &processed_fingerprints {
-                                    let sim = calculate_similarity(&fp_val, prev_fp, threshold);
-                                    if sim > threshold {
-                                        let current_ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-                                        if cross_format == "smart" || prev_ext == &current_ext {
-                                            is_duplicate = true;
-                                            duplicate_target_path = Some(prev_path.clone());
-                                            if is_better_quality(&current_ext, file_size, prev_ext, *prev_size) {
-                                                should_swap_duplicate = true;
-                                                swap_prev_path = Some(prev_path.clone());
-                                            }
-                                            break;
+                                let current_ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                                let entry = crate::similarity::FingerprintEntry::new(
+                                    fp_val,
+                                    src_path.to_path_buf(),
+                                    current_ext.clone(),
+                                    file_size,
+                                    String::new(),
+                                    &artist,
+                                    &title,
+                                );
+
+                                let prioritized = candidate_index.get_prioritized_candidates(
+                                    &entry.title_tokens,
+                                    processed_fingerprints.len(),
+                                );
+
+                                for cand_idx in prioritized {
+                                    let prev_entry = &processed_fingerprints[cand_idx];
+                                    let sim = crate::similarity::calculate_similarity_with_profiles(
+                                        &entry.fp,
+                                        Some(&entry.profile),
+                                        &prev_entry.fp,
+                                        Some(&prev_entry.profile),
+                                        threshold,
+                                    );
+                                    if sim > threshold && (cross_format == "smart" || prev_entry.ext == current_ext) {
+                                        is_duplicate = true;
+                                        duplicate_target_path = Some(prev_entry.path.clone());
+                                        let cur_tc = *transcode_cache.get(src_path).unwrap_or(&false);
+                                        let prev_tc = *transcode_cache.get(&prev_entry.path).unwrap_or(&false);
+                                        if is_better_quality_transcode_aware(&current_ext, file_size, cur_tc, &prev_entry.ext, prev_entry.size, prev_tc) {
+                                            should_swap_duplicate = true;
+                                            swap_prev_path = Some(prev_entry.path.clone());
                                         }
+                                        break;
                                     }
                                 }
-                                current_fp = Some(fp_val);
+                                current_fp = Some(entry);
                             }
                         }
 
@@ -1005,6 +1101,7 @@ pub async fn execute_safe_clone(
                                     target_path.to_string_lossy().to_string(),
                                     src_path.to_string_lossy().to_string()
                                 ]);
+                                superseded_paths.push(src_path.to_string_lossy().to_string());
                             } else {
                                 processed_list.push(target_path.to_string_lossy().to_string());
                                 
@@ -1044,22 +1141,23 @@ pub async fn execute_safe_clone(
                                     let key = (artist.to_lowercase(), title.to_lowercase());
                                     processed_standard_map.insert(key, (target_path.clone(), current_ext, file_size));
                                 } else if dedup_depth == "fuzzy" || dedup_depth == "tier3" {
-                                    if let Some(fp_val) = current_fp {
+                                    if let Some(mut entry) = current_fp {
+                                        entry.path = target_path.clone();
                                         let mut updated = false;
                                         if let Some(ref p_path) = swap_prev_path {
-                                            for entry in &mut processed_fingerprints {
-                                                if &entry.1 == p_path {
-                                                    entry.0 = fp_val.clone();
-                                                    entry.1 = target_path.clone();
-                                                    entry.2 = current_ext.clone();
-                                                    entry.3 = file_size;
+                                            for (idx, prev) in processed_fingerprints.iter_mut().enumerate() {
+                                                if &prev.path == p_path {
+                                                    *prev = entry.clone();
+                                                    candidate_index.insert(idx, &entry.title_tokens);
                                                     updated = true;
                                                     break;
                                                 }
                                             }
                                         }
                                         if !updated {
-                                            processed_fingerprints.push((fp_val, target_path.clone(), current_ext, file_size));
+                                            let idx = processed_fingerprints.len();
+                                            candidate_index.insert(idx, &entry.title_tokens);
+                                            processed_fingerprints.push(entry);
                                         }
                                     }
                                 }
@@ -1072,22 +1170,26 @@ pub async fn execute_safe_clone(
                             0.0
                         };
                         
-                        let label_prefix = if is_duplicate {
-                            "(Duplicate) "
-                        } else if !copy_success {
-                            "(Failed) "
-                        } else {
-                            ""
-                        };
-                        
-                        let progress = ConsolidationProgressPayload {
-                            filename: format!("{}{}", label_prefix, filename_str),
-                            processed,
-                            total,
-                            percentage,
-                        };
-                        
-                        let _ = window.emit("rebuilder-consolidation-progress", progress);
+                        let is_last = processed == total;
+                        if is_last || (processed - last_emit_processed >= 10 && last_progress_emit.elapsed() >= std::time::Duration::from_millis(40)) {
+                            last_progress_emit = std::time::Instant::now();
+                            last_emit_processed = processed;
+                            let label_prefix = if is_duplicate {
+                                "(Duplicate) "
+                            } else if !copy_success {
+                                "(Failed) "
+                            } else {
+                                ""
+                            };
+                            
+                            let progress = ConsolidationProgressPayload {
+                                filename: format!("{}{}", label_prefix, filename_str),
+                                processed,
+                                total,
+                                percentage,
+                            };
+                            let _ = window.emit("rebuilder-consolidation-progress", progress);
+                        }
                     }
                 }
             }
@@ -1129,6 +1231,9 @@ pub async fn execute_safe_clone(
     let xml_output_path = dest_dir.join("crateup_collection.xml");
     std::fs::write(&xml_output_path, xml_out).map_err(|e| format!("Failed to write crateup_collection.xml: {}", e))?;
     
+    superseded_paths.sort();
+    superseded_paths.dedup();
+
     Ok(ResultPayload {
         success: true,
         healthy_count,
@@ -1139,6 +1244,7 @@ pub async fn execute_safe_clone(
         processed_list: Some(processed_list),
         duplicate_list: Some(duplicate_list),
         library_matched_count: 0,
+        superseded_paths: Some(superseded_paths),
     })
 }
 
@@ -2146,7 +2252,71 @@ pub async fn execute_playlist_ingestion(
         processed_list: None,
         duplicate_list: None,
         library_matched_count,
+        superseded_paths: None,
     })
+}
+
+pub fn shift_xml_cues_and_tempo(xml_fragment: &str, offset_ms: i32) -> String {
+    if offset_ms == 0 {
+        return xml_fragment.to_string();
+    }
+    let offset_sec = offset_ms as f64 / 1000.0;
+    let mut result = xml_fragment.to_string();
+
+    if result.contains("<TEMPO ") {
+        if let Some(start_idx) = result.find("Inizio=\"") {
+            let val_start = start_idx + "Inizio=\"".len();
+            if let Some(end_idx) = result[val_start..].find('"') {
+                let orig_val_str = &result[val_start..val_start + end_idx];
+                if let Ok(val) = orig_val_str.parse::<f64>() {
+                    let new_val = (val + offset_sec).max(0.0);
+                    let old_attr = format!("Inizio=\"{}\"", orig_val_str);
+                    let new_attr = format!("Inizio=\"{:.3}\"", new_val);
+                    result = result.replace(&old_attr, &new_attr);
+                }
+            }
+        }
+    }
+
+    if result.contains("<POSITION_MARK ") {
+        // Shift Start="..."
+        if let Some(start_idx) = result.find("Start=\"") {
+            let val_start = start_idx + "Start=\"".len();
+            if let Some(end_idx) = result[val_start..].find('"') {
+                let orig_val_str = &result[val_start..val_start + end_idx];
+                if let Ok(val) = orig_val_str.parse::<f64>() {
+                    let new_val = (val + offset_sec).max(0.0);
+                    let old_attr = format!("Start=\"{}\"", orig_val_str);
+                    let new_attr = format!("Start=\"{:.3}\"", new_val);
+                    result = result.replace(&old_attr, &new_attr);
+                }
+            }
+        }
+
+        // Shift End="..." if present and not -1 / -1.000
+        if let Some(start_idx) = result.find("End=\"") {
+            let val_start = start_idx + "End=\"".len();
+            if let Some(end_idx) = result[val_start..].find('"') {
+                let orig_val_str = &result[val_start..val_start + end_idx];
+                if orig_val_str != "-1" && orig_val_str != "-1.000" {
+                    if let Ok(val) = orig_val_str.parse::<f64>() {
+                        let new_val = (val + offset_sec).max(0.0);
+                        let old_attr = format!("End=\"{}\"", orig_val_str);
+                        let new_attr = format!("End=\"{:.3}\"", new_val);
+                        result = result.replace(&old_attr, &new_attr);
+                    }
+                }
+            }
+        }
+    }
+
+    result
+}
+
+#[derive(Clone)]
+struct RemapTarget {
+    new_path: std::path::PathBuf,
+    offset_ms: Option<i32>,
 }
 
 #[tauri::command]
@@ -2154,6 +2324,7 @@ pub async fn update_rekordbox_xml(
     xml_path: String,
     ledger_path: String,
     decisions: std::collections::HashMap<String, String>,
+    auto_shift_cues: Option<bool>,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         let xml_p = std::path::Path::new(&xml_path);
@@ -2171,8 +2342,8 @@ pub async fn update_rekordbox_xml(
         let files = ledger.get("files").and_then(|v| v.as_object())
             .ok_or_else(|| "Missing files object in ledger".to_string())?;
 
-        // Build mapping: normalized original path -> new target path
-        let mut approved_remapping: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+        // Build mapping: normalized original path -> RemapTarget
+        let mut approved_remapping: std::collections::HashMap<String, RemapTarget> = std::collections::HashMap::new();
 
         for (rel_path, entry_val) in files {
             let decision = decisions.get(rel_path).map(|s| s.as_str()).unwrap_or("skipped");
@@ -2208,9 +2379,15 @@ pub async fn update_rekordbox_xml(
                 orig_p.with_extension(new_ext)
             };
 
-            approved_remapping.insert(norm_fs_path(orig_p), new_path_buf.clone());
-            approved_remapping.insert(orig_p.to_string_lossy().to_string(), new_path_buf.clone());
-            approved_remapping.insert(orig_p.to_string_lossy().to_lowercase(), new_path_buf);
+            let offset_ms = entry.get("offset_ms").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let target = RemapTarget {
+                new_path: new_path_buf,
+                offset_ms,
+            };
+
+            approved_remapping.insert(norm_fs_path(orig_p), target.clone());
+            approved_remapping.insert(orig_p.to_string_lossy().to_string(), target.clone());
+            approved_remapping.insert(orig_p.to_string_lossy().to_lowercase(), target);
         }
 
         let file = std::fs::File::open(xml_p).map_err(|e| format!("Failed to open XML: {}", e))?;
@@ -2238,6 +2415,7 @@ pub async fn update_rekordbox_xml(
         let mut line_buf = String::new();
         let mut in_track = false;
         let mut track_buf = String::new();
+        let mut active_track_offset: Option<i32> = None;
 
         while reader.read_line(&mut line_buf).map_err(|e| e.to_string())? > 0 {
             let trimmed = line_buf.trim();
@@ -2248,7 +2426,19 @@ pub async fn update_rekordbox_xml(
                     track_buf.clear();
                     track_buf.push_str(&line_buf);
                 } else {
-                    writer.write_all(line_buf.as_bytes()).map_err(|e| e.to_string())?;
+                    let to_write = if let Some(offset) = active_track_offset {
+                        if trimmed.contains("<TEMPO ") || trimmed.contains("<POSITION_MARK ") {
+                            shift_xml_cues_and_tempo(&line_buf, offset)
+                        } else {
+                            line_buf.clone()
+                        }
+                    } else {
+                        line_buf.clone()
+                    };
+                    if trimmed.contains("</TRACK>") {
+                        active_track_offset = None;
+                    }
+                    writer.write_all(to_write.as_bytes()).map_err(|e| e.to_string())?;
                 }
             } else {
                 track_buf.push_str(&line_buf);
@@ -2257,6 +2447,7 @@ pub async fn update_rekordbox_xml(
             if in_track && line_buf.contains('>') {
                 let trimmed_track = track_buf.trim();
                 let mut line_written = false;
+                let mut remapped_offset: Option<i32> = None;
 
                 if let Some(location_str) = extract_attribute(trimmed_track, "Location") {
                     if let Some(decoded_path) = decode_location(&location_str) {
@@ -2264,22 +2455,29 @@ pub async fn update_rekordbox_xml(
                         let norm = norm_fs_path(decoded_p);
                         let lower = decoded_p.to_string_lossy().to_lowercase();
 
-                        let target_path_opt = approved_remapping.get(&norm)
+                        let target_opt = approved_remapping.get(&norm)
                             .or_else(|| approved_remapping.get(&decoded_path))
                             .or_else(|| approved_remapping.get(&lower));
 
-                        if let Some(target_path) = target_path_opt {
+                        if let Some(target) = target_opt {
                             let old_location_attr = format!("Location=\"{}\"", location_str);
-                            let new_location_attr = format!("Location=\"{}\"", encode_location(target_path));
+                            let new_location_attr = format!("Location=\"{}\"", encode_location(&target.new_path));
                             let updated_track = track_buf.replace(&old_location_attr, &new_location_attr);
                             writer.write_all(updated_track.as_bytes()).map_err(|e| e.to_string())?;
                             line_written = true;
+                            remapped_offset = target.offset_ms;
                         }
                     }
                 }
 
                 if !line_written {
                     writer.write_all(track_buf.as_bytes()).map_err(|e| e.to_string())?;
+                }
+
+                if auto_shift_cues.unwrap_or(true) && !trimmed_track.ends_with("/>") {
+                    active_track_offset = remapped_offset;
+                } else {
+                    active_track_offset = None;
                 }
 
                 in_track = false;
@@ -2416,6 +2614,7 @@ mod tests {
             orig_xml_path.to_string_lossy().to_string(),
             ledger_path.to_string_lossy().to_string(),
             decisions,
+            None,
         )).unwrap();
 
         let upgraded_xml = std::fs::read_to_string(&upgraded_path_str).unwrap();
@@ -2425,6 +2624,32 @@ mod tests {
         assert!(upgraded_xml.contains("Location=\"file://localhost/Music/OldSong2.mp3\""));
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_shift_xml_cues_and_tempo() {
+        let tempo = r#"  <TEMPO Inizio="0.100" Bpm="128.00" Metro="4/4" Battito="1"/>"#;
+        let shifted_tempo = shift_xml_cues_and_tempo(tempo, 45);
+        assert!(shifted_tempo.contains("Inizio=\"0.145\""));
+
+        // Clamping negative offset to 0.000
+        let shifted_neg = shift_xml_cues_and_tempo(tempo, -200);
+        assert!(shifted_neg.contains("Inizio=\"0.000\""));
+
+        let cue = r#"  <POSITION_MARK Name="Drop" Type="0" Start="1.200" Num="1"/>"#;
+        let shifted_cue = shift_xml_cues_and_tempo(cue, 50);
+        assert!(shifted_cue.contains("Start=\"1.250\""));
+
+        let loop_cue = r#"  <POSITION_MARK Name="Loop" Type="1" Start="10.000" End="20.000" Num="2"/>"#;
+        let shifted_loop = shift_xml_cues_and_tempo(loop_cue, 35);
+        assert!(shifted_loop.contains("Start=\"10.035\""));
+        assert!(shifted_loop.contains("End=\"20.035\""));
+
+        // End="-1" sentinel untouched
+        let cue_sentinel = r#"  <POSITION_MARK Name="Cue" Type="0" Start="5.000" End="-1" Num="3"/>"#;
+        let shifted_sentinel = shift_xml_cues_and_tempo(cue_sentinel, 40);
+        assert!(shifted_sentinel.contains("Start=\"5.040\""));
+        assert!(shifted_sentinel.contains("End=\"-1\""));
     }
 
     #[test]

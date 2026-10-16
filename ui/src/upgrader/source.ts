@@ -3,11 +3,10 @@
    and hands it to the configure screen. Native macOS overview layout. */
 
 import {
+  checkArlStatus,
   checkFileExists,
   getAppDataDir,
-  getArl,
   readLedgerFile,
-  saveArl,
   selectDirectory,
   selectXmlFile,
   writeLedgerFile,
@@ -56,23 +55,26 @@ function ledgerName(): string {
 
 /* ---------------- ARL ---------------- */
 
-async function loadSavedArl(input: HTMLInputElement): Promise<void> {
+async function verifyGlobalArl(): Promise<boolean> {
+  const alertBox = document.querySelector<HTMLElement>("#ug-source-arl-alert");
   try {
-    const saved = await getArl();
-    if (saved) input.value = saved;
-  } catch (err) {
-    console.error("Failed to load saved ARL:", err);
+    const check = await checkArlStatus();
+    if (!check.valid) {
+      if (alertBox) {
+        if (check.status === "missing") {
+          alertBox.innerHTML = `⚠️ <strong>Deezer ARL missing:</strong> Please enter your ARL in <a href="#/settings" style="text-decoration:underline">Settings</a> before upgrading tracks.`;
+        } else {
+          alertBox.innerHTML = `⚠️ <strong>Deezer ARL expired:</strong> Your saved token is no longer valid on Deezer. Please update it in <a href="#/settings" style="text-decoration:underline">Settings</a>.`;
+        }
+        alertBox.classList.remove("hidden");
+      }
+      return false;
+    }
+    alertBox?.classList.add("hidden");
+    return true;
+  } catch {
+    return true;
   }
-}
-
-function requireArl(input: HTMLInputElement, warning: HTMLElement): boolean {
-  if (!input.value.trim()) {
-    warning.classList.remove("hidden");
-    input.focus();
-    return false;
-  }
-  warning.classList.add("hidden");
-  return true;
 }
 
 /* ---------------- playlist tree sheet ---------------- */
@@ -443,7 +445,7 @@ export function renderSourceScreen(
     <div class="ov">
       <div class="mx">
         ${phaseHead(
-          "01 · Source",
+          "01 · UPGRADER",
           "Where are the tracks?",
           "Pick the input. The pipeline fingerprints each file, matches it on Deezer, and stages a lossless replacement for your review.",
         )}
@@ -464,6 +466,7 @@ export function renderSourceScreen(
             <button class="btn sm" id="ug-source-action">Choose…</button>
           </div>
           <p id="ug-source-note" class="kb" style="margin-top:4px">${SOURCE_META.folder.note}</p>
+          <div id="ug-source-arl-alert" class="alert warn hidden" style="margin-top:12px;font-size:12px;padding:8px 12px"></div>
           <p id="ug-source-error" class="warn-text hidden" style="margin-top:8px"></p>
         </div>
       </div>
@@ -471,7 +474,7 @@ export function renderSourceScreen(
 
   renderUpgraderStage(0);
   renderDock("Source · pick where the tracks live", []);
-  renderAspectInspector();
+  renderInspector("");
 
   const actionBtn = el.querySelector<HTMLButtonElement>("#ug-source-action");
   const folderField = el.querySelector<HTMLInputElement>("#ug-folder-path");
@@ -480,24 +483,27 @@ export function renderSourceScreen(
   const errBox = el.querySelector<HTMLElement>("#ug-source-error");
   let mode: "folder" | "xml" | "db" = "folder";
 
-  const arlInput = document.querySelector<HTMLInputElement>("#ug-arl-input");
-  const arlWarning = document.querySelector<HTMLElement>("#ug-arl-warning");
-  const arlStatus = document.querySelector<HTMLElement>("#ug-arl-status");
-  if (arlInput) void loadSavedArl(arlInput);
-
-  document
-    .querySelector("#ug-arl-save")
-    ?.addEventListener("click", async () => {
-      if (!arlInput) return;
-      try {
-        await saveArl(arlInput.value.trim());
-        arlWarning?.classList.add("hidden");
-        arlStatus?.classList.remove("hidden");
-        setTimeout(() => arlStatus?.classList.add("hidden"), 2000);
-      } catch (err) {
-        onError(`Failed to save ARL: ${err}`);
+  const checkGlobalArl = async () => {
+    const alertBox = el.querySelector<HTMLElement>("#ug-source-arl-alert");
+    if (!alertBox) return;
+    try {
+      const check = await checkArlStatus();
+      if (!check.valid) {
+        if (check.status === "missing") {
+          alertBox.innerHTML = `⚠️ <strong>Deezer ARL missing:</strong> Please enter your ARL in <a href="#/settings" style="text-decoration:underline">Settings</a> before upgrading tracks.`;
+          alertBox.classList.remove("hidden");
+        } else if (check.status === "expired") {
+          alertBox.innerHTML = `⚠️ <strong>Deezer ARL expired:</strong> Your saved token is no longer valid on Deezer. Please update it in <a href="#/settings" style="text-decoration:underline">Settings</a>.`;
+          alertBox.classList.remove("hidden");
+        }
+      } else {
+        alertBox.classList.add("hidden");
       }
-    });
+    } catch {
+      // ignore
+    }
+  };
+  void checkGlobalArl();
 
   const setMode = (m: "folder" | "xml" | "db") => {
     mode = m;
@@ -544,7 +550,7 @@ export function renderSourceScreen(
   };
 
   const run = async (fn: () => Promise<SourceResolution>) => {
-    if (!arlInput || !arlWarning || !requireArl(arlInput, arlWarning)) return;
+    if (!(await verifyGlobalArl())) return;
     if (errBox) errBox.classList.add("hidden");
     if (actionBtn) actionBtn.disabled = true;
     try {
@@ -572,24 +578,4 @@ export function renderSourceScreen(
     else if (mode === "xml") void run(xmlFlow);
     else void run(dbFlow);
   });
-}
-
-function renderAspectInspector(): void {
-  renderInspector(`
-    <div class="isec">
-      <h4>Deezer access</h4>
-      <div class="frow">
-        <input type="password" id="ug-arl-input" class="field" placeholder="ARL token" autocomplete="off" />
-        <button class="btn sm" id="ug-arl-save">Save</button>
-      </div>
-      <p style="font-size:11px;color:var(--text3);margin-top:6px">Downloads authenticate with an ARL token, stored on this machine.</p>
-      <p style="font-size:11px;color:var(--text4);font-family:var(--mono);margin-top:2px">Deezer → DevTools → Cookies → arl</p>
-      <p id="ug-arl-status" class="ok-text hidden">Saved.</p>
-      <p id="ug-arl-warning" class="warn-text hidden">An ARL token is required before picking a source.</p>
-    </div>
-    <div class="isec">
-      <h4>How it works</h4>
-      <p style="font-size:11.5px;color:var(--text3);line-height:1.45">Files are fingerprinted in a 15 s random window, matched on Deezer, and a replacement is staged next to each original. Nothing is written until you review every pair.</p>
-    </div>
-  `);
 }

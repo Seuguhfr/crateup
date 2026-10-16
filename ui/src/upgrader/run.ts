@@ -20,6 +20,7 @@ import { watchPipelineRun } from "../jobs.js";
 import { loadPrefs as loadAppPrefs } from "../policy.js";
 import {
   countLedger,
+  getMissedTracks,
   parseProgressLine,
   type Ledger,
   type StatusCounts,
@@ -120,7 +121,7 @@ export function renderConfigure(
     <div class="ov">
       <div class="mx">
         ${phaseHead(
-          "02 · Configure",
+          "01 · UPGRADER · CONFIGURE",
           "Configure the run",
           `${sourceLabel(res)}. Set the output, then start. The run continues on its own; results land in Done.`,
         )}
@@ -254,6 +255,7 @@ export function renderRunning(el: HTMLElement): void {
           <span class="trunc" id="ug-progress-text">Processing: scanning…</span>
           <b id="ug-progress-count">0 / 0</b>
         </div>
+        <div id="ug-run-arl-alert" class="alert warn hidden" style="margin-top:12px;font-size:12px;padding:8px 12px;line-height:1.4"></div>
         <div class="term">
           <div class="thead">
             <span class="k">Pipeline log</span>
@@ -264,7 +266,7 @@ export function renderRunning(el: HTMLElement): void {
       </div>
     </div>`;
 
-  renderUpgraderStage(1);
+  renderUpgraderStage(2);
   renderDock("Run · state is saved to the ledger as it goes", [
     {
       id: "ug-cancel-run",
@@ -329,11 +331,24 @@ export async function beginRun(
   run.processed = 0;
   run.total = 0;
   run.logLines = [];
+  const curSess = getSession();
+  if (curSess) updateSession(curSess.id, { status: "running", progressLabel: "Upgrading…" });
   renderRunning(el);
 
   run.unlistenPipeline = await watchPipelineRun({
     onLog: (line) => {
       appendLog(line);
+      if (
+        line.includes("invalid_arl") ||
+        line.includes("missing_arl") ||
+        line.includes("Deezer ARL token is invalid")
+      ) {
+        const alertBox = document.getElementById("ug-run-arl-alert");
+        if (alertBox) {
+          alertBox.innerHTML = `⚠️ <strong>Deezer ARL Error:</strong> The Deezer token is invalid or expired. Downloads cannot proceed. You can update your ARL in <a href="#/settings" style="text-decoration:underline;color:inherit;font-weight:600">Settings</a> and use <strong>Review</strong> to refetch missed tracks.`;
+          alertBox.classList.remove("hidden");
+        }
+      }
       const signal = parseProgressLine(line);
       if (signal.kind === "totals") {
         run.total = signal.total;
@@ -378,7 +393,16 @@ async function finishRun(
   onDone: (result: RunResult) => void,
 ): Promise<void> {
   try {
-    const content = await readLedgerFile(res.ledgerPath);
+    let content: string;
+    try {
+      content = await readLedgerFile(res.ledgerPath);
+    } catch (readErr) {
+      const fallback = res.ledgerPath.endsWith("-dev.json")
+        ? res.ledgerPath.replace("-dev.json", ".json")
+        : res.ledgerPath.replace(".json", "-dev.json");
+      content = await readLedgerFile(fallback);
+      res.ledgerPath = fallback;
+    }
     const ledger = JSON.parse(content) as Ledger;
     const counts = countLedger(ledger);
     if (exitCode !== 0) {
@@ -444,11 +468,11 @@ export function renderDone(
           ? `${counts.downloaded}/${counts.total} upgraded`
           : "run complete",
   });
-  // A completed or stopped run with processed tracks parks the session as done:
+  // A completed or stopped run with processed tracks parks the session in review:
   // it stays in the sidebar while its follow-ups (review, apply, reset) are still available.
   if (counts && counts.total > 0 && (!result.error || hasProcessed)) {
     const cur = getSession();
-    if (cur) updateSession(cur.id, { status: "done", hasFollowUps: true });
+    if (cur) updateSession(cur.id, { status: "review", hasFollowUps: true });
   }
 
   const stat = (
@@ -467,6 +491,8 @@ export function renderDone(
         ${stat(counts.pending, "Pending")}
       </div>`
     : "";
+
+  const missedCount = counts ? (counts.unidentified + counts.not_on_deezer + counts.download_failed) : 0;
 
   const breakdown = counts
     ? `<div class="kv-list">
@@ -488,39 +514,92 @@ export function renderDone(
     ? result.error
     : `${counts?.total ?? 0} tracks processed. Review each pair next: approve or skip, then commit to disk and Rekordbox.`;
 
+  const arlNotice = (counts?.download_failed ?? 0) > 0
+    ? `<div class="alert warn" style="margin-top:16px;margin-bottom:8px;font-size:12.5px;padding:10px 14px;line-height:1.45">
+        ⚠️ <strong>${counts?.download_failed} track(s) could not be downloaded.</strong> If your Deezer ARL token expired, update it in <a href="#/settings" style="text-decoration:underline;color:inherit;font-weight:600">Settings</a> and use <strong>Review</strong> to refetch missed tracks without rerunning.
+      </div>`
+    : "";
+
   el.innerHTML = `
     <div class="ov">
       <div class="mx">
-        ${phaseHead("04 · Results", headline, `${sourceLabel(res)}. ${sub}`)}
+        ${phaseHead("01 · UPGRADER · RESULTS", headline, `${sourceLabel(res)}. ${sub}`)}
         ${stats}
+        ${arlNotice}
         <div class="sect">
-          <h3>Breakdown</h3>
+          <div class="frow" style="align-items:center;justify-content:space-between;margin-bottom:6px">
+            <h3 style="margin:0">Breakdown</h3>
+            ${missedCount > 0 ? `
+              <div style="display:flex;gap:6px">
+                <button class="btn sm" id="ug-export-csv" title="Download CSV wishlist for Bandcamp / Beatport">Export Missed (.csv)</button>
+                <button class="btn sm" id="ug-copy-wishlist" title="Copy track list to clipboard">Copy List</button>
+              </div>` : ""}
+          </div>
           ${breakdown}
-        </div>
-        <div class="sect">
-          <h3>Next</h3>
-          <p class="muted" style="margin:0">Review each pair next: listen, approve or skip, then commit to disk and Rekordbox.</p>
+          ${missedCount > 0 ? `<p id="ug-export-feedback" class="muted small ok-text" style="margin:4px 0 0;min-height:16px"></p>` : ""}
         </div>
       </div>
     </div>`;
+
+  if (counts && missedCount > 0) {
+    const feedback = el.querySelector<HTMLElement>("#ug-export-feedback");
+    const showNotice = (msg: string) => {
+      if (feedback) feedback.textContent = msg;
+    };
+
+    el.querySelector("#ug-export-csv")?.addEventListener("click", () => {
+      const missed = getMissedTracks(result.ledger);
+      if (missed.length === 0) return;
+      const csvHeader = "Artist,Title,Status,File Path\n";
+      const csvRows = missed
+        .map((t) =>
+          [t.artist, t.title, t.status, t.path]
+            .map((v) => `"${v.replace(/"/g, '""')}"`)
+            .join(","),
+        )
+        .join("\n");
+      const blob = new Blob([csvHeader + csvRows], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `crateup-missed-tracks-${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showNotice(`✓ Exported ${missed.length} track(s) to CSV`);
+    });
+
+    el.querySelector("#ug-copy-wishlist")?.addEventListener("click", async () => {
+      const missed = getMissedTracks(result.ledger);
+      if (missed.length === 0) return;
+      const text = missed.map((t) => `${t.artist} - ${t.title} (${t.status})`).join("\n");
+      try {
+        await navigator.clipboard.writeText(text);
+        showNotice(`✓ Copied ${missed.length} track(s) to clipboard`);
+      } catch {
+        showNotice("Could not copy to clipboard");
+      }
+    });
+  }
 
   renderUpgraderStage(2);
   renderDock("Results · next action reviews pairs", [
     {
       id: "ug-done-back",
-      label: "Back to configure",
+      label: "Back",
       variant: "ghost",
       onClick: cb.onBackToConfigure,
     },
     {
       id: "ug-done-reset",
-      label: "Reset session",
+      label: "Reset",
       variant: "danger-ghost",
       onClick: cb.onReset,
     },
     {
       id: "ug-done-close",
-      label: "Close session",
+      label: "Close",
       variant: "ghost",
       onClick: cb.onClose,
     },

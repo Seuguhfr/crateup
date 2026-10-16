@@ -17,8 +17,9 @@ import {
   selectOutputDirectory,
   updateRekordboxDbDirectly,
   updateRekordboxXml,
+  resolveDeezerLink,
 } from "../api.js";
-import { clearSession, setSession } from "../store.js";
+import { clearSession, getSession, setSession, updateSession } from "../store.js";
 import {
   renderDock,
   renderInspector,
@@ -26,6 +27,8 @@ import {
 } from "../chrome.js";
 import {
   esc,
+  extractDeezerTrackId,
+  isPotentialDeezerUrl,
   fmtBytes,
   fmtTime,
   joinPath,
@@ -51,6 +54,10 @@ interface ReviewItem {
   proxyPath: string | null | undefined;
   bitIdentical: boolean | undefined;
   similarityScore: number | undefined;
+  offset_ms?: number | null;
+  is_transcode?: boolean | null;
+  orig_rms?: number | null;
+  staged_rms?: number | null;
 }
 
 export interface ReviewCallbacks {
@@ -62,12 +69,14 @@ export interface ReviewCallbacks {
 interface Ws {
   destroy(): void;
   empty(): void;
-  load(url: string): Promise<void>;
+  load(url: string, peaks?: number[] | number[][], duration?: number): Promise<void>;
   play(): Promise<void>;
   pause(): void;
   stop(): void;
   seekTo(fraction: number): void;
   setTime(t: number): void;
+  setVolume?(volume: number): void;
+  getVolume?(): number;
   getCurrentTime(): number;
   getDuration(): number;
   isPlaying(): boolean;
@@ -137,6 +146,7 @@ let watchdogRetried = false;
 let watchdogTimer: number | null = null;
 let wavWarningShown = false;
 let linkedScrub = false;
+let matchGain = false;
 let isSyncingSeek = false;
 let decisionHistory: Array<{ index: number; prevDecision: string }> = [];
 
@@ -217,32 +227,84 @@ function whyText(item: ReviewItem): string {
   if (item.status !== "downloaded") {
     return `<b>${unresolvedReason(item)}</b>`;
   }
+  let baseWhy = "";
   const pct = matchPct(item);
   const bit = item.bitIdentical ?? leFor(item).audio_bit_identical;
-  if (bit) return "Bit-for-bit identical audio. <b>100% match</b> — safe to approve.";
-  if (typeof pct === "number" && pct >= 90) {
-    return `Acoustic fingerprint matches at <b>${pct}%</b> — almost certainly the same mix.`;
+  if (bit) {
+    baseWhy = "Bit-for-bit identical audio. <b>100% match</b> — safe to approve.";
+  } else if (typeof pct === "number" && pct >= 90) {
+    baseWhy = `Acoustic fingerprint matches at <b>${pct}%</b> — almost certainly the same mix.`;
+  } else if (typeof pct === "number" && pct >= 75) {
+    baseWhy = `<b>${pct}% match</b> — same energy, possibly a different master. Listen closely.`;
+  } else if (typeof pct === "number") {
+    baseWhy = `<b>${pct}% match</b> — under 75%. Verify: this may be a different recording.`;
+  } else {
+    const simErr = (leFor(item).similarity_error as string | undefined);
+    if (simErr) {
+      baseWhy = `<b>Acoustic comparison failed</b> (${esc(simErr)}). Verify manually by listening.`;
+    } else {
+      baseWhy = "Similarity not computed for this pair.";
+    }
   }
-  if (typeof pct === "number" && pct >= 75) {
-    return `<b>${pct}% match</b> — same energy, possibly a different master. Listen closely.`;
+
+  const le = leFor(item);
+  const offset = item.offset_ms ?? (le.offset_ms as number | null | undefined);
+  const isTranscode = item.is_transcode ?? (le.is_transcode as boolean | null | undefined);
+
+  let badges = "";
+  if (offset !== undefined && offset !== null) {
+    const offsetStr = offset === 0 ? "0 ms aligned" : (offset > 0 ? `Offset: +${offset} ms` : `Offset: ${offset} ms`);
+    badges += ` <span class="badge" style="display:inline-block; margin-left:8px; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15);" title="Acoustic lead-in delta (Δt)">${offsetStr}</span>`;
   }
-  return typeof pct === "number"
-    ? `<b>${pct}% match</b> — under 75%. Verify: this may be a different recording.`
-    : "Similarity not computed for this pair.";
+  if (isTranscode) {
+    badges += ` <span class="badge warn" style="display:inline-block; margin-left:8px; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:rgba(255,159,10,0.15); color:var(--accent-orange, #ff9f0a); border:1px solid rgba(255,159,10,0.3);" title="Spek Guard detected brickwall lowpass cutoff ~16 kHz in original file">⚠ Fake Lossless</span>`;
+  }
+
+  return baseWhy + badges;
 }
 
 function statusBadge(item: ReviewItem): string {
-  const pct = matchPct(item);
-  if (pct !== null) {
-    if (pct >= 100) return `<span class="sc">${pct}%</span>`;
-    if (pct >= 90) return `<span class="sc">${pct}%</span>`;
-    if (pct >= 75) return `<span class="sc w">${pct}%</span>`;
-    return `<span class="sc b">${pct}%</span>`;
-  }
   const d = decide(item);
-  if (d === "approved") return `<span class="sc">✓</span>`;
-  if (d === "skipped") return `<span class="sc n">–</span>`;
-  return `<span class="sc n">…</span>`;
+  const pct = matchPct(item);
+  const hasCalcErr = !item.bitIdentical && pct === null && Boolean(leFor(item).similarity_error);
+
+  if (d === "approved") {
+    if (pct !== null) return `<span class="sc approved" title="Approved (Will upgrade)">✓ ${pct}%</span>`;
+    if (hasCalcErr) return `<span class="sc approved" title="Approved (Acoustic check failed)">✓ ⚠</span>`;
+    return `<span class="sc approved" title="Approved">✓</span>`;
+  }
+  if (d === "skipped") {
+    if (pct !== null) return `<span class="sc n skipped" title="Skipped (Keep original)">– ${pct}%</span>`;
+    if (hasCalcErr) return `<span class="sc n skipped" title="Skipped (Acoustic check failed)">– ⚠</span>`;
+    return `<span class="sc n skipped" title="Skipped (Keep original)">–</span>`;
+  }
+
+  // Pending decision:
+  if (pct !== null) {
+    if (pct >= 90) return `<span class="sc" title="Pending: ${pct}% match">${pct}%</span>`;
+    if (pct >= 75) return `<span class="sc w" title="Pending: ${pct}% match">${pct}%</span>`;
+    return `<span class="sc b" title="Pending: ${pct}% match">${pct}%</span>`;
+  }
+  if (hasCalcErr) {
+    return `<span class="sc w" title="Acoustic check failed: ${esc(String(leFor(item).similarity_error))}">⚠ Calc</span>`;
+  }
+  return `<span class="sc n" title="Pending review">…</span>`;
+}
+
+function updateDecisionPill(track: ReviewItem): void {
+  const pill = id<HTMLElement>("#rv-decision-pill");
+  if (!pill) return;
+  const d = decide(track);
+  if (d === "approved") {
+    pill.className = "decision-pill approved";
+    pill.textContent = track.status === "downloaded" ? "✓ Approved · Will upgrade" : "✓ Approved · Keep original";
+  } else if (d === "skipped") {
+    pill.className = "decision-pill skipped";
+    pill.textContent = "– Skipped · Keep original";
+  } else {
+    pill.className = "decision-pill pending";
+    pill.textContent = "● Pending decision";
+  }
 }
 
 /* ---------------- screen ---------------- */
@@ -251,21 +313,70 @@ function headMetaHtml(): string {
   return `
     <div class="diff">
       <span class="why" id="rv-why">Loading…</span>
+      <div class="decision-actions">
+        <button class="decision-btn approve" id="rv-btn-approve" title="Approve upgrade (Enter)">✓ Approve</button>
+        <button class="decision-btn skip" id="rv-btn-skip" title="Skip upgrade (Backspace)">✕ Skip</button>
+        <span class="decision-pill pending" id="rv-decision-pill">● Pending decision</span>
+        <button class="link-btn small" id="rv-override-toggle" title="Override match with Deezer URL or track ID" style="display:none">Wrong match? Paste Deezer URL</button>
+      </div>
     </div>
     <div class="frow hidden" id="rv-refetch-row">
       <button class="btn sm" id="rv-identify">Identify</button>
-      <input class="field" id="rv-deezer-id" placeholder="Deezer ID…" autocomplete="off" />
+      <input class="field" id="rv-deezer-id" placeholder="Deezer URL or ID…" autocomplete="off" />
       <button class="btn sm" id="rv-refetch">Refetch</button>
       <span class="kb" id="rv-feedback"></span>
     </div>
     <div class="sect" style="padding:8px 14px">
       <h3>File comparison</h3>
       <div class="kvr"><span class="v" id="rv-o-file">–</span><span class="k">File</span><span class="v n" id="rv-s-file">–</span></div>
+      <div class="kvr" id="rv-row-artist"><span class="v" id="rv-o-artist">–</span><span class="k">Artist / Title</span><span class="v n" id="rv-s-artist">–</span></div>
       <div class="kvr"><span class="v" id="rv-o-size">–</span><span class="k">Size</span><span class="v n" id="rv-s-size">–</span></div>
       <div class="kvr"><span class="v" id="rv-o-format">–</span><span class="k">Format</span><span class="v n" id="rv-s-format">–</span></div>
       <div class="kvr"><span class="v" id="rv-o-bitrate">–</span><span class="k">Bitrate</span><span class="v n" id="rv-s-bitrate">–</span></div>
       <div class="kvr"><span class="v" id="rv-o-dur">–</span><span class="k">Time</span><span class="v n" id="rv-s-dur">–</span></div>
     </div>`;
+}
+
+function updateArtistRowVisibility(
+  origFileName: string,
+  origArtistTitle: string,
+  stagedFileName: string,
+  stagedArtistTitle: string,
+  isMismatch: boolean,
+): void {
+  const row = id<HTMLElement>("#rv-row-artist");
+  if (!row) return;
+
+  if (isMismatch) {
+    row.style.display = "";
+    return;
+  }
+
+  const clean = (s: string) =>
+    s
+      .replace(/\.[^/.]+$/, "")
+      .replace(/[\s\-_—–]+/g, " ")
+      .trim()
+      .toLowerCase();
+
+  const origBase = clean(origFileName);
+  const origArt = clean(origArtistTitle);
+  const origRedundant = origBase === origArt;
+
+  const stagedBase = clean(stagedFileName);
+  const stagedArt = clean(stagedArtistTitle);
+  const stagedRedundant =
+    !stagedFileName ||
+    !stagedArtistTitle ||
+    stagedArtistTitle === "—" ||
+    stagedArtistTitle === "-" ||
+    stagedBase === stagedArt;
+
+  if (origRedundant && stagedRedundant) {
+    row.style.display = "none";
+  } else {
+    row.style.display = "";
+  }
 }
 
 function skeletonHtml(label: string): string {
@@ -283,7 +394,6 @@ function deckHtml(deck: DeckId): string {
         <button class="play" id="play-${deck}" disabled title="Play / pause (Space)">${PLAY_SVG}</button>
         <span class="nm" id="rv-${deck[0]}-name">${orig ? "Original track" : "No upgrade"}</span>
         <span class="rbp">${rbp}</span>
-        <span class="dur" id="rv-${deck[0]}-time">00:00</span>
       </div>
       <div class="wav" id="wave-${deck}">
         <div class="loading" id="rv-${deck[0]}-load">${orig ? skeletonHtml("Loading original audio…") : ""}</div>
@@ -306,6 +416,7 @@ function workspaceHtml(): string {
         <span class="kb">
           <kbd>←→</kbd> scrub &nbsp;<kbd>↑↓</kbd> deck &nbsp;
           <button class="link-btn" id="rv-toggle-link" title="Toggle synchronized scrub between decks (L)"><kbd>L</kbd> Link</button>
+          <button class="link-btn" id="rv-toggle-gain" title="Toggle RMS Gain Matching between decks (G)"><kbd>G</kbd> Match Gain</button>
           <button class="help-btn" id="rv-help" title="Keyboard shortcuts (?)">?</button>
         </span>
         <span class="kb" id="rv-reviewed">—</span>
@@ -336,7 +447,9 @@ function queueGroupHtml(cat: CatId): string {
     .map(({ item, idx }) => {
       const name = esc(filenameOf(item.relPath));
       const badge = statusBadge(item);
-      return `<div class="qr ${idx === currentIndex ? "on" : ""}" data-idx="${idx}" title="${esc(item.relPath)}">
+      const d = decide(item);
+      const dCls = d === "approved" ? "approved" : d === "skipped" ? "skipped" : "pending";
+      return `<div class="qr ${idx === currentIndex ? "on" : ""} ${dCls}" data-idx="${idx}" title="${esc(item.relPath)}">
         <span class="tt">${name}</span>${badge}
       </div>`;
     })
@@ -349,15 +462,15 @@ function queueGroupHtml(cat: CatId): string {
 }
 
 function renderQueue(): void {
-  const body = document.getElementById("insp-body");
-  if (!body) return;
-  body.innerHTML =
+  const html =
     `<div class="isec">
        <h4>Review queue</h4>
        <p class="muted small" id="rv-qhead">${queue.length} tracks · ${countReviewed()} reviewed</p>
      </div>` +
     CATEGORY_ORDER.map(queueGroupHtml).join("");
-  bindQueue(body);
+  renderInspector(html);
+  const body = document.getElementById("insp-body");
+  if (body) bindQueue(body);
 }
 
 function updateQueueRow(index: number): void {
@@ -373,6 +486,10 @@ function updateQueueRow(index: number): void {
     } else {
       row.insertAdjacentHTML("beforeend", badge);
     }
+    const d = decide(item);
+    row.classList.toggle("approved", d === "approved");
+    row.classList.toggle("skipped", d === "skipped");
+    row.classList.toggle("pending", d === "pending");
   }
 
   const cat = getItemCategory(item);
@@ -415,6 +532,9 @@ function bindQueue(body: HTMLElement): void {
   });
   body.querySelectorAll<HTMLElement>(".qr").forEach((row) => {
     row.addEventListener("click", () => {
+      if (document.activeElement instanceof HTMLElement && document.activeElement.tagName === "INPUT") {
+        document.activeElement.blur();
+      }
       const idx = parseInt(row.dataset.idx ?? "-1", 10);
       if (idx >= 0 && idx < queue.length) void loadTrack(idx);
     });
@@ -425,9 +545,18 @@ function refreshDock(): void {
   const total = queue.length;
   const reviewed = countReviewed();
   const allDone = total > 0 && reviewed === total;
-  setSession({
-    progressLabel: total > 0 ? `${reviewed}/${total} reviewed` : null,
-  });
+  const cur = getSession();
+  if (cur) {
+    updateSession(cur.id, {
+      status: allDone ? "done" : "review",
+      hasFollowUps: !allDone,
+      progressLabel: total > 0 ? `${reviewed}/${total} reviewed` : null,
+    });
+  } else {
+    setSession({
+      progressLabel: total > 0 ? `${reviewed}/${total} reviewed` : null,
+    });
+  }
   renderDock(
     allDone
       ? `All ${total} tracks reviewed — ready to apply changes.`
@@ -500,10 +629,7 @@ async function readLedgerAndBoot(): Promise<void> {
   try {
     ledger = JSON.parse(await readLedgerFile(res.ledgerPath)) as Ledger;
   } catch (err) {
-    const body = document.getElementById("insp-body");
-    if (body) {
-      body.innerHTML = `<div class="empty">Ledger failed to load.<br /><span class="sub">${esc(String(err))}</span></div>`;
-    }
+    renderInspector(`<div class="empty">Ledger failed to load.<br /><span class="sub">${esc(String(err))}</span></div>`);
     return;
   }
 
@@ -525,6 +651,10 @@ async function readLedgerAndBoot(): Promise<void> {
         proxyPath: entry.proxy_path as string | null | undefined,
         bitIdentical: entry.audio_bit_identical as boolean | undefined,
         similarityScore: entry.similarity_score as number | undefined,
+        offset_ms: entry.offset_ms as number | null | undefined,
+        is_transcode: entry.is_transcode as boolean | null | undefined,
+        orig_rms: entry.orig_rms as number | null | undefined,
+        staged_rms: entry.staged_rms as number | null | undefined,
       });
     }
   }
@@ -533,10 +663,7 @@ async function readLedgerAndBoot(): Promise<void> {
   });
 
   if (queue.length === 0) {
-    const body = document.getElementById("insp-body");
-    if (body) {
-      body.innerHTML = `<div class="empty">Nothing to review.<br /><span class="sub">No downloads, failures, or pending decisions remain.</span></div>`;
-    }
+    renderInspector(`<div class="empty">Nothing to review.<br /><span class="sub">No downloads, failures, or pending decisions remain.</span></div>`);
     const why = id<HTMLElement>("#rv-why");
     if (why) why.innerHTML = "<b>No tracks available to review.</b>";
     refreshDock();
@@ -592,7 +719,7 @@ export function renderReviewScreen(
   active = true;
   el.className = "screen on";
   el.innerHTML = workspaceHtml();
-  renderUpgraderStage(2);
+  renderUpgraderStage(3);
   renderInspector(`<div class="empty">Reading session ledger…</div>`);
   refreshDock();
   bindDeckButtons(el);
@@ -603,7 +730,11 @@ export function renderReviewScreen(
 
 export function leaveReview(): void {
   active = false;
+  stopAllReviewAudio();
   destroyPlayers();
+  if (typeof window !== "undefined") {
+    delete (window as unknown as Record<string, unknown>).__setPlayGlyph;
+  }
   if (watchdogTimer !== null) {
     window.clearTimeout(watchdogTimer);
     watchdogTimer = null;
@@ -628,10 +759,14 @@ function bindReviewFooter(el: HTMLElement): void {
   el.querySelector("#rv-toggle-link")?.addEventListener("click", () => {
     toggleLinkedScrub();
   });
+  el.querySelector("#rv-toggle-gain")?.addEventListener("click", () => {
+    toggleMatchGain();
+  });
   el.querySelector("#rv-help")?.addEventListener("click", () => {
     openShortcutsModal();
   });
   updateLinkButtonState();
+  updateGainButtonState();
 }
 
 function toggleLinkedScrub(): void {
@@ -645,6 +780,51 @@ function updateLinkButtonState(): void {
   btn.classList.toggle("on", linkedScrub);
   btn.setAttribute("aria-pressed", String(linkedScrub));
   btn.innerHTML = `<kbd>L</kbd> ${linkedScrub ? "Link: ON" : "Link"}`;
+}
+
+function toggleMatchGain(): void {
+  matchGain = !matchGain;
+  applyGainMatching();
+  updateGainButtonState();
+}
+
+function updateGainButtonState(): void {
+  const btn = id<HTMLButtonElement>("#rv-toggle-gain");
+  if (!btn) return;
+  btn.classList.toggle("on", matchGain);
+  btn.setAttribute("aria-pressed", String(matchGain));
+  btn.innerHTML = `<kbd>G</kbd> ${matchGain ? "Gain: ON" : "Match Gain"}`;
+}
+
+function applyGainMatching(): void {
+  if (!wsOrig || !wsStaged) return;
+  if (!matchGain) {
+    try { wsOrig.setVolume?.(1.0); } catch { /* noop */ }
+    try { wsStaged.setVolume?.(1.0); } catch { /* noop */ }
+    return;
+  }
+  const tr = queue[currentIndex];
+  if (!tr || tr.status !== "downloaded") return;
+  const le = leFor(tr);
+  const oRms = tr.orig_rms ?? (le.orig_rms as number | undefined);
+  const sRms = tr.staged_rms ?? (le.staged_rms as number | undefined);
+
+  if (oRms && sRms && oRms > 0 && sRms > 0) {
+    if (oRms > sRms) {
+      // Original is louder; attenuate original
+      const factor = Math.min(1.0, sRms / oRms);
+      try { wsOrig.setVolume?.(factor); } catch { /* noop */ }
+      try { wsStaged.setVolume?.(1.0); } catch { /* noop */ }
+    } else {
+      // Staged is louder; attenuate staged
+      const factor = Math.min(1.0, oRms / sRms);
+      try { wsOrig.setVolume?.(1.0); } catch { /* noop */ }
+      try { wsStaged.setVolume?.(factor); } catch { /* noop */ }
+    }
+  } else {
+    try { wsOrig.setVolume?.(1.0); } catch { /* noop */ }
+    try { wsStaged.setVolume?.(1.0); } catch { /* noop */ }
+  }
 }
 
 function openShortcutsModal(): void {
@@ -667,6 +847,7 @@ function openShortcutsModal(): void {
         <div class="sc-row"><span class="k">Skip (Keep Original)</span><span class="v"><kbd>⌫</kbd> <span class="muted small">Backspace</span></span></div>
         <div class="sc-row"><span class="k">Undo Last Decision</span><span class="v"><kbd>Z</kbd> / <kbd>⌘Z</kbd></span></div>
         <div class="sc-row"><span class="k">Toggle Linked Scrub</span><span class="v"><kbd>L</kbd></span></div>
+        <div class="sc-row"><span class="k">Match RMS Loudness</span><span class="v"><kbd>G</kbd></span></div>
         <div class="sc-row"><span class="k">Shortcuts Help</span><span class="v"><kbd>?</kbd> / <kbd>h</kbd></span></div>
         <div class="sc-row"><span class="k">Dismiss Dialog</span><span class="v"><kbd>Esc</kbd></span></div>
       </div>
@@ -689,14 +870,111 @@ function removeAnyShortcutsModal(): void {
   document.getElementById("rv-shortcuts-modal")?.remove();
 }
 
+/**
+ * Unconditionally stops and silences all audio playback across both decks,
+ * halts WebAudio buffer sources, pauses underlying media elements, suspends
+ * active AudioContexts, and resets deck play glyphs. Safe to call repeatedly.
+ */
+export function stopAllReviewAudio(): void {
+  const stopPlayer = (ws: Ws | null) => {
+    if (!ws) return;
+    try {
+      if (typeof ws.isPlaying === "function" && ws.isPlaying()) {
+        ws.pause();
+      }
+    } catch { /* best effort */ }
+    try {
+      if (typeof ws.stop === "function") {
+        ws.stop();
+      }
+    } catch { /* best effort */ }
+    try {
+      if (typeof ws.pause === "function") {
+        ws.pause();
+      }
+    } catch { /* best effort */ }
+
+    // Inspect underlying media element or WebAudioPlayer wrapper
+    try {
+      const raw = ws as unknown as {
+        media?: {
+          pause?: () => void;
+          currentTime?: number;
+          destroy?: () => void;
+          bufferNode?: AudioBufferSourceNode | null;
+          disconnect?: () => void;
+        };
+        getMediaElement?: () => (HTMLMediaElement & {
+          destroy?: () => void;
+          bufferNode?: AudioBufferSourceNode | null;
+        }) | null;
+      };
+      const m = raw.getMediaElement?.() ?? raw.media;
+      if (m) {
+        try { m.pause?.(); } catch { /* best effort */ }
+        try { if ("currentTime" in m) m.currentTime = 0; } catch { /* best effort */ }
+        if (m.bufferNode) {
+          try { m.bufferNode.onended = null; } catch { /* best effort */ }
+          try { m.bufferNode.stop(); } catch { /* best effort */ }
+          try { m.bufferNode.disconnect(); } catch { /* best effort */ }
+          m.bufferNode = null;
+        }
+        try { m.destroy?.(); } catch { /* best effort */ }
+      }
+    } catch { /* best effort */ }
+
+    // Suspend or close WebAudio AudioContext
+    try {
+      const ctx = ctxOf(ws);
+      if (ctx) {
+        if (ctx.state === "running") {
+          void ctx.suspend().catch(() => {});
+        }
+        if (typeof ctx.close === "function") {
+          void ctx.close().catch(() => {});
+        }
+      }
+    } catch { /* best effort */ }
+  };
+
+  stopPlayer(wsOrig);
+  stopPlayer(wsStaged);
+
+  // Fallback safety sweep: pause any HTMLAudioElements or media tags anywhere in the document
+  try {
+    document.querySelectorAll("audio, video").forEach((el) => {
+      try {
+        const media = el as HTMLMediaElement;
+        media.pause();
+        media.currentTime = 0;
+        media.removeAttribute("src");
+        media.load();
+      } catch { /* best effort */ }
+    });
+  } catch { /* best effort */ }
+
+  // Reset UI play buttons
+  try {
+    setGlyph("original", false);
+    setGlyph("staged", false);
+  } catch { /* best effort */ }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", stopAllReviewAudio);
+  window.addEventListener("beforeunload", stopAllReviewAudio);
+}
+
 /** Safe teardown for route-level navigation (e.g. leaving the module). */
 export function teardownReview(): boolean {
+  stopAllReviewAudio();
   if (!active) return false;
   leaveReview();
   return true;
 }
 
 function destroyPlayers(): void {
+  stopAllReviewAudio();
   if (wsOrig) {
     try { wsOrig.destroy(); } catch { /* noop */ }
     wsOrig = null;
@@ -708,15 +986,22 @@ function destroyPlayers(): void {
 }
 
 function bindDeckButtons(el: HTMLElement): void {
-  const play = (deck: DeckId) => {
-    el.querySelector<HTMLButtonElement>(`#play-${deck}`)?.addEventListener("click", () => {
+  const bindDeck = (deck: DeckId) => {
+    const deckEl = el.querySelector<HTMLElement>(`#deck-${deck}`);
+    deckEl?.addEventListener("click", (e) => {
+      if (document.activeElement instanceof HTMLElement && document.activeElement.tagName === "INPUT") {
+        document.activeElement.blur();
+      }
+      const isPlayBtn = (e.target as HTMLElement).closest(`#play-${deck}`);
       if (deck === "staged" && queue[currentIndex]?.status !== "downloaded") return;
       setFocus(deck);
-      togglePlayPause();
+      if (isPlayBtn) {
+        togglePlayPause();
+      }
     });
   };
-  play("original");
-  play("staged");
+  bindDeck("original");
+  bindDeck("staged");
 
   const setPlayGlyph = (deck: DeckId, playing: boolean): void => {
     const btn = el.querySelector<HTMLButtonElement>(`#play-${deck}`);
@@ -758,15 +1043,12 @@ function initWaveSurfers(): void {
     const t = wsOrig?.getDuration() ?? 0;
     const h = id<HTMLElement>("#rv-o-dur2");
     if (h) h.textContent = `${fmtTime(time as number)} / ${fmtTime(t)}`;
-    const ht = id<HTMLElement>("#rv-o-time");
-    if (ht) ht.textContent = fmtTime(time as number);
   });
   wsOrig.on("ready", () => {
     const dur = wsOrig?.getDuration() ?? 0;
-    const h = id<HTMLElement>("#rv-o-dur");
-    if (h) h.textContent = fmtTime(dur);
     const h2 = id<HTMLElement>("#rv-o-dur2");
     if (h2) h2.textContent = `00:00 / ${fmtTime(dur)}`;
+    updateDurationDiff();
     readyState.original.ready = true;
     if (!hasDecode) {
       readyState.original.decode = true;
@@ -782,7 +1064,11 @@ function initWaveSurfers(): void {
     });
   }
   wsOrig.on("seek", () => {
+    setFocus("original");
     syncSeek(wsOrig!, wsStaged, "staged");
+  });
+  wsOrig.on("interaction", () => {
+    setFocus("original");
   });
   wsOrig.on("play", () => setGlyph("original", true));
   wsOrig.on("pause", () => setGlyph("original", false));
@@ -802,17 +1088,14 @@ function initWaveSurfers(): void {
     const t = wsStaged?.getDuration() ?? 0;
     const h = id<HTMLElement>("#rv-s-dur2");
     if (h) h.textContent = `${fmtTime(time as number)} / ${fmtTime(t)}`;
-    const ht = id<HTMLElement>("#rv-s-time");
-    if (ht) ht.textContent = fmtTime(time as number);
   });
   wsStaged.on("ready", () => {
     const tr = queue[currentIndex];
     if (!tr || tr.status !== "downloaded") return;
     const dur = wsStaged?.getDuration() ?? 0;
-    const h = id<HTMLElement>("#rv-s-dur");
-    if (h) h.textContent = fmtTime(dur);
     const h2 = id<HTMLElement>("#rv-s-dur2");
     if (h2) h2.textContent = `00:00 / ${fmtTime(dur)}`;
+    updateDurationDiff();
     readyState.staged.ready = true;
     if (!hasDecode) {
       readyState.staged.decode = true;
@@ -830,7 +1113,15 @@ function initWaveSurfers(): void {
     });
   }
   wsStaged.on("seek", () => {
+    if (queue[currentIndex]?.status === "downloaded") {
+      setFocus("staged");
+    }
     syncSeek(wsStaged!, wsOrig, "original");
+  });
+  wsStaged.on("interaction", () => {
+    if (queue[currentIndex]?.status === "downloaded") {
+      setFocus("staged");
+    }
   });
   wsStaged.on("play", () => setGlyph("staged", true));
   wsStaged.on("pause", () => setGlyph("staged", false));
@@ -847,7 +1138,10 @@ function syncSeek(sourceWs: Ws, targetWs: Ws | null, targetDeck: DeckId): void {
   const time = sourceWs.getCurrentTime();
   isSyncingSeek = true;
   try {
-    targetWs.setTime(Math.max(0, Math.min(durTgt, time)));
+    const tr = queue[currentIndex];
+    const offsetSec = ((tr?.offset_ms ?? (leFor(tr).offset_ms as number | undefined)) ?? 0) / 1000.0;
+    const delta = targetDeck === "staged" ? offsetSec : -offsetSec;
+    targetWs.setTime(Math.max(0, Math.min(durTgt, time + delta)));
   } catch {
     /* best effort */
   } finally {
@@ -875,13 +1169,36 @@ function checkUsable(deck: DeckId): void {
   if (wav) wav.style.pointerEvents = "auto";
   const load = id<HTMLElement>(`#rv-${deck[0]}-load`);
   if (load) load.classList.add("hidden");
-  setFocus(deck === "original" ? "original" : "staged");
+  if (queue[currentIndex]?.status === "downloaded") {
+    if (deck === "staged" && focus !== "original") {
+      setFocus("staged");
+    }
+  } else {
+    setFocus("original");
+  }
 }
 
 function setFocus(deck: DeckId): void {
+  if (focus === deck) return;
+  const prevDeck = focus;
   focus = deck;
   id<HTMLElement>("#deck-original")?.classList.toggle("focused", deck === "original");
   id<HTMLElement>("#deck-staged")?.classList.toggle("focused", deck === "staged");
+
+  // Seamless live hot-swap if currently playing
+  const prevWs = prevDeck === "original" ? wsOrig : wsStaged;
+  const newWs = deck === "original" ? wsOrig : wsStaged;
+  if (prevWs && newWs && prevWs.isPlaying() && isUsable(deck)) {
+    const time = prevWs.getCurrentTime();
+    prevWs.pause();
+    const tr = queue[currentIndex];
+    const offsetSec = ((tr?.offset_ms ?? (leFor(tr).offset_ms as number | undefined)) ?? 0) / 1000.0;
+    const dur = newWs.getDuration();
+    const delta = deck === "staged" ? offsetSec : -offsetSec;
+    const targetTime = Math.max(0, Math.min(dur, time + delta));
+    newWs.setTime(targetTime);
+    void playWs(newWs);
+  }
 }
 
 function activeWs(): Ws | null {
@@ -932,6 +1249,54 @@ function togglePlayPause(): void {
   else void playActive();
 }
 
+function checkMetadataMismatch(origStr: string, artist?: string, title?: string): boolean {
+  if (!artist || !title) return false;
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, " ").trim();
+  const o = norm(origStr);
+  const a = norm(artist);
+  const t = norm(title);
+  const aTokens = a.split(/\s+/).filter((w) => w.length > 2);
+  const tTokens = t.split(/\s+/).filter((w) => w.length > 2);
+  const hasArtist = aTokens.some((tok) => o.includes(tok));
+  const hasTitle = tTokens.some((tok) => o.includes(tok));
+  return !hasArtist && !hasTitle;
+}
+
+function updateDurationDiff(): void {
+  const oDur = wsOrig?.getDuration() ?? 0;
+  const sDur = wsStaged?.getDuration() ?? 0;
+  const tr = queue[currentIndex];
+  const ho = id<HTMLElement>("#rv-o-dur");
+  const hs = id<HTMLElement>("#rv-s-dur");
+  if (ho && oDur > 0) {
+    ho.textContent = fmtTime(oDur);
+  }
+  if (!hs) return;
+  if (!tr || tr.status !== "downloaded" || sDur <= 0) {
+    hs.textContent = "–";
+    hs.className = "v n";
+    hs.title = "";
+    return;
+  }
+  if (oDur > 0) {
+    const delta = Math.round(sDur - oDur);
+    if (Math.abs(delta) > 2) {
+      const sign = delta > 0 ? "+" : "";
+      hs.textContent = `${fmtTime(sDur)} (${sign}${delta}s Δ)`;
+      hs.className = "v n dur-delta";
+      hs.title = `Duration difference of ${Math.abs(delta)}s from original`;
+    } else {
+      hs.textContent = fmtTime(sDur);
+      hs.className = "v n";
+      hs.title = "Duration matches original within 2s";
+    }
+  } else {
+    hs.textContent = fmtTime(sDur);
+    hs.className = "v n";
+    hs.title = "";
+  }
+}
+
 /* ---------------- track loading & decisions ---------------- */
 
 async function loadTrack(index: number): Promise<void> {
@@ -973,13 +1338,13 @@ async function loadTrack(index: number): Promise<void> {
     lo.classList.remove("hidden");
     lo.innerHTML = skeletonHtml("Loading original audio…");
   }
-  [["#rv-o-dur2", "00:00"], ["#rv-o-time", "00:00"]].forEach(([sel, txt]) => {
+  [["#rv-o-dur2", "00:00"]].forEach(([sel, txt]) => {
     const h = id<HTMLElement>(sel);
     if (h) h.textContent = txt;
   });
 
   if (wsStaged?.empty) wsStaged.empty();
-  [["#rv-s-dur", "-"], ["#rv-s-dur2", "--:--"], ["#rv-s-time", "--:--"], ["#rv-s-fmt", "—"]].forEach(([sel, txt]) => {
+  [["#rv-s-dur", "-"], ["#rv-s-dur2", "--:--"], ["#rv-s-fmt", "—"]].forEach(([sel, txt]) => {
     const h = id<HTMLElement>(sel);
     if (h) h.textContent = txt;
   });
@@ -1006,11 +1371,25 @@ async function loadTrack(index: number): Promise<void> {
   const fb = id<HTMLElement>("#rv-feedback");
   if (fb) fb.textContent = "";
   const refetchRow = id<HTMLElement>("#rv-refetch-row");
-  if (refetchRow) refetchRow.classList.toggle("hidden", track.status === "downloaded");
+  const overrideToggle = id<HTMLButtonElement>("#rv-override-toggle");
+  if (track.status === "downloaded") {
+    if (refetchRow) refetchRow.classList.add("hidden");
+    if (overrideToggle) {
+      overrideToggle.style.display = "inline-block";
+      overrideToggle.textContent = "Wrong match? Paste Deezer URL";
+    }
+  } else {
+    if (refetchRow) refetchRow.classList.remove("hidden");
+    if (overrideToggle) {
+      overrideToggle.style.display = "none";
+    }
+  }
 
   // why + badge
   const why = id<HTMLElement>("#rv-why");
   if (why) why.innerHTML = whyText(track);
+  updateDecisionPill(track);
+  applyGainMatching();
 
   // original path
   const originalAbs =
@@ -1021,6 +1400,10 @@ async function loadTrack(index: number): Promise<void> {
   if (ofmt) ofmt.textContent = origExt.toUpperCase() || "—";
   if (ofmtFl) ofmtFl.textContent = origExt.toUpperCase() || "—";
   id<HTMLElement>("#rv-o-file") && (id<HTMLElement>("#rv-o-file")!.textContent = name);
+  const origArtistTitle = name.replace(/\.[^/.]+$/, "");
+  const oArtistEl = id<HTMLElement>("#rv-o-artist");
+  if (oArtistEl) oArtistEl.textContent = origArtistTitle;
+
   const oBitrate = le.original_bitrate as number | undefined;
   const obt = id<HTMLElement>("#rv-o-bitrate");
   if (obt) {
@@ -1036,9 +1419,16 @@ async function loadTrack(index: number): Promise<void> {
     if (h && typeof sz === "number") h.textContent = fmtBytes(sz);
   }).catch(() => undefined);
 
+  const origPeaks = Array.isArray(le.peaks) && le.peaks.length > 0 ? le.peaks : undefined;
+  const stagedPeaks = Array.isArray(le.staged_peaks) && le.staged_peaks.length > 0 ? le.staged_peaks : undefined;
+
   if (wsOrig?.load && isTauri()) {
     try {
-      void wsOrig.load(convertFileSrc(originalAbs));
+      if (origPeaks) {
+        void wsOrig.load(convertFileSrc(originalAbs), origPeaks);
+      } else {
+        void wsOrig.load(convertFileSrc(originalAbs));
+      }
     } catch (err) {
       if (lo) lo.textContent = `Error loading original: ${err}`;
     }
@@ -1071,24 +1461,52 @@ async function loadTrack(index: number): Promise<void> {
     myStagedUrl = stagedAbs && isTauri() ? convertFileSrc(stagedAbs) : "";
     if (stagedAbs && wsStaged?.load && isTauri()) {
       try {
-        void wsStaged.load(convertFileSrc(stagedAbs));
+        if (stagedPeaks) {
+          void wsStaged.load(convertFileSrc(stagedAbs), stagedPeaks);
+        } else {
+          void wsStaged.load(convertFileSrc(stagedAbs));
+        }
       } catch (err) {
         if (ls) ls.textContent = `Error loading upgrade: ${err}`;
       }
     }
-    id<HTMLElement>("#rv-s-file") && (id<HTMLElement>("#rv-s-file")!.textContent = filenameOf(le.staged_path as string ?? ""));
-    const sFmt = filenameOf(le.staged_path as string ?? "").split(".").pop()?.toUpperCase() ?? "—";
+    const sFile = filenameOf((le.staged_path as string) ?? "");
+    id<HTMLElement>("#rv-s-file") && (id<HTMLElement>("#rv-s-file")!.textContent = sFile);
+    let sArtistTitle = "—";
+    let isMismatch = false;
+    const sArtistEl = id<HTMLElement>("#rv-s-artist");
+    if (sArtistEl) {
+      const art = (le.artist as string | undefined)?.trim();
+      const tit = (le.title as string | undefined)?.trim();
+      sArtistTitle = art && tit ? `${art} — ${tit}` : (tit || art || "—");
+      sArtistEl.textContent = sArtistTitle;
+      isMismatch = checkMetadataMismatch(origArtistTitle, art, tit);
+      sArtistEl.className = isMismatch ? "v n diff-mismatch" : "v n";
+      sArtistEl.title = isMismatch ? "Recording credit differs from original filename" : "";
+    }
+    updateArtistRowVisibility(name, origArtistTitle, sFile, sArtistTitle, isMismatch);
+    const sFmt = sFile.split(".").pop()?.toUpperCase() ?? "—";
     id<HTMLElement>("#rv-s-format")!.textContent = sFmt;
     const sFmtFl = id<HTMLElement>("#rv-s-fmt");
     if (sFmtFl) sFmtFl.textContent = sFmt;
     const sBitrate = le.staged_bitrate as number | undefined;
     const sbt = id<HTMLElement>("#rv-s-bitrate");
     if (sbt) {
-      sbt.textContent = isLosslessExt(le.staged_path as string ?? "")
+      const isLossless = isLosslessExt((le.staged_path as string) ?? "");
+      const isOriginalLossless = isLosslessExt(track.relPath);
+      const isUpgrade = isLossless && !isOriginalLossless
+        ? true
+        : !isLossless && typeof sBitrate === "number" && typeof oBitrate === "number" && sBitrate > oBitrate;
+
+      sbt.textContent = isLossless
         ? "lossless"
         : sBitrate
           ? `${sBitrate} kbps`
           : "—";
+      sbt.className = isUpgrade ? "v n bitrate-upgrade" : "v n";
+      sbt.title = isUpgrade
+        ? (isLossless ? "Lossless audio upgrade" : `Bitrate upgrade (${sBitrate} kbps vs ${oBitrate ?? "?"} kbps)`)
+        : "";
     }
     if (stagedAbs) {
       void getFileSize(stagedAbs).then((sz) => {
@@ -1096,8 +1514,27 @@ async function loadTrack(index: number): Promise<void> {
         if (h && typeof sz === "number") h.textContent = fmtBytes(sz);
       }).catch(() => undefined);
     }
-    setFocus("original");
+    setFocus("staged");
   } else {
+    updateArtistRowVisibility(name, origArtistTitle, "", "", false);
+    const sArtistEl = id<HTMLElement>("#rv-s-artist");
+    if (sArtistEl) {
+      sArtistEl.textContent = "—";
+      sArtistEl.className = "v n";
+      sArtistEl.title = "";
+    }
+    const sbt = id<HTMLElement>("#rv-s-bitrate");
+    if (sbt) {
+      sbt.textContent = "—";
+      sbt.className = "v n";
+      sbt.title = "";
+    }
+    const sDurEl = id<HTMLElement>("#rv-s-dur");
+    if (sDurEl) {
+      sDurEl.textContent = "–";
+      sDurEl.className = "v n";
+      sDurEl.title = "";
+    }
     if (ls) {
       ls.classList.remove("hidden");
       ls.textContent = unresolvedReason(track);
@@ -1113,10 +1550,14 @@ async function loadTrack(index: number): Promise<void> {
       myStagedUrl && track.status === "downloaded" && !readyState.staged.ready;
     if (!needOrig && !needStaged) return;
     watchdogRetried = true;
-    try {
-      if (needOrig && wsOrig) void wsOrig.load(myOriginalUrl);
-      if (needStaged && wsStaged) void wsStaged.load(myStagedUrl);
-    } catch { /* error listeners surface load failures */ }
+      if (needOrig && wsOrig) {
+        if (origPeaks) void wsOrig.load(myOriginalUrl, origPeaks);
+        else void wsOrig.load(myOriginalUrl);
+      }
+      if (needStaged && wsStaged) {
+        if (stagedPeaks) void wsStaged.load(myStagedUrl, stagedPeaks);
+        else void wsStaged.load(myStagedUrl);
+      }
   }, 8000);
 
   highlightActive();
@@ -1138,19 +1579,43 @@ function scrollActiveIntoView(): void {
   });
 }
 
-function getNextInCategory(fromIndex: number): number {
+function getNextReviewIndex(fromIndex: number): number {
+  if (queue.length === 0) return -1;
+  if (queue.length === 1) return fromIndex;
+
   const current = queue[fromIndex];
-  if (!current) return -1;
-  const cat = getItemCategory(current);
-  const candidates: number[] = [];
-  queue.forEach((item, idx) => {
-    if (idx === fromIndex) return;
-    if (getItemCategory(item) !== cat) return;
-    if (decide(item) === "pending") candidates.push(idx);
-  });
-  if (candidates.length === 0) return -1;
-  const after = candidates.find((i) => i > fromIndex);
-  return after !== undefined ? after : candidates[candidates.length - 1];
+  const currentCat = current ? getItemCategory(current) : null;
+
+  // 1. Look for next pending track in the current category after fromIndex
+  if (currentCat) {
+    for (let i = fromIndex + 1; i < queue.length; i++) {
+      if (getItemCategory(queue[i]) === currentCat && decide(queue[i]) === "pending") {
+        return i;
+      }
+    }
+    // Check pending in current category before fromIndex (wrap around within category)
+    for (let i = 0; i < fromIndex; i++) {
+      if (getItemCategory(queue[i]) === currentCat && decide(queue[i]) === "pending") {
+        return i;
+      }
+    }
+  }
+
+  // 2. Look for any pending track in subsequent categories / anywhere in queue after fromIndex
+  for (let i = fromIndex + 1; i < queue.length; i++) {
+    if (decide(queue[i]) === "pending") {
+      return i;
+    }
+  }
+  // Wrap around to any pending track in the queue before fromIndex
+  for (let i = 0; i < fromIndex; i++) {
+    if (decide(queue[i]) === "pending") {
+      return i;
+    }
+  }
+
+  // 3. Fallback: all tracks are reviewed! Advance to next track in queue (wrap around)
+  return (fromIndex + 1) % queue.length;
 }
 
 async function saveDecision(relPath: string, decision: string): Promise<void> {
@@ -1183,10 +1648,14 @@ async function approveCurrent(): Promise<void> {
   await saveDecision(track.relPath, d);
   pauseAll();
   updateQueueRow(currentIndex);
+  updateDecisionPill(track);
   refreshDock();
-  const next = getNextInCategory(currentIndex);
-  if (next !== -1) await loadTrack(next);
-  else scrollActiveIntoView();
+  const next = getNextReviewIndex(currentIndex);
+  if (next !== -1 && next !== currentIndex) {
+    await loadTrack(next);
+  } else {
+    scrollActiveIntoView();
+  }
 }
 
 async function skipCurrent(): Promise<void> {
@@ -1197,10 +1666,14 @@ async function skipCurrent(): Promise<void> {
   await saveDecision(track.relPath, "skipped");
   pauseAll();
   updateQueueRow(currentIndex);
+  updateDecisionPill(track);
   refreshDock();
-  const next = getNextInCategory(currentIndex);
-  if (next !== -1) await loadTrack(next);
-  else scrollActiveIntoView();
+  const next = getNextReviewIndex(currentIndex);
+  if (next !== -1 && next !== currentIndex) {
+    await loadTrack(next);
+  } else {
+    scrollActiveIntoView();
+  }
 }
 
 async function undoLastDecision(): Promise<void> {
@@ -1247,16 +1720,62 @@ function showFeedback(text: string, color: "ok" | "warn" | "err"): void {
 }
 
 function bindRefetchRow(el: HTMLElement): void {
-  el.querySelector("#rv-identify")?.addEventListener("click", () => void onIdentify());
-  el.querySelector("#rv-refetch")?.addEventListener("click", () => void onRefetch());
-  el.querySelector<HTMLInputElement>("#rv-deezer-id")?.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      e.stopPropagation();
-      (e.target as HTMLElement).blur();
-      void onRefetch();
+  el.querySelector("#rv-btn-approve")?.addEventListener("click", () => void approveCurrent());
+  el.querySelector("#rv-btn-skip")?.addEventListener("click", () => void skipCurrent());
+  el.querySelector("#rv-override-toggle")?.addEventListener("click", () => {
+    const row = id<HTMLElement>("#rv-refetch-row");
+    const toggleBtn = id<HTMLButtonElement>("#rv-override-toggle");
+    if (!row || !toggleBtn) return;
+    const isHidden = row.classList.contains("hidden");
+    row.classList.toggle("hidden", !isHidden);
+    toggleBtn.textContent = isHidden ? "Hide Deezer URL input" : "Wrong match? Paste Deezer URL";
+    if (isHidden) {
+      id<HTMLInputElement>("#rv-deezer-id")?.focus();
     }
   });
+
+  el.querySelector("#rv-identify")?.addEventListener("click", () => void onIdentify());
+  el.querySelector("#rv-refetch")?.addEventListener("click", () => void onRefetch());
+  const input = el.querySelector<HTMLInputElement>("#rv-deezer-id");
+  if (input) {
+    const handleUrlInput = async () => {
+      const val = input.value.trim();
+      if (!val) return;
+      const directId = extractDeezerTrackId(val);
+      if (directId && String(directId) !== val) {
+        input.value = String(directId);
+        showFeedback(`✓ Extracted Track ID: ${directId}`, "ok");
+        return;
+      }
+      if (!directId && isPotentialDeezerUrl(val)) {
+        showFeedback("Resolving link…", "warn");
+        try {
+          const res = await resolveDeezerLink(val);
+          if (res?.track_id && res.track_id > 0) {
+            input.value = String(res.track_id);
+            showFeedback(`✓ Resolved to ID: ${res.track_id}`, "ok");
+          } else {
+            showFeedback("Could not find track in link", "err");
+          }
+        } catch {
+          // best-effort background resolution
+        }
+      }
+    };
+
+    input.addEventListener("paste", () => {
+      window.setTimeout(() => void handleUrlInput(), 50);
+    });
+
+    input.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        (e.target as HTMLElement).blur();
+        void onRefetch();
+      }
+    });
+  }
 }
 
 async function onIdentify(): Promise<void> {
@@ -1308,11 +1827,32 @@ async function onRefetch(): Promise<void> {
   if (!track || !res) return;
   const input = id<HTMLInputElement>("#rv-deezer-id");
   const raw = input?.value.trim() ?? "";
-  if (!/^\d+$/.test(raw)) {
-    showFeedback("Enter a numeric Deezer ID", "warn");
+  let targetId = extractDeezerTrackId(raw);
+
+  if ((!targetId || targetId <= 0) && isPotentialDeezerUrl(raw)) {
+    const btn = id<HTMLButtonElement>("#rv-refetch");
+    const orig = btn?.textContent ?? "";
+    if (btn) { btn.disabled = true; btn.textContent = "Resolving…"; }
+    showFeedback("Resolving link…", "warn");
+    try {
+      const resolved = await resolveDeezerLink(raw);
+      if (resolved?.track_id && resolved.track_id > 0) {
+        targetId = resolved.track_id;
+      }
+    } catch (err) {
+      console.warn("Link resolution failed:", err);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+  }
+
+  if (!targetId || targetId <= 0) {
+    showFeedback("Enter a numeric Deezer ID or paste a Deezer URL", "warn");
     return;
   }
-  const targetId = parseInt(raw, 10);
+  if (input) {
+    input.value = String(targetId);
+  }
   const le = leFor(track);
   const artist = (le.artist as string | undefined) ?? "Unknown Artist";
   const title = (le.title as string | undefined) ?? "Unknown Title";
@@ -1388,6 +1928,10 @@ async function ledgSetFromDisk(relPath: string): Promise<void> {
       const le = leFor(entry);
       entry.bitIdentical = le.audio_bit_identical as boolean | undefined;
       entry.similarityScore = le.similarity_score as number | undefined;
+      entry.offset_ms = le.offset_ms as number | null | undefined;
+      entry.is_transcode = le.is_transcode as boolean | null | undefined;
+      entry.orig_rms = le.orig_rms as number | null | undefined;
+      entry.staged_rms = le.staged_rms as number | null | undefined;
     }
   } catch { /* keep in-memory */ }
 }
@@ -1396,6 +1940,7 @@ async function ledgSetFromDisk(relPath: string): Promise<void> {
 
 function openCommitModal(): void {
   if (!res || !ledger) return;
+  stopAllReviewAudio();
   renderUpgraderStage(3);
 
   const root = document.createElement("div");
@@ -1441,6 +1986,12 @@ function openCommitModal(): void {
           <input type="radio" class="chk" name="commit-rekordbox-action" value="none" ${isDb || isXml ? "" : "checked"} />
           <span class="of">Leave Rekordbox alone<span class="ob">Files move on disk; Rekordbox is not touched.</span></span>
         </label>
+        <div style="margin-top:8px">
+          <label class="opt">
+            <input type="checkbox" class="chk" id="commit-auto-shift-cues" checked />
+            <span class="of">Auto-shift Rekordbox beatgrids & cue points by acoustic offset (Δt)<span class="ob">Keeps cues and beatgrids locked to transients even when lead-in silence differs.</span></span>
+          </label>
+        </div>
         <p class="muted small" style="margin:8px 0 0;font-size:11px">ℹ Cue points, hot cues, beatgrids, and playlists are preserved. (If a new master differs in silence lead-in, beatgrid alignment can be fine-tuned in Rekordbox).</p>
         <p id="commit-rekordbox-lock-warning" class="warn-text hidden" style="margin:6px 0 0">Rekordbox is running. Close it before updating the database, or choose “Leave Rekordbox alone”.</p>
       </div>
@@ -1554,12 +2105,14 @@ async function runCommit(closeModal: () => void): Promise<void> {
     setCommitStatus(backdrop, "Applying high-quality replacements to your library files. Please do not close the app.");
     commitResult = await commitChanges(res.ledgerPath, decisions, outputPath, strategy);
 
+    const autoShiftCues = document.querySelector<HTMLInputElement>("#commit-auto-shift-cues")?.checked ?? true;
+
     if (rbAction === "db" && res.sourceKind === "db") {
       setCommitStatus(backdrop, "Updating Rekordbox library directly…");
-      await updateRekordboxDbDirectly(res.ledgerPath, decisions, outputPath, strategy);
+      await updateRekordboxDbDirectly(res.ledgerPath, decisions, outputPath, strategy, autoShiftCues);
     } else if (rbAction === "xml" && res.sourceKind === "xml" && res.xmlPath) {
       setCommitStatus(backdrop, "Exporting upgraded Rekordbox XML…");
-      exportedXmlPath = await updateRekordboxXml(res.xmlPath, res.ledgerPath, decisions);
+      exportedXmlPath = await updateRekordboxXml(res.xmlPath, res.ledgerPath, decisions, autoShiftCues);
     }
 
     renderCommitResult(
@@ -1725,6 +2278,12 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
+  if ((e.key === "g" || e.key === "G") && !e.metaKey && !e.ctrlKey) {
+    e.preventDefault();
+    toggleMatchGain();
+    return;
+  }
+
   if (e.key === "Enter") e.preventDefault();
   if (currentIndex < 0 || currentIndex >= queue.length) return;
 
@@ -1756,7 +2315,7 @@ window.addEventListener("keydown", (e) => {
       break;
     case "Enter":
       e.preventDefault();
-      if (track.status === "downloaded" || hasShazamMeta(track)) void approveCurrent();
+      void approveCurrent();
       break;
     case "Backspace":
       e.preventDefault();

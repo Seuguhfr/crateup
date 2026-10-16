@@ -1,17 +1,17 @@
 /* App entry: hash router + shell chrome. No workflow logic. */
 import { convertFileSrc, isTauri, resetSession } from "./api.js";
 import { clearChrome } from "./chrome.js";
-import { teardownReview } from "./upgrader/review.js";
+import { teardownReview, stopAllReviewAudio } from "./upgrader/review.js";
 import { closeSession, enterSession, getCurrentId, getSession, getSessionById, getTheme, listSessions, removeSession, routeFromHash, setTheme, subscribe, } from "./store.js";
 import { renderHome, renderSettings, } from "./views.js";
 import { requestUpgraderResume, resetUpgraderView } from "./upgrader/view.js";
 import { requestCleanerResume, resetCleanerView } from "./cleaner/view.js";
 import { removeCleanerRun } from "./cleaner/settings.js";
-import { requestIngestionResume, resetIngestionView } from "./ingestion/view.js";
+import { requestIngestionResume, resetIngestionView, teardownIngestion } from "./ingestion/view.js";
 import { removeIngestionRun } from "./ingestion/settings.js";
 import { requestAuditResume, resetAuditView } from "./audit/view.js";
 import { removeAuditRun } from "./audit/settings.js";
-import { routeForTool, toolByRoute, TOOLS } from "./tools.js";
+import { routeForTool, toolById, toolByRoute, TOOLS } from "./tools.js";
 const TITLES = {
     home: "Home",
     settings: "Settings",
@@ -25,8 +25,10 @@ function renderNav(route) {
     // Blue = what you are inside. An open session owns the highlight for its
     // tool; the tool nav only lights up when on its fresh launcher.
     const open = getSession();
+    const sessionActiveOnThisRoute = open && routeForTool(open.tool) === route;
     document.querySelectorAll("[data-route]").forEach((a) => {
-        const lit = a.dataset.route === route && (!open || open.tool !== a.dataset.route);
+        const isCurrentRoute = a.dataset.route === route;
+        const lit = isCurrentRoute && !sessionActiveOnThisRoute;
         a.classList.toggle("active", lit);
         if (lit)
             a.classList.add("on");
@@ -43,13 +45,52 @@ function renderToolNav() {
         return;
     nav.insertAdjacentHTML("beforeend", TOOLS.map((t) => `<a class="nv" href="#/${t.route}" data-route="${t.route}"><span class="ic"><svg viewBox="0 0 16 16">${t.icon}</svg></span><span>${t.label}</span></a>`).join(""));
 }
+function cleanSessionPath(p, playlistName) {
+    if (playlistName) {
+        return `Playlist: ${playlistName}`;
+    }
+    if (!p)
+        return "";
+    if (p.includes("/Library/Application Support/Pioneer/rekordbox/master.db") || p.endsWith("rekordbox/master.db")) {
+        return "Rekordbox · master.db";
+    }
+    if (p.includes("/sessions/playlist_")) {
+        const after = p.split("/sessions/playlist_")[1].split("/")[0];
+        return `Playlist: ${after}`;
+    }
+    if (p.includes("/sessions/")) {
+        const segment = p.split("/sessions/")[1].split("/")[0];
+        const cleanName = segment.replace(/_\d{4}-\d{2}-\d{2}.*$/, "").replace(/_\d{8}.*$/, "");
+        return cleanName ? `Playlist: ${cleanName}` : p;
+    }
+    if (p.includes("/Library/Application Support/")) {
+        const after = p.split("/Library/Application Support/")[1];
+        return `…/${after}`;
+    }
+    if (p.startsWith("/Users/")) {
+        const parts = p.split("/");
+        if (parts.length > 4) {
+            return `…/${parts.slice(-2).join("/")}`;
+        }
+    }
+    return p;
+}
 function renderSession() {
     const el = document.getElementById("session-status");
-    if (!el)
-        return;
+    const current = currentRoute();
     const s = getSession();
-    el.textContent = s?.rootPath ?? s?.playlistName ?? "No active session";
-    el.title = s?.rootPath ?? s?.playlistName ?? "";
+    const sessionActiveOnThisRoute = s && routeForTool(s.tool) === current;
+    if (el) {
+        if (current === "home" || current === "settings" || !sessionActiveOnThisRoute || !s) {
+            el.textContent = "";
+            el.title = "";
+        }
+        else {
+            const pathText = cleanSessionPath(s.rootPath ?? "", s.playlistName);
+            el.textContent = pathText;
+            el.title = s.playlistName ?? s.rootPath ?? "";
+        }
+    }
     const list = document.getElementById("sources-list");
     const head = document.getElementById("sources-head");
     if (list && head) {
@@ -64,18 +105,28 @@ function renderSession() {
             .map((sess) => {
             const sub = sess.progressLabel ?? (sess.rootPath ? sessionBasename(sess.rootPath) : sess.tool);
             const info = `${sess.name} · ${sub} · ${sess.tool}`;
-            const isOpen = sess.id === cur;
-            const chip = isOpen
-                ? `<span class="c">live</span>`
-                : sess.status === "done"
-                    ? `<span class="c">done</span>`
-                    : "";
-            const action = isOpen
+            const isCurrent = sess.id === cur && routeForTool(sess.tool) === current;
+            let statusLabel = "";
+            if (sess.status === "running") {
+                statusLabel = "running";
+            }
+            else if (sess.status === "review" || (sess.hasFollowUps && (sess.tool === "upgrader" || sess.tool === "audit"))) {
+                statusLabel = "review";
+            }
+            else if (sess.status === "done") {
+                statusLabel = "done";
+            }
+            else if (sess.status === "active") {
+                statusLabel = sess.hasFollowUps ? "review" : "";
+            }
+            const chip = statusLabel ? `<span class="c ${statusLabel}">${statusLabel}</span>` : "";
+            const action = isCurrent
                 ? `<button class="x" data-close-session="${sess.id}" title="Close session (keeps it)">×</button>`
-                : sess.status === "done"
+                : sess.status !== "running"
                     ? `<button class="x" data-delete-session="${sess.id}" title="Delete session and its files">×</button>`
                     : "";
-            return `<a class="nv${isOpen ? " on" : ""}" href="#/${routeForTool(sess.tool)}" data-enter-session="${sess.id}"><span class="ic"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg></span><span class="tx"><span title="${escapeAttr(info)}">${escapeHtml(sess.name)}</span><span class="sub">${escapeHtml(sub)}</span></span>${chip}${action}</a>`;
+            const iconSvg = toolById(sess.tool)?.icon ?? `<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3" fill="none"/>`;
+            return `<a class="nv${isCurrent ? " on" : ""}" href="#/${routeForTool(sess.tool)}" data-enter-session="${sess.id}"><span class="ic"><svg viewBox="0 0 16 16">${iconSvg}</svg></span><span class="tx"><span title="${escapeAttr(info)}">${escapeHtml(sess.name)}</span><span class="sub">${escapeHtml(sub)}</span></span>${chip}${action}</a>`;
         })
             .join("");
     }
@@ -98,7 +149,7 @@ function renderBridge() {
         dot.classList.toggle("bad", !ok);
     }
     if (label)
-        label.textContent = ok ? "Tauri connected" : "No Tauri bridge";
+        label.textContent = ok ? "Engine ready" : "Engine offline";
 }
 function renderTheme() {
     const theme = getTheme();
@@ -115,8 +166,13 @@ function renderRoute() {
     const view = document.getElementById("view");
     if (!view)
         return;
-    if (route !== "upgrader")
+    if (route !== "upgrader") {
+        stopAllReviewAudio();
         teardownReview();
+    }
+    if (route !== "ingestion") {
+        teardownIngestion();
+    }
     renderNav(route);
     renderSession();
     switch (route) {
@@ -149,6 +205,7 @@ export function audioSrc(path) {
     }
 }
 window.addEventListener("hashchange", renderRoute);
+window.addEventListener("popstate", renderRoute);
 document.addEventListener("click", (e) => {
     const t = e.target;
     // Close button on the open session row: keep the session, leave it.
@@ -156,6 +213,7 @@ document.addEventListener("click", (e) => {
     if (closer) {
         e.preventDefault();
         e.stopPropagation();
+        stopAllReviewAudio();
         const id = closer.getAttribute("data-close-session");
         const sess = id ? getSessionById(id) : null;
         closeSession();
@@ -181,6 +239,7 @@ document.addEventListener("click", (e) => {
     if (del) {
         e.preventDefault();
         e.stopPropagation();
+        stopAllReviewAudio();
         const id = del.getAttribute("data-delete-session");
         const sess = id ? getSessionById(id) : null;
         if (!sess)
@@ -234,11 +293,14 @@ document.addEventListener("click", (e) => {
         })();
         return;
     }
-    // Sidebar session row: enter it and restore its workspace.
-    const enter = t.closest?.("[data-enter-session]");
+    // Resume button on Home card OR Sidebar session row: enter it and restore its workspace.
+    const resume = t.closest?.("[data-resume-id]");
+    const enter = resume ?? t.closest?.("[data-enter-session]");
     if (enter) {
         e.preventDefault();
-        const id = enter.getAttribute("data-enter-session");
+        e.stopPropagation();
+        stopAllReviewAudio();
+        const id = enter.getAttribute("data-resume-id") ?? enter.getAttribute("data-enter-session");
         const sess = id ? getSessionById(id) : null;
         if (!sess || !enterSession(sess.id))
             return;
@@ -267,6 +329,7 @@ document.addEventListener("click", (e) => {
         const cur = getSession();
         if (cur && cur.tool === route) {
             e.preventDefault();
+            stopAllReviewAudio();
             closeSession();
             if (route === "upgrader")
                 resetUpgraderView();

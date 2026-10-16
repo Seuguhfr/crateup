@@ -126,9 +126,9 @@ export function setTheme(theme) {
     document.documentElement.dataset.theme = theme;
     notify();
 }
-/** All sessions, most recently updated first. */
+/** All sessions in stable creation order (newest created first). */
 export function listSessions() {
-    return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+    return [...sessions];
 }
 /** The currently open session, if any. */
 export function getSession() {
@@ -188,18 +188,18 @@ export function openSession(input) {
         updatedAt: now,
         xmlPath: input.xmlPath ?? null,
     };
-    sessions.push(session);
+    sessions.unshift(session);
     currentId = session.id;
     persistSessions();
     notify();
     return { ...session };
 }
-/** Enter an existing session (sidebar resume). Returns false when unknown. */
+/** Enter an existing session (sidebar resume). Returns false when unknown.
+ *  Preserves stable sidebar position (never mutates updatedAt or reorders). */
 export function enterSession(id) {
     const found = sessions.find((s) => s.id === id);
     if (!found)
         return false;
-    found.updatedAt = Date.now();
     currentId = id;
     persistSessions();
     notify();

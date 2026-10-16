@@ -1,108 +1,26 @@
 use tauri::Manager;
 use tauri::Emitter;
-use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 
-pub(crate) struct PipelineManager(pub(crate) tokio::sync::Mutex<Option<CommandChild>>);
+pub(crate) struct PipelineManager(pub(crate) std::sync::Arc<std::sync::atomic::AtomicBool>);
 
 mod fingerprint_cache;
 mod rekordbox;
 mod similarity;
 mod xml;
 mod audit;
+pub(crate) mod ledger;
+pub(crate) mod deezer;
+pub(crate) mod python_rpc;
+pub(crate) mod scanner;
+pub(crate) mod waveform;
+pub(crate) mod commit;
+pub(crate) mod pipeline;
 
+use commit::CommitResult;
 use similarity::{
     calculate_similarity, get_audio_fingerprint, get_fpcalc_path, greedy_acoustic_match,
     sanitize_threshold,
 };
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct CommitFailure {
-    #[serde(rename = "relPath")]
-    rel_path: String,
-    error: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct CommitResult {
-    committed: u32,
-    skipped: u32,
-    failed: Vec<CommitFailure>,
-}
-
-
-pub(crate) fn resolve_node_sidecar_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bundled = resource_dir.join("node-sidecar");
-        if bundled.exists() {
-            return Ok(bundled);
-        }
-        let bundled_up = resource_dir.join("_up_").join("node-sidecar");
-        if bundled_up.exists() {
-            return Ok(bundled_up);
-        }
-    }
-
-    if let Some(parent) = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
-        let dev_path = parent.join("node-sidecar");
-        if dev_path.exists() {
-            return Ok(dev_path);
-        }
-    }
-
-    Err("Could not locate node-sidecar directory in resources or dev tree".to_string())
-}
-
-pub(crate) fn build_sidecar_env_path(app: &tauri::AppHandle, node_sidecar_dir: &std::path::Path) -> String {
-    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
-
-    // Packaged python-runtime in Resources
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bundled_py = resource_dir.join("python-runtime").join("bin");
-        if bundled_py.exists() {
-            dirs.push(bundled_py);
-        }
-        let bundled_up_py = resource_dir.join("_up_").join("python-runtime").join("bin");
-        if bundled_up_py.exists() {
-            dirs.push(bundled_up_py);
-        }
-    }
-
-    // Dev python-runtime or .venv
-    if let Some(parent) = node_sidecar_dir.parent() {
-        let runtime_bin = parent.join("python-runtime").join("bin");
-        if runtime_bin.exists() {
-            dirs.push(runtime_bin);
-        }
-        let venv_bin = parent.join(".venv").join("bin");
-        if venv_bin.exists() {
-            dirs.push(venv_bin);
-        }
-    }
-
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bundled_bin = resource_dir.join("binaries");
-        if bundled_bin.exists() {
-            dirs.push(bundled_bin);
-        }
-    }
-
-    let current_path = std::env::var("PATH").unwrap_or_default();
-    if dirs.is_empty() {
-        current_path
-    } else {
-        let prefix = dirs
-            .iter()
-            .map(|d| d.to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join(":");
-        if current_path.is_empty() {
-            prefix
-        } else {
-            format!("{}:{}", prefix, current_path)
-        }
-    }
-}
 
 pub(crate) fn safe_delete_file(path: &std::path::Path) -> Result<(), String> {
     if !path.exists() {
@@ -154,36 +72,6 @@ pub(crate) fn atomic_write_file(target_path: &std::path::Path, content: &str) ->
     Ok(())
 }
 
-async fn run_node_args<I, S>(app: &tauri::AppHandle, args: I) -> Result<String, String>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    let node_sidecar_dir = resolve_node_sidecar_dir(app)?;
-    let new_path = build_sidecar_env_path(app, &node_sidecar_dir);
-
-    let output = app.shell()
-        .sidecar("node")
-        .map_err(|e| e.to_string())?
-        .args(args)
-        .current_dir(node_sidecar_dir)
-        .env("PATH", new_path)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if !stderr.trim().is_empty() {
-            Err(stderr)
-        } else {
-            Err(String::from_utf8_lossy(&output.stdout).to_string())
-        }
-    }
-}
-
 #[tauri::command]
 fn select_directory(default_dir: Option<String>) -> Option<String> {
     let mut dialog = rfd::FileDialog::new();
@@ -223,7 +111,24 @@ fn check_ledger_exists(root_path: String) -> bool {
 
 #[tauri::command]
 fn read_ledger_file(ledger_path: String) -> Result<String, String> {
-    let content = std::fs::read_to_string(&ledger_path).map_err(|e| e.to_string())?;
+    let mut resolved = std::path::PathBuf::from(&ledger_path);
+    if !resolved.exists() {
+        if let Some(parent) = resolved.parent() {
+            let filename = resolved.file_name().and_then(|f| f.to_str()).unwrap_or("");
+            if filename == ".crateup-progress-dev.json" {
+                let fallback = parent.join(".crateup-progress.json");
+                if fallback.exists() {
+                    resolved = fallback;
+                }
+            } else if filename == ".crateup-progress.json" {
+                let fallback = parent.join(".crateup-progress-dev.json");
+                if fallback.exists() {
+                    resolved = fallback;
+                }
+            }
+        }
+    }
+    let content = std::fs::read_to_string(&resolved).map_err(|e| e.to_string())?;
     let mut val: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
     
     if let Some(rp) = val.get("root_path").and_then(|r| r.as_str()) {
@@ -282,168 +187,39 @@ fn write_ledger_file(ledger_path: String, content: String) -> Result<(), String>
 }
 
 #[tauri::command]
-fn get_node_path(app: tauri::AppHandle) -> Result<String, String> {
-    let sidecar_dir = resolve_node_sidecar_dir(&app)?;
-    let path = sidecar_dir.join("index.js");
-    Ok(path.to_string_lossy().into_owned())
+fn get_node_path() -> Result<String, String> {
+    Ok("native".to_string())
 }
 
 #[tauri::command]
 fn start_pipeline(
     app: tauri::AppHandle,
+    state: tauri::State<'_, PipelineManager>,
     root_path: String,
     output_format: String,
     file_list: Option<Vec<String>>,
     skip_high_quality: Option<bool>,
     skip_deezer_max: Option<bool>,
 ) {
+    let cancelled = state.0.clone();
+    cancelled.store(false, std::sync::atomic::Ordering::Relaxed);
     tauri::async_runtime::spawn(async move {
-        let node_sidecar_dir = match resolve_node_sidecar_dir(&app) {
-            Ok(d) => d,
-            Err(e) => {
-                let err_msg = format!("Failed to resolve node-sidecar directory: {}", e);
-                eprintln!("[ERROR] {}", err_msg);
-                let _ = app.emit("pipeline-log", serde_json::json!({ "line": format!("{}\n", err_msg) }));
-                let _ = app.emit("pipeline-done", -1);
-                return;
-            }
-        };
-
-        let pipeline_js = node_sidecar_dir.join("pipeline.js");
-        if !pipeline_js.exists() {
-            let err_msg = format!("pipeline.js does not exist at resolved path: {:?}", pipeline_js);
-            eprintln!("[ERROR] {}", err_msg);
-            let _ = app.emit("pipeline-log", serde_json::json!({ "line": format!("{}\n", err_msg) }));
-            let _ = app.emit("pipeline-done", -1);
-            return;
-        }
-
-        let new_path = build_sidecar_env_path(&app, &node_sidecar_dir);
-
-        let mut command_args = vec![
-            pipeline_js.to_string_lossy().to_string(),
-            root_path.clone(),
-            output_format.clone(),
-        ];
-
-        if let Some(true) = skip_high_quality {
-            command_args.push("--skip-high-quality".to_string());
-        }
-
-        if let Some(true) = skip_deezer_max {
-            command_args.push("--skip-deezer-max".to_string());
-        }
-
-        let temp_list_file = if let Some(ref list) = file_list {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            let temp_path = std::env::temp_dir().join(format!(
-                "crateup-pipeline-filelist-{}-{}.json",
-                std::process::id(),
-                nanos
-            ));
-            let list_json = serde_json::to_string(list).unwrap_or_default();
-            if std::fs::write(&temp_path, list_json).is_ok() {
-                command_args.push(temp_path.to_string_lossy().to_string());
-                Some(temp_path)
-            } else {
-                command_args.push(serde_json::to_string(list).unwrap_or_default());
-                None
-            }
-        } else {
-            None
-        };
-
-        eprintln!(
-            "[DEBUG] Spawning sidecar: node\n  Args: {:?}\n  Cwd: {:?}\n  PATH: {}",
-            command_args, node_sidecar_dir, new_path
-        );
-
-        let sidecar_cmd = match app.shell().sidecar("node") {
-            Ok(cmd) => cmd,
-            Err(e) => {
-                if let Some(ref p) = temp_list_file {
-                    let _ = std::fs::remove_file(p);
-                }
-                let err_msg = format!("Failed to initialize sidecar 'node': {}", e);
-                eprintln!("[ERROR] {}", err_msg);
-                let _ = app.emit("pipeline-log", serde_json::json!({ "line": format!("{}\n", err_msg) }));
-                let _ = app.emit("pipeline-done", -1);
-                return;
-            }
-        };
-
-        let spawn_res = sidecar_cmd
-            .args(&command_args)
-            .current_dir(&node_sidecar_dir)
-            .env("PATH", &new_path)
-            .spawn();
-
-        let (mut rx, child) = match spawn_res {
-            Ok(res) => res,
-            Err(e) => {
-                if let Some(ref p) = temp_list_file {
-                    let _ = std::fs::remove_file(p);
-                }
-                let err_msg = format!("Failed to spawn sidecar: {} (Check if 'node' binary is on PATH. Current PATH: {})", e, new_path);
-                eprintln!("[ERROR] {}", err_msg);
-                let _ = app.emit("pipeline-log", serde_json::json!({ "line": format!("{}\n", err_msg) }));
-                let _ = app.emit("pipeline-done", -1);
-                return;
-            }
-        };
-
-        {
-            let manager = app.state::<PipelineManager>();
-            let mut guard = manager.0.lock().await;
-            if let Some(old_child) = guard.take() {
-                let _ = old_child.kill();
-            }
-            *guard = Some(child);
-        }
-
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(line_bytes) => {
-                    let line = String::from_utf8_lossy(&line_bytes).to_string();
-                    let _ = app.emit("pipeline-log", serde_json::json!({ "line": line }));
-                }
-                CommandEvent::Stderr(line_bytes) => {
-                    let line = String::from_utf8_lossy(&line_bytes).to_string();
-                    let _ = app.emit("pipeline-log", serde_json::json!({ "line": line }));
-                }
-                CommandEvent::Terminated(status) => {
-                    let code = status.code.unwrap_or(-1);
-                    let _ = app.emit("pipeline-done", code);
-                    break;
-                }
-                _ => {}
-            }
-        }
-
-        {
-            let manager = app.state::<PipelineManager>();
-            let mut guard = manager.0.lock().await;
-            *guard = None;
-        }
-
-        if let Some(ref p) = temp_list_file {
-            let _ = std::fs::remove_file(p);
-        }
+        pipeline::run_pipeline(
+            app,
+            root_path,
+            output_format,
+            file_list,
+            skip_high_quality.unwrap_or(false),
+            skip_deezer_max.unwrap_or(false),
+            cancelled,
+        ).await;
     });
 }
 
 #[tauri::command]
 async fn cancel_pipeline(state: tauri::State<'_, PipelineManager>) -> Result<bool, String> {
-    let mut guard = state.0.lock().await;
-    if let Some(child) = guard.take() {
-        child.kill().map_err(|e| e.to_string())?;
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+    state.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(true)
 }
 
 #[tauri::command]
@@ -479,31 +255,7 @@ async fn commit_changes(
     output_path: String,
     output_strategy: String,
 ) -> Result<CommitResult, String> {
-    let config = serde_json::json!({
-        "ledger_path": ledger_path,
-        "decisions": decisions,
-        "output_path": output_path,
-        "output_strategy": output_strategy,
-    });
-    let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
-
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let temp_input = std::env::temp_dir().join(format!("crateup-commit-{}-{}.json", std::process::id(), nanos));
-    std::fs::write(&temp_input, config_json).map_err(|e| format!("Failed to write commit config: {}", e))?;
-
-    let temp_input_str = temp_input.to_string_lossy().to_string();
-    let output_res = run_node_args(&app, &["commit.js", &temp_input_str]).await;
-    let _ = std::fs::remove_file(&temp_input);
-
-    let output_str = output_res?;
-    let result: CommitResult = serde_json::from_str(output_str.trim()).map_err(|e| {
-        format!("Failed to parse commit result JSON: {}. Output was: {}", e, output_str)
-    })?;
-    
-    Ok(result)
+    commit::commit_changes(&app, &ledger_path, decisions, &output_path, &output_strategy)
 }
 
 #[tauri::command]
@@ -513,7 +265,19 @@ fn get_file_size(path: String) -> Option<u64> {
 
 #[tauri::command]
 fn check_file_exists(path: String) -> bool {
-    std::path::Path::new(&path).exists()
+    let p = std::path::Path::new(&path);
+    if p.exists() {
+        return true;
+    }
+    if let Some(parent) = p.parent() {
+        let filename = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        if filename == ".crateup-progress-dev.json" {
+            return parent.join(".crateup-progress.json").exists();
+        } else if filename == ".crateup-progress.json" {
+            return parent.join(".crateup-progress-dev.json").exists();
+        }
+    }
+    false
 }
 
 #[tauri::command]
@@ -543,18 +307,147 @@ async fn download_track_by_id(
     artist: String,
     title: String,
 ) -> Result<String, String> {
-    let deezer_id_str = deezer_id.to_string();
-    let args = [
-        "refetch.js",
-        &root_path,
-        &output_format,
-        &relative_path,
-        &deezer_id_str,
-        &artist,
-        &title,
-    ];
-    let output_str = run_node_args(&app, &args).await?;
-    Ok(output_str.trim().to_string())
+    let bridge = python_rpc::PythonBridge::spawn(&app).await?;
+    let root = std::path::PathBuf::from(&root_path);
+
+    let ext = std::path::Path::new(&relative_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    let rel_base = relative_path.trim_start_matches('/');
+    let base_without_ext = if !ext.is_empty() && rel_base.ends_with(ext) {
+        &rel_base[..rel_base.len() - ext.len() - 1]
+    } else {
+        rel_base
+    };
+
+    let safe_base = base_without_ext
+        .split('/')
+        .filter(|s| *s != ".." && *s != ".")
+        .collect::<Vec<_>>()
+        .join("/");
+    let relative_staged = format!("crateup-staging/{}.{}", safe_base, output_format);
+    let staged_abs = root.join(&relative_staged);
+
+    if let Some(parent) = staged_abs.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let mut matched_artist = artist;
+    let mut matched_title = title;
+
+    if matched_artist.is_empty() || matched_artist == "Unknown Artist" || matched_title.is_empty() || matched_title == "Unknown Title" {
+        if let Ok((a_opt, t_opt, _)) = deezer::fetch_deezer_metadata(deezer_id as i64).await {
+            if let Some(a) = a_opt { matched_artist = a; }
+            if let Some(t) = t_opt { matched_title = t; }
+        }
+    }
+
+    let dl_result = bridge.download(deezer_id, &output_format, &staged_abs.to_string_lossy()).await;
+    bridge.stop().await;
+
+    let dl = dl_result?;
+
+    let downloaded_path = std::path::PathBuf::from(dl.staged_path);
+    let clean_artist = pipeline::sanitize_filename_part(&matched_artist);
+    let clean_title = pipeline::sanitize_filename_part(&matched_title);
+    let combined = format!("{} - {}", clean_artist, clean_title);
+    let final_name = format!("{}.{}", combined, output_format);
+    let final_target = staged_abs.parent().unwrap_or(&root).join(&final_name);
+
+    let actual_staged = if downloaded_path != final_target {
+        match std::fs::rename(&downloaded_path, &final_target) {
+            Ok(_) => final_target,
+            Err(_) => downloaded_path,
+        }
+    } else {
+        downloaded_path
+    };
+
+    let mut proxy_str = None;
+    if let Some(pp) = dl.proxy_path {
+        let orig_proxy = std::path::PathBuf::from(pp);
+        let candidate_proxy = staged_abs.parent().unwrap_or(&root).join(format!("{}.proxy.mp3", combined));
+        if orig_proxy.exists() && orig_proxy != candidate_proxy {
+            let _ = std::fs::rename(&orig_proxy, &candidate_proxy);
+            proxy_str = Some(candidate_proxy.to_string_lossy().to_string());
+        } else {
+            proxy_str = Some(orig_proxy.to_string_lossy().to_string());
+        }
+    }
+
+    let fpcalc_path = similarity::get_fpcalc_path(&app);
+    let ffmpeg_path = similarity::get_ffmpeg_path(&app);
+    let ffprobe_path = similarity::get_ffprobe_path(&app);
+
+    let original_abs = root.join(relative_path.trim_start_matches('/'));
+
+    let comp = similarity::compare_audio_files(
+        &fpcalc_path,
+        &ffmpeg_path,
+        &original_abs,
+        &actual_staged,
+        None,
+    );
+    let similarity_score = comp.similarity;
+    let bit_identical = Some(comp.bit_identical);
+    let similarity_error = comp.error;
+
+    let orig_analysis = waveform::compute_audio_analysis(&ffmpeg_path, &original_abs, 256);
+    let staged_analysis = waveform::compute_audio_analysis(&ffmpeg_path, &actual_staged, 256);
+
+    let orig_peaks = orig_analysis.as_ref().map(|a| a.peaks.clone());
+    let staged_peaks = staged_analysis.as_ref().map(|a| a.peaks.clone());
+    let orig_rms = orig_analysis.as_ref().map(|a| a.rms);
+    let staged_rms = staged_analysis.as_ref().map(|a| a.rms);
+
+    let offset_ms = match (&orig_analysis, &staged_analysis) {
+        (Some(o), Some(s)) => waveform::compute_lead_in_offset(
+            &o.envelope_1ms,
+            &s.envelope_1ms,
+            similarity_score,
+            bit_identical,
+        ),
+        _ => None,
+    };
+
+    let is_transcode = waveform::check_is_transcode(&ffmpeg_path, &original_abs);
+    let staged_bitrate = scanner::get_bitrate(&ffprobe_path, &actual_staged);
+
+    if let Ok(Some(mut cur_ledger)) = ledger::load_ledger(&root) {
+        if let Some(entry) = cur_ledger.files.get_mut(&relative_path) {
+            entry.status = "downloaded".to_string();
+            entry.deezer_id = Some(deezer_id);
+            entry.staged_path = Some(actual_staged.to_string_lossy().to_string());
+            entry.proxy_path = proxy_str.clone();
+            entry.similarity_score = similarity_score;
+            entry.similarity_error = similarity_error;
+            entry.audio_bit_identical = bit_identical;
+            entry.staged_bitrate = staged_bitrate;
+            entry.artist = Some(matched_artist);
+            entry.title = Some(matched_title);
+            entry.peaks = orig_peaks;
+            entry.staged_peaks = staged_peaks;
+            entry.orig_rms = orig_rms;
+            entry.staged_rms = staged_rms;
+            entry.offset_ms = offset_ms;
+            if is_transcode == Some(true) {
+                entry.is_transcode = Some(true);
+            }
+        }
+        let _ = ledger::save_ledger(&root, &cur_ledger);
+    }
+
+    let res = serde_json::json!({
+        "status": "downloaded",
+        "deezer_id": deezer_id,
+        "staged_path": actual_staged.to_string_lossy().to_string(),
+        "proxy_path": proxy_str,
+        "similarity_score": similarity_score,
+        "audio_bit_identical": bit_identical,
+    });
+
+    Ok(res.to_string())
 }
 
 #[tauri::command]
@@ -563,13 +456,39 @@ async fn identify_track(
     root_path: String,
     relative_path: String,
 ) -> Result<String, String> {
-    let args = [
-        "identify.js",
-        &root_path,
-        &relative_path,
-    ];
-    let output_str = run_node_args(&app, &args).await?;
-    Ok(output_str.trim().to_string())
+    let bridge = python_rpc::PythonBridge::spawn(&app).await?;
+    let root = std::path::PathBuf::from(&root_path);
+    let mut abs_path = root.join(relative_path.trim_start_matches('/'));
+
+    if let Ok(Some(ledger)) = ledger::load_ledger(&root) {
+        if let Some(entry) = ledger.files.get(&relative_path) {
+            if let Some(ref orig) = entry.original_abs_path {
+                abs_path = std::path::PathBuf::from(orig);
+            }
+        }
+    }
+
+    let result = bridge.fingerprint(&abs_path.to_string_lossy()).await?;
+    bridge.stop().await;
+
+    // Update ledger on disk if identified
+    if result.artist.is_some() || result.title.is_some() {
+        if let Ok(Some(mut cur_ledger)) = ledger::load_ledger(&root) {
+            if let Some(entry) = cur_ledger.files.get_mut(&relative_path) {
+                entry.artist = result.artist.clone();
+                entry.title = result.title.clone();
+                if let Some(id) = result.deezer_id {
+                    entry.deezer_id = Some(id);
+                } else {
+                    entry.status = "not_on_deezer".to_string();
+                }
+            }
+            let _ = ledger::save_ledger(&root, &cur_ledger);
+        }
+    }
+
+    let json = serde_json::to_string(&result).map_err(|e| e.to_string())?;
+    Ok(json)
 }
 
 #[tauri::command]
@@ -578,12 +497,8 @@ async fn reset_session(
     root_path: String,
     is_session_dir: bool,
 ) -> Result<(), String> {
-    {
-        let mut guard = state.0.lock().await;
-        if let Some(child) = guard.take() {
-            let _ = child.kill();
-        }
-    }
+    state.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    ledger::clear_ledger_cache();
     let root = std::path::Path::new(&root_path);
     if !root.exists() {
         return Ok(());
@@ -733,6 +648,29 @@ fn save_arl(app: tauri::AppHandle, arl: String) -> Result<(), String> {
     Ok(())
 }
 
+pub use deezer::{ArlStatusResult, ResolvedDeezerTrack};
+
+#[tauri::command]
+async fn check_arl_status(
+    app: tauri::AppHandle,
+    token: Option<String>,
+) -> Result<ArlStatusResult, String> {
+    let effective_token = match token {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => get_arl(app.clone()),
+    };
+
+    deezer::validate_arl(&effective_token).await
+}
+
+#[tauri::command]
+async fn resolve_deezer_link(
+    _app: tauri::AppHandle,
+    url: String,
+) -> Result<ResolvedDeezerTrack, String> {
+    deezer::resolve_deezer_link(&url, 5).await
+}
+
 
 #[derive(serde::Serialize, Clone)]
 struct AcousticPair {
@@ -760,6 +698,94 @@ struct CompareAcousticProgress {
 struct FingerprintCacheInfo {
     entries: usize,
     bytes: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct EngineHealth {
+    pub fpcalc_ok: bool,
+    pub fpcalc_version: Option<String>,
+    pub ffmpeg_ok: bool,
+    pub ffmpeg_version: Option<String>,
+    pub python_ok: bool,
+    pub python_version: Option<String>,
+    pub rekordbox_db_exists: bool,
+    pub rekordbox_running: bool,
+    pub rekordbox_db_path: String,
+}
+
+fn find_python_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let p = resource_dir.join("python-runtime").join("bin").join("python3");
+        if p.exists() { return Some(p); }
+        let p = resource_dir.join("_up_").join("python-runtime").join("bin").join("python3");
+        if p.exists() { return Some(p); }
+    }
+    let dev_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent();
+    if let Some(parent) = dev_root {
+        let p = parent.join("python-runtime").join("bin").join("python3");
+        if p.exists() { return Some(p); }
+        let p = parent.join(".venv").join("bin").join("python3");
+        if p.exists() { return Some(p); }
+    }
+    if let Ok(out) = std::process::Command::new("python3").arg("--version").output() {
+        if out.status.success() {
+            return Some(std::path::PathBuf::from("python3"));
+        }
+    }
+    None
+}
+
+/// Query runtime dependency status and acoustic engine health for Settings.
+#[tauri::command]
+async fn check_engine_health(app: tauri::AppHandle) -> Result<EngineHealth, String> {
+    let fpcalc_path = similarity::get_fpcalc_path(&app);
+    let (fpcalc_ok, fpcalc_version) = match std::process::Command::new(&fpcalc_path).arg("-version").output() {
+        Ok(out) if out.status.success() => {
+            let s = String::from_utf8_lossy(&out.stdout).trim().lines().next().unwrap_or("").to_string();
+            (true, Some(s))
+        }
+        _ => (false, None),
+    };
+
+    let ffmpeg_path = similarity::get_ffmpeg_path(&app);
+    let (ffmpeg_ok, ffmpeg_version) = match std::process::Command::new(&ffmpeg_path).arg("-version").output() {
+        Ok(out) if out.status.success() => {
+            let s = String::from_utf8_lossy(&out.stdout).trim().lines().next().unwrap_or("").to_string();
+            (true, Some(s))
+        }
+        _ => (false, None),
+    };
+
+    let py_path = find_python_path(&app);
+    let (python_ok, python_version) = match py_path {
+        Some(ref p) => match std::process::Command::new(p).arg("--version").output() {
+            Ok(out) if out.status.success() => {
+                let s = String::from_utf8_lossy(&out.stdout).trim().lines().next().unwrap_or("").to_string();
+                let ver = if s.is_empty() {
+                    String::from_utf8_lossy(&out.stderr).trim().lines().next().unwrap_or("").to_string()
+                } else {
+                    s
+                };
+                (true, Some(ver))
+            }
+            _ => (false, None),
+        },
+        None => (false, None),
+    };
+
+    let rb_status = rekordbox::check_rekordbox_status().await?;
+
+    Ok(EngineHealth {
+        fpcalc_ok,
+        fpcalc_version,
+        ffmpeg_ok,
+        ffmpeg_version,
+        python_ok,
+        python_version,
+        rekordbox_db_exists: rb_status.db_exists,
+        rekordbox_running: rb_status.running,
+        rekordbox_db_path: rb_status.db_path,
+    })
 }
 
 /// Inspect the persistent fingerprint cache (Settings → Storage).
@@ -1010,7 +1036,7 @@ async fn open_directory(path: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(PipelineManager(tokio::sync::Mutex::new(None)))
+        .manage(PipelineManager(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false))))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
@@ -1038,14 +1064,21 @@ pub fn run() {
             identify_track,
             get_arl,
             save_arl,
+            check_arl_status,
+            resolve_deezer_link,
             xml::parse_and_validate_xml,
             xml::execute_safe_clone,
             open_directory,
+            check_engine_health,
             rekordbox::check_rekordbox_status,
             rekordbox::get_db_backups,
+            rekordbox::list_rekordbox_backups,
             rekordbox::execute_backup_cleanup,
             rekordbox::execute_db_consolidation,
             rekordbox::rollback_to_latest_backup,
+            rekordbox::rollback_to_backup,
+            rekordbox::delete_db_backup,
+            rekordbox::trash_superseded_files,
             xml::select_audio_files,
             xml::select_save_xml_file,
             xml::expand_audio_paths,

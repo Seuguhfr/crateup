@@ -13,20 +13,21 @@ import {
 } from "../jobs.js";
 import {
   checkRekordboxStatus,
-  executeBackupCleanup,
   executeDbConsolidation,
   executeSafeClone,
   fixRekordboxDbDuplicates,
-  getDbBackups,
   getXmlTrackCount,
+  listRekordboxBackups,
   openDirectory,
   parseAndValidateXml,
-  rollbackToLatestBackup,
+  RekordboxBackup,
+  rollbackToBackup,
   selectDirectory,
   selectXmlFile,
   showConfirmDialog,
+  trashSupersededFiles,
 } from "../api.js";
-import { loadPrefs } from "../policy.js";
+import { loadPrefs, thresholdLabel } from "../policy.js";
 import { esc } from "../upgrader/utils.js";
 import {
   closeSession,
@@ -35,7 +36,6 @@ import {
   updateSession,
 } from "../store.js";
 import {
-  cleanupReportLine,
   loadCleanerModifiers,
   loadCleanerPaths,
   loadCleanerRun,
@@ -44,10 +44,8 @@ import {
   saveCleanerPaths,
   saveCleanerRun,
   saveCleanerStrategy,
-  summarizeCleanup,
   type CleanerModifiers,
   type CleanerStrategy,
-  type CleanupEntry,
 } from "./settings.js";
 
 type Phase = "strategy" | "intake" | "options" | "running" | "done";
@@ -65,6 +63,7 @@ interface CleanerResult {
   duplicate_count: number;
   missing_list: string[];
   backup_filename: string | null;
+  superseded_paths?: string[];
 }
 
 interface ScanProgress {
@@ -93,9 +92,13 @@ interface State {
   opts: CleanerModifiers;
   result: CleanerResult | null;
   error: string | null;
-  backups: string[] | null;
+  backups: RekordboxBackup[] | null;
   backupSel: string;
   actionMsg: string | null;
+  showSupersededPreview: boolean;
+  trashingSuperseded: boolean;
+  supersededTrashedMsg: string | null;
+  rollbackFeedback: string | null;
 }
 
 const savedPaths = loadCleanerPaths();
@@ -117,6 +120,10 @@ const state: State = {
   backups: null,
   backupSel: "",
   actionMsg: null,
+  showSupersededPreview: false,
+  trashingSuperseded: false,
+  supersededTrashedMsg: null,
+  rollbackFeedback: null,
 };
 
 let viewEl: HTMLElement | null = null;
@@ -151,6 +158,10 @@ export function resetCleanerView(): void {
   state.actionMsg = null;
   state.backups = null;
   state.fixMsg = null;
+  state.showSupersededPreview = false;
+  state.trashingSuperseded = false;
+  state.supersededTrashedMsg = null;
+  state.rollbackFeedback = null;
 }
 
 export function renderCleaner(el: HTMLElement): void {
@@ -216,7 +227,7 @@ function restoreSessionScreen(): boolean {
 function paint(): void {
   if (!viewEl) return;
   const head = phaseHead(
-    "02 / Cleaner",
+    "02 · CLEANER",
     "Library Cleaner",
     "Consolidate and dedupe without losing Rekordbox metadata.",
   );
@@ -348,7 +359,7 @@ function optionsHtml(): string {
       <h3>Modifiers</h3>
       ${sel("cl-filemode", "File mode", [["copy", "Copy files"], ["move", "Move files"], ["link", "Hardlink"]], o.fileMode)}
       ${sel("cl-crossfmt", "Cross-format", [["smart", "Merge different formats"], ["strict", "Keep formats separated"]], o.crossFormat)}
-      ${sel("cl-dedup", "Dedup", [["strict", "Exact same file"], ["standard", "Same artist + title"], ["fuzzy", "Audio comparison (>90%)"]], o.dedupDepth)}
+      ${sel("cl-dedup", "Dedup", [["strict", "Exact same file"], ["standard", "Same artist + title"], ["fuzzy", `Audio comparison (${thresholdLabel(loadPrefs().match.acousticThreshold)})`]], o.dedupDepth)}
       ${sel("cl-rename", "Renaming", [["preserve", "Native filenames"], ["clean", "Artist - Title"]], o.renamingRule)}
       <p class="muted small">${state.strategy === "db" ? "A dated master.db snapshot is taken automatically before any write." : "Missing tracks are skipped; the XML is rewritten to point at the copies."}</p>
       <div class="frow">
@@ -371,9 +382,9 @@ function doneHtml(): string {
   if (!r) return errHtml();
   const metrics = `<div class="sect"><h3>Consolidation complete</h3>
       <div class="stats">
-        <div><b>${r.healthy_count}</b><span>processed</span></div>
-        <div><b>${r.duplicate_count}</b><span>duplicates remapped</span></div>
-        <div><b>${r.missing_count}</b><span>missing skipped</span></div>
+        <div class="stat"><div class="v">${r.healthy_count.toLocaleString()}</div><div class="l">processed</div></div>
+        <div class="stat"><div class="v">${r.duplicate_count.toLocaleString()}</div><div class="l">duplicates remapped</div></div>
+        <div class="stat"><div class="v">${r.missing_count.toLocaleString()}</div><div class="l">missing skipped</div></div>
       </div></div>`;
   const actions =
     state.strategy === "db" ? dbDoneHtml(r) : xmlDoneHtml();
@@ -397,25 +408,94 @@ function xmlDoneHtml(): string {
 
 function dbDoneHtml(r: CleanerResult): string {
   const backupLine = r.backup_filename
-    ? `<p class="muted small">Snapshot: <b>${esc(r.backup_filename)}</b> (next to the live master.db).</p>`
+    ? `<p class="muted small">Snapshot created: <b>${esc(r.backup_filename)}</b> (stored next to live master.db).</p>`
+    : "";
+  const rollbackFeedbackHtml = state.rollbackFeedback
+    ? `<div class="ok-box" style="margin-bottom:12px;padding:8px 12px;background:rgba(48,209,88,0.12);border:1px solid rgba(48,209,88,0.3);border-radius:6px;color:var(--text);font-size:13px">${esc(
+        state.rollbackFeedback,
+      )}</div>`
     : "";
   const backups = state.backups;
-  const cleanup =
-    backups === null
-      ? ""
-      : `<div class="frow"><span class="fl">Backup</span>
-        <select class="pop" id="cl-backup-sel">${backups.map((b) => `<option value="${esc(b)}"${b === state.backupSel ? " selected" : ""}>${esc(b)}</option>`).join("")}</select>
-        <button class="btn" id="cl-cleanup" ${state.backupSel ? "" : "disabled"}>Delete old files</button>
-      </div>`;
+  const rollbackSection =
+    backups === null || backups.length === 0
+      ? `<div class="frow"><button class="btn" id="cl-rollback">⚠ Rollback database</button></div>`
+      : `<div class="frow"><span class="fl">Snapshot</span>
+          <select class="pop" id="cl-backup-sel" style="flex:1">
+            ${backups
+              .map((b) => {
+                const activeLabel = b.is_active ? " · Active" : "";
+                const label = `${b.created_at} (${b.intact_tracks.toLocaleString()} on disk${
+                  b.missing_tracks > 0 ? ` · ${b.missing_tracks.toLocaleString()} missing` : ""
+                })${activeLabel}`;
+                return `<option value="${esc(b.filename)}"${
+                  b.filename === state.backupSel ? " selected" : ""
+                }>${esc(label)}</option>`;
+              })
+              .join("")}
+          </select>
+          <button class="btn" id="cl-rollback">⚠ Rollback to snapshot</button>
+        </div>`;
+
+  const superseded = state.result?.superseded_paths ?? [];
+  const supersededSection =
+    superseded.length === 0
+      ? `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+          <p class="muted small" style="margin-bottom:0">No duplicate audio files needed removal in this run.</p>
+          ${state.supersededTrashedMsg ? `<p class="ok-text" style="margin-top:6px">${esc(state.supersededTrashedMsg)}</p>` : ""}
+        </div>`
+      : `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+          <p class="muted small" style="margin-bottom:8px"><b>${superseded.length} duplicate audio file${
+            superseded.length === 1 ? "" : "s"
+          }</b> superseded in this run. Their records were merged in Rekordbox, and the superseded files remain on disk.</p>
+          <div style="margin-bottom:10px">
+            <button class="btn sm" id="cl-toggle-superseded" style="margin-bottom:6px">
+              ${
+                state.showSupersededPreview
+                  ? "Hide superseded files ⌃"
+                  : `Preview ${superseded.length} superseded file${superseded.length === 1 ? "" : "s"} ⌄`
+              }
+            </button>
+            ${
+              state.showSupersededPreview
+                ? `<div class="mono small" style="max-height:160px;overflow-y:auto;background:var(--segBg);padding:8px 10px;border-radius:4px;display:flex;flex-direction:column;gap:4px">
+                    ${superseded
+                      .map(
+                        (p) =>
+                          `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(
+                            p,
+                          )}">${esc(p.split("/").pop() ?? p)} <span class="muted" style="font-size:10px">${esc(
+                            p,
+                          )}</span></div>`,
+                      )
+                      .join("")}
+                  </div>`
+                : ""
+            }
+          </div>
+          <div class="frow">
+            <button class="btn danger" id="cl-trash-superseded" ${
+              state.trashingSuperseded ? "disabled" : ""
+            }>
+              ${
+                state.trashingSuperseded
+                  ? "Moving to Trash…"
+                  : `Move ${superseded.length} superseded audio file${
+                      superseded.length === 1 ? "" : "s"
+                    } to Trash`
+              }
+            </button>
+          </div>
+          ${state.supersededTrashedMsg ? `<p class="ok-text" style="margin-top:8px">${esc(state.supersededTrashedMsg)}</p>` : ""}
+        </div>`;
+
   return `<div class="sect">
-      <h3>Safety</h3>
+      <h3>Safety & Rollback</h3>
       ${backupLine}
-      <p class="muted small">Delete old files removes copies no longer referenced by the live database. Rollback restores the latest snapshot.</p>
-      ${cleanup}
-      ${state.actionMsg ? `<p class="ok-text">${esc(state.actionMsg)}</p>` : ""}
-      <div class="frow">
-        <button class="btn" id="cl-rollback">⚠ Rollback to backup</button>
-      </div>
+      ${rollbackFeedbackHtml}
+      <p class="muted small">If Rekordbox was modified improperly, you can restore your database snapshot immediately.</p>
+      ${rollbackSection}
+      ${supersededSection}
+      ${state.actionMsg ? `<p class="ok-text" style="margin-top:8px">${esc(state.actionMsg)}</p>` : ""}
     </div>`;
 }
 
@@ -462,7 +542,11 @@ function bind(): void {
   on("cl-open-dest", () => {
     if (state.destPath) void openDirectory(state.destPath).catch((e) => console.error(e));
   });
-  on("cl-cleanup", () => void runCleanup());
+  on("cl-toggle-superseded", () => {
+    state.showSupersededPreview = !state.showSupersededPreview;
+    paint();
+  });
+  on("cl-trash-superseded", () => void trashSuperseded());
   on("cl-rollback", () => void runRollback());
   on("cl-start-over", () => {
     // Non-destructive: the session (and its summary) stays in the sidebar.
@@ -626,11 +710,14 @@ async function runConsolidation(): Promise<void> {
   let lastPct = -1;
   updateSession(runSessionId, { status: "active", progressLabel: "Consolidating…" });
   let detach: (() => void) | null = null;
+  let lastSessionUpdate = 0;
   try {
     detach = await watchJobEvent<ConsolidationProgress>("rebuilder-consolidation-progress", (p) => {
       paintJobProgress("cl-fill", "cl-text", p.processed, p.total, `${p.filename} — ${p.processed}/${p.total}`);
       const pct = p.total > 0 ? Math.floor((p.processed / p.total) * 100) : -1;
-      if (pct !== lastPct) {
+      const now = Date.now();
+      if ((pct !== lastPct && now - lastSessionUpdate > 100) || p.processed === p.total) {
+        lastSessionUpdate = now;
         lastPct = pct;
         updateSession(runSessionId, { progressLabel: `${p.processed}/${p.total} consolidated` });
       }
@@ -679,46 +766,72 @@ async function runConsolidation(): Promise<void> {
 
 async function loadBackups(): Promise<void> {
   try {
-    const list = await getDbBackups();
+    const list = await listRekordboxBackups();
     state.backups = list;
     const own = state.result?.backup_filename ?? "";
-    state.backupSel = own && list.includes(own) ? own : (list[list.length - 1] ?? "");
+    const filenames = list.map((b) => b.filename);
+    state.backupSel = own && filenames.includes(own) ? own : (list[0]?.filename ?? "");
   } catch {
     state.backups = [];
   }
 }
 
-async function runCleanup(): Promise<void> {
-  if (!state.backupSel) return;
+async function trashSuperseded(): Promise<void> {
+  const paths = state.result?.superseded_paths ?? [];
+  if (paths.length === 0) return;
   const ok = await confirmDialog(
-    "Delete old files?",
-    `Delete files referenced by ${state.backupSel} but no longer in the live database? This cannot be undone.`,
+    "Move superseded files to Trash?",
+    `Move ${paths.length} duplicate audio file${paths.length === 1 ? "" : "s"} to macOS Trash? These files are no longer referenced in Rekordbox.`,
   );
   if (!ok) return;
-  state.actionMsg = "Cleaning up…";
+  state.trashingSuperseded = true;
   paint();
   try {
-    const raw = (await executeBackupCleanup(state.backupSel)) as unknown as {
-      results: CleanupEntry[];
-    };
-    state.actionMsg = `Cleanup: ${cleanupReportLine(summarizeCleanup(raw.results ?? []))}.`;
+    const count = await trashSupersededFiles(paths);
+    state.supersededTrashedMsg = `Moved ${count} superseded audio file${count === 1 ? "" : "s"} to macOS Trash.`;
+    if (state.result) {
+      state.result.superseded_paths = [];
+    }
   } catch (err) {
-    state.actionMsg = `Cleanup failed: ${errMsg(err)}`;
+    state.actionMsg = `Trashing failed: ${errMsg(err)}`;
+  } finally {
+    state.trashingSuperseded = false;
+    paint();
   }
-  paint();
 }
 
 async function runRollback(): Promise<void> {
-  const ok = await confirmDialog(
-    "Rollback to backup?",
-    "Restore the latest master.db snapshot over the live database? Rekordbox must stay closed.",
-  );
-  if (!ok) return;
+  const b = state.backups?.find((x) => x.filename === state.backupSel);
+  if (!b) return;
+  if (b.is_active) {
+    alert("This backup snapshot is already active in Rekordbox.");
+    return;
+  }
+
+  let keepValidPaths = false;
+  if (b.missing_tracks > 0) {
+    const healChoice = await confirmDialog(
+      "Smart Relink & Restore?",
+      `Snapshot from ${b.created_at} has ${b.missing_tracks.toLocaleString()} missing audio file(s) on disk (${b.intact_tracks.toLocaleString()} intact).\n\nWould you like to heal missing paths from current live locations where possible?`,
+    );
+    keepValidPaths = healChoice;
+  } else {
+    const ok = await confirmDialog(
+      "Rollback Rekordbox database?",
+      `Restore database snapshot from ${b.created_at} (${b.filename}) over live master.db? Rekordbox must stay closed.`,
+    );
+    if (!ok) return;
+  }
+
   state.actionMsg = "Restoring backup…";
   paint();
   try {
-    const name = await rollbackToLatestBackup();
-    state.actionMsg = `Restored ${name} over the live database.`;
+    const res = await rollbackToBackup(b.filename, keepValidPaths);
+    const healedText = res.healed_paths_count > 0 ? `, ${res.healed_paths_count} paths healed` : "";
+    const safetyText = res.created_safety_backup ? ` · auto-saved previous state as ${res.created_safety_backup}` : "";
+    state.rollbackFeedback = `✓ Restored Rekordbox database to ${b.created_at} (${res.intact_tracks.toLocaleString()} tracks on disk${healedText}${safetyText}).`;
+    state.actionMsg = null;
+    await loadBackups();
   } catch (err) {
     state.actionMsg = `Rollback failed: ${errMsg(err)}`;
   }

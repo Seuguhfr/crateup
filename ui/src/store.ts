@@ -20,7 +20,7 @@ export type SourceKind = "folder" | "xml" | "db" | "compare";
 
 export type ToolId = "upgrader" | "cleaner" | "ingestion" | "compare" | "audit";
 
-export type SessionStatus = "active" | "done";
+export type SessionStatus = "active" | "running" | "review" | "done";
 
 export interface Session {
   id: string;
@@ -195,9 +195,9 @@ export function setTheme(theme: "dark" | "light"): void {
   notify();
 }
 
-/** All sessions, most recently updated first. */
+/** All sessions in stable creation order (newest created first). */
 export function listSessions(): Session[] {
-  return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+  return [...sessions];
 }
 
 /** The currently open session, if any. */
@@ -257,18 +257,18 @@ export function openSession(input: OpenSessionInput): Session {
     updatedAt: now,
     xmlPath: input.xmlPath ?? null,
   };
-  sessions.push(session);
+  sessions.unshift(session);
   currentId = session.id;
   persistSessions();
   notify();
   return { ...session };
 }
 
-/** Enter an existing session (sidebar resume). Returns false when unknown. */
+/** Enter an existing session (sidebar resume). Returns false when unknown.
+ *  Preserves stable sidebar position (never mutates updatedAt or reorders). */
 export function enterSession(id: string): boolean {
   const found = sessions.find((s) => s.id === id);
   if (!found) return false;
-  found.updatedAt = Date.now();
   currentId = id;
   persistSessions();
   notify();

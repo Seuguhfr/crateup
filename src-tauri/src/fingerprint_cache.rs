@@ -21,6 +21,9 @@ struct CachedFingerprint {
     /// Raw-audio MD5 where computed (ingestion pre-scan). Absent otherwise.
     #[serde(default)]
     md5: Option<String>,
+    /// Transcode status where computed (Spek Guard check). Absent otherwise.
+    #[serde(default)]
+    is_transcode: Option<bool>,
 }
 
 pub struct FingerprintCache {
@@ -79,6 +82,18 @@ impl FingerprintCache {
         }
     }
 
+    /// Look up transcode status if previously checked and valid.
+    pub fn get_transcode(&self, path: &Path) -> Option<bool> {
+        let (mtime, size) = file_sig(path)?;
+        let key = path.to_string_lossy().to_string();
+        let hit = self.entries.get(&key)?;
+        if hit.mtime_secs == mtime && hit.size == size {
+            hit.is_transcode
+        } else {
+            None
+        }
+    }
+
     /// Store a fingerprint (stats the file for the validity signature).
     pub fn insert(&mut self, path: &Path, fp: Vec<u32>) {
         self.insert_full(path, fp, None);
@@ -86,15 +101,57 @@ impl FingerprintCache {
 
     /// Store a fingerprint plus its raw-audio MD5.
     pub fn insert_full(&mut self, path: &Path, fp: Vec<u32>, md5: Option<String>) {
+        self.insert_all(path, fp, md5, None);
+    }
+
+    /// Store a fingerprint, optional raw MD5, and optional transcode status.
+    pub fn insert_all(
+        &mut self,
+        path: &Path,
+        fp: Vec<u32>,
+        md5: Option<String>,
+        is_transcode: Option<bool>,
+    ) {
         if let Some((mtime_secs, size)) = file_sig(path) {
             let key = path.to_string_lossy().to_string();
-            // Keep a previously cached MD5 when this write has none.
-            let md5 = md5.or_else(|| {
-                self.entries
-                    .get(&key)
-                    .and_then(|e| e.md5.clone())
-            });
-            self.entries.insert(key, CachedFingerprint { mtime_secs, size, fp, md5 });
+            let prev = self.entries.get(&key);
+            let md5 = md5.or_else(|| prev.and_then(|e| e.md5.clone()));
+            let is_transcode = is_transcode.or_else(|| prev.and_then(|e| e.is_transcode));
+            self.entries.insert(
+                key,
+                CachedFingerprint {
+                    mtime_secs,
+                    size,
+                    fp,
+                    md5,
+                    is_transcode,
+                },
+            );
+            self.dirty = true;
+        }
+    }
+
+    /// Set or update the transcode status for a file.
+    pub fn insert_transcode(&mut self, path: &Path, is_transcode: bool) {
+        if let Some((mtime_secs, size)) = file_sig(path) {
+            let key = path.to_string_lossy().to_string();
+            if let Some(entry) = self.entries.get_mut(&key) {
+                if entry.mtime_secs == mtime_secs && entry.size == size {
+                    entry.is_transcode = Some(is_transcode);
+                    self.dirty = true;
+                    return;
+                }
+            }
+            self.entries.insert(
+                key,
+                CachedFingerprint {
+                    mtime_secs,
+                    size,
+                    fp: Vec::new(),
+                    md5: None,
+                    is_transcode: Some(is_transcode),
+                },
+            );
             self.dirty = true;
         }
     }
@@ -185,6 +242,29 @@ mod tests {
         // changing the size must invalidate.
         std::fs::write(&file, b"fake-audio-bytes!!").unwrap();
         assert!(cache.get(&file).is_none());
+
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn test_cache_transcode_status() {
+        let dir = std::env::temp_dir().join("crateup-fp-test-transcode");
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("track.flac");
+        std::fs::write(&file, b"fake-lossless-data").unwrap();
+
+        let mut cache = FingerprintCache {
+            file: None,
+            entries: HashMap::new(),
+            dirty: false,
+        };
+        assert!(cache.get_transcode(&file).is_none());
+        cache.insert_transcode(&file, true);
+        assert_eq!(cache.get_transcode(&file), Some(true));
+
+        cache.insert_all(&file, vec![10, 20], None, Some(false));
+        assert_eq!(cache.get_transcode(&file), Some(false));
+        assert_eq!(cache.get(&file), Some(vec![10, 20]));
 
         let _ = std::fs::remove_file(&file);
     }

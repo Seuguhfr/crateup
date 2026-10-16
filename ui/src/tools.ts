@@ -33,7 +33,7 @@ export const TOOLS: ToolDef[] = [
     route: "upgrader",
     label: "Quality Upgrader",
     kind: "pipeline",
-    icon: `<path d="M9 3v10L1.5 8.5 9 4zM12 8l2-1.5V9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>`,
+    icon: `<path d="M2 8h1M5 5v6M8 2.5v11M11 5.5v5M14 8h-1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`,
     blurb:
       "Fingerprint a folder or playlist, download lossless replacements, review each pair yourself.",
     render: renderUpgrader,
@@ -43,7 +43,7 @@ export const TOOLS: ToolDef[] = [
     route: "cleaner",
     label: "Library Cleaner",
     kind: "pipeline",
-    icon: `<path d="M2 14h12M5 14V8.5l3-2M11 14V8.5l-3-2M8 6.5V3" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/>`,
+    icon: `<path d="M8 2l1.6 4.4L14 8l-4.4 1.6L8 14l-1.6-4.4L2 8l4.4-1.6L8 2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 1.5v3M12 3h3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`,
     blurb:
       "Consolidate a Rekordbox collection, dedupe, rewrite paths in XML or master.db.",
     render: renderCleaner,
@@ -53,7 +53,7 @@ export const TOOLS: ToolDef[] = [
     route: "ingestion",
     label: "Ingestion Hub",
     kind: "pipeline",
-    icon: `<path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`,
+    icon: `<path d="M8 2v7m0 0L5.5 6.5M8 9l2.5-2.5M2.5 10.5v2a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5v-2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`,
     blurb:
       "Drop loose tracks, dedupe against the library, export a clean playlist and XML.",
     render: renderIngestion,
@@ -63,7 +63,7 @@ export const TOOLS: ToolDef[] = [
     route: "compare",
     label: "Playlist Compare",
     kind: "utility",
-    icon: `<path d="M2 5.5h9M8.5 3l2.5 2.5-2.5 2.5M14 10.5H5M7.5 8l-2.5 2.5 2.5 2.5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+    icon: `<path d="M2 5.5h9M8.5 3l2.5 2.5-2.5 2.5M14 10.5H5M7.5 8l-2.5 2.5 2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`,
     blurb:
       "Two playlists side by side: shared tracks, and what each side has that the other doesn't.",
     render: renderCompare,
@@ -73,7 +73,7 @@ export const TOOLS: ToolDef[] = [
     route: "audit",
     label: "Library Audit",
     kind: "pipeline",
-    icon: `<circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`,
+    icon: `<circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>`,
     blurb:
       "Prove the library folder holds exactly what Rekordbox references — leftovers, stray hardlinks, stragglers.",
     render: renderAudit,

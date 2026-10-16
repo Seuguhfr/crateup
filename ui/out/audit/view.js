@@ -2,7 +2,7 @@
  * pipeline tools: the run opens a sidebar session (identity = tool +
  * library folder), live progress while auditing, restorable summary after.
  * Deleting a session removes the record only — never files. */
-import { clearChrome } from "../chrome.js";
+import { clearChrome, renderDock } from "../chrome.js";
 import { phaseHead } from "../components.js";
 import { detachAll, jobProgressHtml, paintJobProgress, watchJobEvent, } from "../jobs.js";
 import { auditLibrary, auditSuggestedRoots, deleteAuditPaths, removeEmptyFolders, selectDirectory, showConfirmDialog, } from "../api.js";
@@ -24,6 +24,22 @@ const state = {
     foldersMsg: null,
     error: null,
 };
+const expandedLists = new Set();
+const expandedTwinGroups = new Set();
+function formatMiddleEllipsis(path, maxLength = 80) {
+    if (path.length <= maxLength)
+        return path;
+    const parts = path.split("/");
+    if (parts.length > 3) {
+        const head = parts.slice(0, 2).join("/");
+        const tail = parts.slice(-2).join("/");
+        const candidate = `${head}/…/${tail}`;
+        if (candidate.length <= maxLength)
+            return candidate;
+    }
+    const half = Math.floor((maxLength - 1) / 2);
+    return `${path.slice(0, half)}…${path.slice(-half)}`;
+}
 let viewEl = null;
 let runActive = false;
 let resumeRequested = false;
@@ -44,6 +60,8 @@ export function resetAuditView() {
     state.emptiedFolders = [];
     state.foldersMsg = null;
     state.error = null;
+    expandedLists.clear();
+    expandedTwinGroups.clear();
 }
 export function renderAudit(el) {
     viewEl = el;
@@ -121,13 +139,44 @@ function restoreSessionScreen() {
 function paint() {
     if (!viewEl)
         return;
-    const head = phaseHead("04 / Audit", "Library Audit", "The library folder must hold exactly what Rekordbox references — nothing more.");
+    const head = phaseHead("05 · AUDIT", "Library Audit", "The library folder must hold exactly what Rekordbox references — nothing more.");
     const body = state.phase === "pick"
         ? pickHtml()
         : state.phase === "running"
             ? jobProgressHtml("au-fill", "au-text", "Auditing")
             : resultsHtml();
     viewEl.innerHTML = `<div class="ov"><div class="mx">${head}${body}</div></div>`;
+    if (state.phase === "results") {
+        renderDock(`Audit complete · ${state.selected.length} file${state.selected.length === 1 ? "" : "s"} selected for trash`, [
+            {
+                id: "au-dock-delete",
+                label: `Move ${state.selected.length} file${state.selected.length === 1 ? "" : "s"} to Trash`,
+                variant: "danger",
+                disabled: state.selected.length === 0,
+                onClick: () => void deleteSelected(),
+            },
+            {
+                id: "au-dock-rerun",
+                label: "Re-run audit",
+                variant: "ghost",
+                onClick: () => void runAudit(),
+            },
+            {
+                id: "au-dock-close",
+                label: "Close session",
+                variant: "ghost",
+                onClick: () => {
+                    clearChrome();
+                    closeSession();
+                    resetAuditView();
+                    paint();
+                },
+            },
+        ]);
+    }
+    else {
+        document.getElementById("dock")?.classList.add("hidden");
+    }
     bind();
 }
 function errHtml() {
@@ -174,63 +223,141 @@ function resultsHtml() {
     const cov = s.twinFolders > 0
         ? `<p class="muted small">Twin coverage: ${r.twins_found_extra} of ${r.twins_total_extra} known extra links found${r.twins_total_extra > r.twins_found_extra ? " — the rest live outside your searched folders" : ""}.</p>`
         : "";
-    const leftovers = r.leftovers.length === 0
-        ? `<p class="ok-text">✓ No leftovers — the folder matches the database.</p>`
-        : `<div class="kv-list">${r.leftovers
+    const duplicates = r.leftovers.filter((l) => l.kind === "duplicate");
+    const orphans = r.leftovers.filter((l) => l.kind !== "duplicate");
+    const allDupesSelected = duplicates.length > 0 && duplicates.every((d) => state.selected.includes(d.path));
+    const duplicatesSection = duplicates.length === 0
+        ? `<div class="sect"><h3>Provable Duplicates</h3><p class="ok-text">✓ No duplicates — every file in the folder is unique.</p></div>`
+        : `<div class="sect">
+          <div class="frow" style="align-items:center;justify-content:space-between;margin-bottom:8px">
+            <h3 style="margin:0">Provable Duplicates (${duplicates.length})</h3>
+            <label class="opt" style="padding:0">
+              <input type="checkbox" class="chk" id="au-toggle-all-dupes" ${allDupesSelected ? "checked" : ""} />
+              <span class="of">Select all ${duplicates.length} duplicate${duplicates.length === 1 ? "" : "s"}</span>
+            </label>
+          </div>
+          <p class="muted small" style="margin-top:0">Identical audio stream matches another track in Rekordbox. Pre-ticked and safe to move to Trash.</p>
+          <div class="kv-list">${duplicates
             .slice(0, 200)
             .map((l) => `<div class="kv-row">
-              <label class="opt"><input type="checkbox" class="chk" data-sel="${esc(l.path)}" ${state.selected.includes(l.path) ? "checked" : ""} />
-              <span class="of">${esc(l.path.split("/").pop() ?? l.path)}<span class="ob">${l.kind === "duplicate"
-            ? `duplicate of ${esc((l.dupe_of ?? "").split("/").pop() ?? "")}`
-            : "orphan — in no playlist, matches nothing"} · ${esc(fmtBytes(l.size))}</span></span></label></div>`)
-            .join("")}</div>${r.leftovers.length > 200 ? `<p class="muted small">…and ${r.leftovers.length - 200} more — delete in batches, then re-run.</p>` : ""}`;
+                <label class="opt"><input type="checkbox" class="chk" data-sel="${esc(l.path)}" ${state.selected.includes(l.path) ? "checked" : ""} />
+                <span class="of">${esc(l.path.split("/").pop() ?? l.path)}<span class="ob">duplicate of ${esc((l.dupe_of ?? "").split("/").pop() ?? "")} · ${esc(fmtBytes(l.size))}</span></span></label></div>`)
+            .join("")}</div>${duplicates.length > 200 ? `<p class="muted small">…and ${duplicates.length - 200} more — delete in batches, then re-run.</p>` : ""}
+        </div>`;
+    const allOrphansSelected = orphans.length > 0 && orphans.every((o) => state.selected.includes(o.path));
+    const orphansSection = orphans.length === 0
+        ? `<div class="sect"><h3>Unreferenced Orphans</h3><p class="ok-text">✓ No unreferenced orphans — every file in the folder is tracked in Rekordbox.</p></div>`
+        : `<div class="sect">
+          <div class="frow" style="align-items:center;justify-content:space-between;margin-bottom:8px">
+            <h3 style="margin:0">Unreferenced Orphans (${orphans.length})</h3>
+            <label class="opt" style="padding:0">
+              <input type="checkbox" class="chk" id="au-toggle-all-orphans" ${allOrphansSelected ? "checked" : ""} />
+              <span class="of">Select all ${orphans.length} orphan${orphans.length === 1 ? "" : "s"}</span>
+            </label>
+          </div>
+          <p class="muted small" style="margin-top:0">Files living in your library folder that are not referenced by any playlist or database row. Unticked by default — tick only what you recognise as junk.</p>
+          <div class="kv-list">${orphans
+            .slice(0, 200)
+            .map((l) => `<div class="kv-row">
+                <label class="opt"><input type="checkbox" class="chk" data-sel="${esc(l.path)}" ${state.selected.includes(l.path) ? "checked" : ""} />
+                <span class="of">${esc(l.path.split("/").pop() ?? l.path)}<span class="ob">orphan — in no playlist, matches nothing · ${esc(fmtBytes(l.size))}</span></span></label></div>`)
+            .join("")}</div>${orphans.length > 200 ? `<p class="muted small">…and ${orphans.length - 200} more — delete in batches, then re-run.</p>` : ""}
+        </div>`;
     const groups = r.stray_groups.length === 0
         ? `<p class="muted small">No stray hardlink twins inside the searched folders.</p>`
         : r.stray_groups
-            .map((g) => `<div class="sect" style="margin:8px 0 0"><h3>${esc(g.folder)} (${g.files.length})</h3>
-              <div class="frow"><label class="opt"><input type="checkbox" class="chk" data-sel-group="${esc(g.folder)}" ${g.files.every((f) => state.selected.includes(f)) && g.files.length > 0 ? "checked" : ""} />
-              <span class="of">Select all in this folder<span class="ob">Twins share data blocks — deleting frees 0 bytes, it frees the folder.</span></span></label></div>
-              <div class="kv-list">${g.files
-            .slice(0, 30)
-            .map((f) => `<div class="kv-row">
+            .map((g) => {
+            const allIn = g.files.length > 0 && g.files.every((f) => state.selected.includes(f));
+            const isExpanded = expandedTwinGroups.has(g.folder);
+            const displayFiles = isExpanded ? g.files : g.files.slice(0, 10);
+            const toggleBtn = g.files.length > 10
+                ? `<div style="margin-top:6px">
+                    <button class="link-btn small" data-toggle-twin-group="${esc(g.folder)}">${isExpanded
+                    ? `Show fewer (showing all ${g.files.length} twins)`
+                    : `Show all ${g.files.length} twins (${g.files.length - 10} hidden) ⌄`}</button>
+                  </div>`
+                : "";
+            return `<div class="sect" style="margin:8px 0 0">
+              <div class="frow" style="align-items:center;justify-content:space-between">
+                <h3 style="margin:0">${esc(g.folder)} (${g.files.length} twin${g.files.length === 1 ? "" : "s"})</h3>
+              </div>
+              <div class="frow" style="margin:6px 0">
+                <label class="opt">
+                  <input type="checkbox" class="chk" data-sel-group="${esc(g.folder)}" ${allIn ? "checked" : ""} />
+                  <span class="of">Select all ${g.files.length} twin${g.files.length === 1 ? "" : "s"} in this folder tree<span class="ob">Twins share data blocks with your library — trashing frees the folder structure without deleting library audio.</span></span>
+                </label>
+              </div>
+              <div class="kv-list">${displayFiles
+                .map((f) => `<div class="kv-row">
                     <label class="opt"><input type="checkbox" class="chk" data-sel="${esc(f)}" ${state.selected.includes(f) ? "checked" : ""} />
-                    <span class="of">${esc(f.split("/").pop() ?? f)}</span></label></div>`)
-            .join("")}${g.files.length > 30 ? `<p class="muted small">…and ${g.files.length - 30} more (select-all covers them).</p>` : ""}</div></div>`)
+                    <span class="of">${esc(f.split("/").pop() ?? f)}<span class="ob">${esc(f)}</span></span></label></div>`)
+                .join("")}</div>
+              ${toggleBtn}
+            </div>`;
+        })
             .join("");
-    const infoList = (items, empty) => items.length === 0
-        ? `<p class="muted small">${empty}</p>`
-        : `<div class="kv-list">${items
-            .slice(0, 20)
-            .map((p) => `<div class="kv-row"><span class="k-value">${esc(p)}</span></div>`)
-            .join("")}${items.length > 20 ? `<p class="muted small">…and ${items.length - 20} more.</p>` : ""}</div>`;
+    const infoList = (id, items, empty) => {
+        if (items.length === 0) {
+            return `<p class="muted small">${empty}</p>`;
+        }
+        const isExpanded = expandedLists.has(id);
+        const displayItems = isExpanded ? items : items.slice(0, 20);
+        const expandToggle = items.length > 20
+            ? `<div style="margin-top:6px">
+            <button class="link-btn small" data-toggle-list="${id}">${isExpanded
+                ? `Show fewer (showing all ${items.length})`
+                : `Show all ${items.length} items (${items.length - 20} hidden)`}</button>
+          </div>`
+            : "";
+        return `<div class="kv-list">${displayItems
+            .map((p) => `<div class="audit-path-row"><span class="audit-path-text" title="${esc(p)}">${esc(formatMiddleEllipsis(p))}</span></div>`)
+            .join("")}</div>${expandToggle}`;
+    };
     return `<div class="sect"><h3>Audit complete</h3>
       <div class="stats">
-        <div><b>${s.audioFiles}</b><span>files scanned</span></div>
-        <div><b>${s.leftovers}</b><span>leftovers (${s.dupes} dupes · ${s.orphans} orphans)</span></div>
-        <div><b>${s.twinFiles}</b><span>stray twins</span></div>
-        <div><b>${esc(fmtBytes(s.wastedBytes))}</b><span>reclaimable</span></div>
+        <div class="stat"><div class="v">${s.audioFiles.toLocaleString()}</div><div class="l">files scanned</div></div>
+        <div class="stat"><div class="v">${s.leftovers.toLocaleString()}</div><div class="l">leftovers (${s.dupes} dupes · ${s.orphans} orphans)</div></div>
+        <div class="stat"><div class="v">${s.twinFiles.toLocaleString()}</div><div class="l">stray twins</div></div>
+        <div class="stat"><div class="v">${esc(fmtBytes(s.wastedBytes))}</div><div class="l">reclaimable</div></div>
       </div>
       ${cov}</div>
-    <div class="sect"><h3>Leftovers in the library folder</h3>
-      <p class="muted small">Duplicates are pre-ticked (provably redundant). Orphans are unticked — tick only what you recognise as junk.</p>
-      ${leftovers}</div>
+    ${duplicatesSection}
+    ${orphansSection}
     <div class="sect"><h3>Stray hardlink twins</h3>${groups}</div>
-    <div class="frow">
-      <button class="btn primary" id="au-delete" ${state.selected.length ? "" : "disabled"}>
-        Delete selected (${state.selected.length})</button>
-      <button class="btn" id="au-rerun">Re-run audit</button>
-      <button class="btn" id="au-close">Close session</button>
-    </div>
     ${state.deleteMsg ? `<p class="ok-text">${esc(state.deleteMsg)}</p>` : ""}
     ${state.emptiedFolders.length ? `<div class="frow"><span class="fl">Folders</span>
       <span class="muted small" style="flex:1">${state.emptiedFolders.length} folder${state.emptiedFolders.length === 1 ? " became" : "s became"} empty.</span>
       <button class="btn" id="au-rmdirs">Remove them</button></div>` : ""}
     ${state.foldersMsg ? `<p class="ok-text">${esc(state.foldersMsg)}</p>` : ""}
-    <div class="sect"><h3>Collected but elsewhere (${s.outside})</h3>
-      ${infoList(r.outside_db, "Everything collected lives inside the loaded folder.")}
-      <h3 style="margin-top:10px">Database rows pointing at missing files (${s.missing})</h3>
-      ${infoList(r.missing_db, "No stale rows — every database entry resolves to a file.")}
-      ${r.skipped_dirs.length ? `<h3 style="margin-top:10px">Unreadable folders (${r.skipped_dirs.length})</h3>${infoList(r.skipped_dirs, "")}` : ""}
+    <div class="sect">
+      <div class="frow" style="align-items:center;justify-content:space-between">
+        <h3 style="margin:0">Collected but elsewhere (${s.outside})</h3>
+        ${r.outside_db.length > 0 ? `<button class="btn sm" id="au-consolidate-btn">Consolidate ${r.outside_db.length} external tracks →</button>` : ""}
+      </div>
+      ${infoList("outside_db", r.outside_db, "Everything collected lives inside the loaded folder.")}
+      <div class="frow" style="align-items:center;justify-content:space-between;margin-top:14px">
+        <h3 style="margin:0">Database rows pointing at missing files (${s.missing})</h3>
+        ${r.missing_db.length > 0 ? `<button class="btn sm" id="au-export-missing-csv">Export missing (.csv)</button>` : ""}
+      </div>
+      ${infoList("missing_db", r.missing_db, "No stale rows — every database entry resolves to a file.")}
+      ${r.fake_lossless && r.fake_lossless.length > 0 ? `
+      <h3 style="margin-top:14px">Fake Lossless Transcodes (${r.fake_lossless.length})</h3>
+      <p class="muted small" style="margin:0 0 6px">Spek Guard detected brickwall lowpass cutoffs at ~16 kHz in these files. They are likely upscaled lossy files pretending to be lossless.</p>
+      <div class="kv-list">${r.fake_lossless.map(f => `
+        <div class="kv-row" style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="of" style="flex:1;">
+            <span class="badge warn" style="margin-right:6px;">⚠ Fake Lossless</span>
+            ${esc(f.split("/").pop() ?? f)}
+            <span class="ob" style="display:block;">${esc(f)}</span>
+          </span>
+          <button class="btn small" data-upgrade-fake="${esc(f)}">Upgrade in CrateUp</button>
+        </div>
+      `).join("")}</div>` : ""}
+      ${r.streaming_db && r.streaming_db.length > 0 ? `
+      <h3 style="margin-top:14px">Streaming / Cloud tracks (${r.streaming_db.length})</h3>
+      <p class="muted small" style="margin:0 0 6px">Tracks streamed from online services (Spotify, Tidal, SoundCloud, etc.) do not have local audio files.</p>
+      ${infoList("streaming_db", r.streaming_db, "No streaming tracks.")}` : ""}
+      ${r.skipped_dirs.length ? `<h3 style="margin-top:14px">Unreadable folders (${r.skipped_dirs.length})</h3>${infoList("skipped_dirs", r.skipped_dirs, "")}` : ""}
     </div>
     ${errHtml()}`;
 }
@@ -243,12 +370,84 @@ function bind() {
     on("au-pick-lib", () => void pickLibrary());
     on("au-add-root", () => void addRoot());
     on("au-run", () => void runAudit());
-    on("au-delete", () => void deleteSelected());
     on("au-rmdirs", () => void removeEmptiedFolders());
-    on("au-rerun", () => void runAudit());
-    on("au-close", () => {
-        closeSession();
-        resetAuditView();
+    on("au-consolidate-btn", () => {
+        window.location.hash = "#/cleaner";
+    });
+    on("au-export-missing-csv", () => {
+        const list = state.report?.missing_db ?? [];
+        if (list.length === 0)
+            return;
+        const csvHeader = "File Path\n";
+        const csvRows = list.map((p) => `"${p.replace(/"/g, '""')}"`).join("\n");
+        const blob = new Blob([csvHeader + csvRows], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `crateup-missing-db-tracks-${Date.now()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+    viewEl.querySelectorAll("[data-toggle-list]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const listId = btn.dataset.toggleList;
+            if (!listId)
+                return;
+            if (expandedLists.has(listId)) {
+                expandedLists.delete(listId);
+            }
+            else {
+                expandedLists.add(listId);
+            }
+            paint();
+        });
+    });
+    viewEl.querySelectorAll("[data-toggle-twin-group]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const folder = btn.dataset.toggleTwinGroup;
+            if (!folder)
+                return;
+            if (expandedTwinGroups.has(folder)) {
+                expandedTwinGroups.delete(folder);
+            }
+            else {
+                expandedTwinGroups.add(folder);
+            }
+            paint();
+        });
+    });
+    q("au-toggle-all-dupes")?.addEventListener("change", (e) => {
+        const checked = e.target.checked;
+        const dupes = state.report?.leftovers.filter((l) => l.kind === "duplicate").map((l) => l.path) ?? [];
+        if (dupes.length === 0)
+            return;
+        if (checked) {
+            const set = new Set(state.selected);
+            for (const p of dupes)
+                set.add(p);
+            state.selected = Array.from(set);
+        }
+        else {
+            state.selected = state.selected.filter((p) => !dupes.includes(p));
+        }
+        paint();
+    });
+    q("au-toggle-all-orphans")?.addEventListener("change", (e) => {
+        const checked = e.target.checked;
+        const orphans = state.report?.leftovers.filter((l) => l.kind !== "duplicate").map((l) => l.path) ?? [];
+        if (orphans.length === 0)
+            return;
+        if (checked) {
+            const set = new Set(state.selected);
+            for (const p of orphans)
+                set.add(p);
+            state.selected = Array.from(set);
+        }
+        else {
+            state.selected = state.selected.filter((p) => !orphans.includes(p));
+        }
         paint();
     });
     viewEl.querySelectorAll("[data-unroot]").forEach((b) => {
@@ -285,6 +484,16 @@ function bind() {
             state.selected = sel;
             paint();
             refocus(`[data-sel-group="${cssEscape(folder)}"]`);
+        });
+    });
+    viewEl.querySelectorAll("[data-upgrade-fake]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const filePath = btn.dataset.upgradeFake;
+            if (filePath) {
+                const folder = filePath.substring(0, filePath.lastIndexOf("/"));
+                openSession({ tool: "upgrader", rootPath: folder || state.libraryRoot, sourceKind: "folder" });
+                window.location.hash = "#/upgrader";
+            }
         });
     });
 }
@@ -388,7 +597,7 @@ async function runAudit() {
             state.selected.push(...g.files);
         const s = summarizeAudit(report);
         updateSession(runSessionId, {
-            status: "done",
+            status: s.leftovers > 0 || s.twinFiles > 0 ? "review" : "done",
             hasFollowUps: s.leftovers > 0 || s.twinFiles > 0,
             progressLabel: `${s.leftovers} leftovers · ${s.twinFiles} twins · ${fmtBytes(s.wastedBytes)}`,
         });
@@ -457,6 +666,15 @@ async function deleteSelected() {
             // Keep the resumed summary honest.
             const cur = getSession();
             if (cur && cur.tool === "audit") {
+                const s = summarizeAudit(state.report);
+                const hasRemaining = s.leftovers > 0 || s.twinFiles > 0;
+                updateSession(cur.id, {
+                    status: hasRemaining ? "review" : "done",
+                    hasFollowUps: hasRemaining,
+                    progressLabel: hasRemaining
+                        ? `${s.leftovers} leftovers · ${s.twinFiles} twins · ${fmtBytes(s.wastedBytes)}`
+                        : "Audit clean · 0 leftovers",
+                });
                 saveAuditRun(cur.id, {
                     libraryRoot: state.libraryRoot,
                     searchRoots: [...state.searchRoots],

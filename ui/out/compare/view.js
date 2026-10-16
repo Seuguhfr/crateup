@@ -27,7 +27,9 @@ let acousticUnlisten = null;
 // Handover state for "Upgrade these": deduped path lists behind the
 // Only-in-A / Only-in-B groups of the current render.
 let pendingUpgrade = null;
+let activeTab = "onlyA";
 export function renderCompare(el) {
+    const prevScrollTop = el.querySelector(".ov")?.scrollTop ?? 0;
     el.className = "screen on";
     const opts = (selected) => options
         .map((o) => `<option value="${esc(o.key)}"${o.key === selected ? " selected" : ""}>${esc(o.label)}${o.nodeType === "folder" ? " (folder)" : ""}</option>`)
@@ -35,7 +37,7 @@ export function renderCompare(el) {
     el.innerHTML = `
     <div class="ov">
       <div class="mx" style="max-width:760px">
-        ${phaseHead("04 · Compare", "Playlist Compare", "Two playlists from your Rekordbox library — XML export or live database. Common songs, and what each side has that the other doesn't.")}
+        ${phaseHead("04 · COMPARE", "Playlist Compare", "Two playlists from your Rekordbox library — XML export or live database. Common songs, and what each side has that the other doesn't.")}
         <div class="sect">
           <h3>Library</h3>
           <div class="frow">
@@ -67,6 +69,7 @@ export function renderCompare(el) {
               <span class="fl">Playlist B</span>
               <select class="pop" id="cmp-b">${opts(keyB)}</select>
             </div>
+            ${soundActionHtml(optByKey(keyA), optByKey(keyB))}
           </div>
           <div id="cmp-results">${resultsHtml()}</div>`
         : ""}
@@ -97,8 +100,7 @@ export function renderCompare(el) {
     });
     el.querySelector("#cmp-browse")?.addEventListener("click", () => void pickXml(el));
     el.querySelector("#cmp-sound")?.addEventListener("click", () => void runAcoustic(el));
-    el.querySelector("#cmp-upgrade-a")?.addEventListener("click", () => void upgradeThese(el, "a"));
-    el.querySelector("#cmp-upgrade-b")?.addEventListener("click", () => void upgradeThese(el, "b"));
+    wireResults(el);
     el.querySelector("#cmp-a")?.addEventListener("change", (e) => {
         keyA = e.target.value;
         renderCompare(el);
@@ -107,12 +109,36 @@ export function renderCompare(el) {
         keyB = e.target.value;
         renderCompare(el);
     });
+    const newOv = el.querySelector(".ov");
+    if (newOv && prevScrollTop > 0)
+        newOv.scrollTop = prevScrollTop;
+}
+function wireResults(el) {
+    const resEl = el.querySelector("#cmp-results");
+    if (!resEl)
+        return;
+    resEl.querySelector("#cmp-upgrade-a")?.addEventListener("click", () => void upgradeThese(el, "a"));
+    resEl.querySelector("#cmp-upgrade-b")?.addEventListener("click", () => void upgradeThese(el, "b"));
+    resEl.querySelector("#cmp-tabs")?.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-tab]");
+        const next = btn?.dataset.tab;
+        if (next === "onlyA" || next === "onlyB" || next === "both") {
+            activeTab = next;
+            const ov = el.querySelector(".ov");
+            const prev = ov?.scrollTop ?? 0;
+            resEl.innerHTML = resultsHtml();
+            wireResults(el);
+            if (ov)
+                ov.scrollTop = prev;
+        }
+    });
 }
 function resetOptions() {
     options = [];
     keyA = null;
     keyB = null;
     error = null;
+    activeTab = "onlyA";
 }
 function acceptTree(nodes, tooFew) {
     const list = collectPlaylists(nodes);
@@ -201,6 +227,35 @@ function cacheKey(a, b) {
     const src = source === "db" ? "db" : `xml:${xmlPath ?? ""}`;
     return `${src}||${a.nodeType}:${a.name}||${b.nodeType}:${b.name}`;
 }
+function soundActionHtml(a, b) {
+    if (!a || !b || a.key === b.key)
+        return "";
+    const key = cacheKey(a, b);
+    const cached = cache.get(key);
+    if (!cached)
+        return "";
+    const { onlyA, onlyB } = cached;
+    const sound = acoustic.get(key);
+    if (sound) {
+        return `<div class="frow" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);align-items:center">
+      <span class="ok-text small">✓ Acoustic matching paired ${sound.pairs.length} identical track${sound.pairs.length === 1 ? "" : "s"}${sound.skipped.length > 0 ? ` (${sound.skipped.length} missing skipped)` : ""}.</span>
+    </div>`;
+    }
+    if (onlyA.length === 0 || onlyB.length === 0)
+        return "";
+    if (acousticBusyKey === key) {
+        return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      ${jobProgressHtml("cmp-sound-fill", "cmp-sound-text", "Matching leftovers by sound…")}
+    </div>`;
+    }
+    pendingAcoustic = { key, a: onlyA, b: onlyB };
+    const pct = thresholdLabel(loadPrefs().match.acousticThreshold);
+    return `
+    <div class="frow" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);align-items:center;justify-content:space-between">
+      <span class="muted small" style="flex:1;min-width:0;padding-right:12px">Pair identical recordings at different paths (${onlyA.length} × ${onlyB.length} comparisons, ${pct} match)</span>
+      <button class="btn sm" id="cmp-sound">Match leftovers by sound</button>
+    </div>`;
+}
 function resultsHtml() {
     // Rendered synchronously from cached track lists.
     const a = optByKey(keyA);
@@ -219,22 +274,11 @@ function resultsHtml() {
         return `<p class="muted small">Loading tracks…</p>`;
     }
     const { common, onlyA, onlyB } = cached;
-    const group = (title, tracks, empty, action = "") => `
-    <div class="sect">
-      <h3>${esc(title)} · ${tracks.length}</h3>
-      ${tracks.length === 0
-        ? `<p class="muted" style="margin:0">${esc(empty)}</p>`
-        : `<div class="tree-box">${tracks
-            .map((p) => `<div class="tree-row"><span class="tree-name" title="${esc(p)}">${esc(displayTrackName(p))}</span></div>`)
-            .join("")}</div>`}
-      ${action}
-    </div>`;
     // Acoustic refinement for the leftovers: same song, different file.
     pendingAcoustic = null;
     pendingUpgrade = null;
     let restA = onlyA;
     let restB = onlyB;
-    let pairsHtml = "";
     let skippedHtml = "";
     const sound = acoustic.get(key);
     if (sound) {
@@ -243,40 +287,59 @@ function resultsHtml() {
             const pairedB = new Set(sound.pairs.map((p) => p.b));
             restA = onlyA.filter((p) => !pairedA.has(p));
             restB = onlyB.filter((p) => !pairedB.has(p));
-            pairsHtml = `
-        <div class="sect">
-          <h3>Same song, different file · ${sound.pairs.length}</h3>
-          <div class="tree-box">${sound.pairs
-                .map((p) => `<div class="tree-row"><span class="tree-name" title="${esc(p.a)} ↔ ${esc(p.b)}">${esc(displayTrackName(p.a))} <span class="muted">↔</span> ${esc(displayTrackName(p.b))} <span class="c">${Math.round(p.score * 100)}%</span></span></div>`)
-                .join("")}</div>
-        </div>`;
         }
         if (sound.skipped.length > 0) {
-            skippedHtml = `<p class="muted small">Skipped ${sound.skipped.length} missing file${sound.skipped.length === 1 ? "" : "s"}.</p>`;
+            skippedHtml = `<p class="muted small" style="margin-top:8px">Skipped ${sound.skipped.length} missing file${sound.skipped.length === 1 ? "" : "s"}.</p>`;
         }
     }
-    let html = group(`In both`, common, "No shared tracks.") +
-        pairsHtml +
-        group(`Only in ${a.label}`, restA, `Everything in ${a.label} is also in ${b.label}.`, upgradeAction("a", restA)) +
-        group(`Only in ${b.label}`, restB, `Everything in ${b.label} is also in ${a.label}.`, upgradeAction("b", restB)) +
-        skippedHtml;
     pendingUpgrade = { key, aLabel: a.label, aPaths: restA, bLabel: b.label, bPaths: restB };
-    if (!sound && onlyA.length > 0 && onlyB.length > 0) {
-        if (acousticBusyKey) {
-            html += jobProgressHtml("cmp-sound-fill", "cmp-sound-text", "Matching by sound…");
+    let tabContentHtml = "";
+    if (activeTab === "onlyA") {
+        tabContentHtml =
+            restA.length === 0
+                ? `<p class="muted" style="margin:0">Everything in ${esc(a.label)} is also in ${esc(b.label)}.</p>`
+                : `<div class="tree-box">${restA
+                    .map((p) => `<div class="tree-row"><span class="tree-name" title="${esc(p)}">${esc(displayTrackName(p))}</span></div>`)
+                    .join("")}</div>${upgradeAction("a", restA)}`;
+    }
+    else if (activeTab === "onlyB") {
+        tabContentHtml =
+            restB.length === 0
+                ? `<p class="muted" style="margin:0">Everything in ${esc(b.label)} is also in ${esc(a.label)}.</p>`
+                : `<div class="tree-box">${restB
+                    .map((p) => `<div class="tree-row"><span class="tree-name" title="${esc(p)}">${esc(displayTrackName(p))}</span></div>`)
+                    .join("")}</div>${upgradeAction("b", restB)}`;
+    }
+    else {
+        // "both" tab: show common exact matches plus acoustic pairs if any
+        const totalBoth = common.length + (sound?.pairs.length ?? 0);
+        if (totalBoth === 0) {
+            tabContentHtml = `<p class="muted" style="margin:0">No shared tracks between these playlists.</p>`;
         }
         else {
-            pendingAcoustic = { key, a: onlyA, b: onlyB };
-            const pct = thresholdLabel(loadPrefs().match.acousticThreshold);
-            html += `
-        <div class="sect">
-          <h3>Same song, different file?</h3>
-          <p class="muted" style="margin:0 0 10px">Fingerprint both sides and pair identical recordings that live at different paths (${onlyA.length} × ${onlyB.length} comparisons, ${pct} match).</p>
-          <button class="btn" id="cmp-sound">Match by sound</button>
-        </div>`;
+            tabContentHtml = `
+        <div class="tree-box">
+          ${common
+                .map((p) => `<div class="tree-row"><span class="tree-name" title="${esc(p)}">${esc(displayTrackName(p))}</span></div>`)
+                .join("")}
+          ${sound && sound.pairs.length > 0
+                ? sound.pairs
+                    .map((p) => `<div class="tree-row" style="background:var(--segBg)"><span class="tree-name" title="${esc(p.a)} ↔ ${esc(p.b)}">${esc(displayTrackName(p.a))} <span class="muted">↔</span> ${esc(displayTrackName(p.b))} <span class="c ok-text">${Math.round(p.score * 100)}% acoustic</span></span></div>`)
+                    .join("")
+                : ""}
+        </div>${skippedHtml}`;
         }
     }
-    return html;
+    const bothCount = common.length + (sound?.pairs.length ?? 0);
+    return `
+    <div class="sect">
+      <div class="seg" id="cmp-tabs" style="margin-bottom:12px;display:inline-flex">
+        <button data-tab="onlyA"${activeTab === "onlyA" ? ' class="on"' : ""}>Only in ${esc(a.label)} (${restA.length})</button>
+        <button data-tab="onlyB"${activeTab === "onlyB" ? ' class="on"' : ""}>Only in ${esc(b.label)} (${restB.length})</button>
+        <button data-tab="both"${activeTab === "both" ? ' class="on"' : ""}>In Both (${bothCount})</button>
+      </div>
+      ${tabContentHtml}
+    </div>`;
 }
 const cache = new Map();
 async function fetchTracks(opt) {

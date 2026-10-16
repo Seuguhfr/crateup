@@ -3,7 +3,7 @@
 
 import { countLedger, type Ledger } from "./utils.js";
 import { renderSourceScreen, resolveFileListSession, type SourceResolution } from "./source.js";
-import { leaveReview, renderReviewScreen } from "./review.js";
+import { leaveReview, renderReviewScreen, stopAllReviewAudio } from "./review.js";
 import { checkFileExists, readLedgerFile } from "../api.js";
 import { closeSession, getSession, openSession } from "../store.js";
 import {
@@ -64,7 +64,10 @@ async function resumeStoredSession(el: HTMLElement): Promise<boolean> {
 }
 
 function show(el: HTMLElement, next: Screen): void {
-  if (screen.name === "review" && next.name !== "review") leaveReview();
+  if (screen.name === "review" && next.name !== "review") {
+    stopAllReviewAudio();
+    leaveReview();
+  }
   screen = next;
   paint(el);
 }
@@ -78,6 +81,7 @@ function closeAndLandFresh(el: HTMLElement): void {
 
 /** Drop all upgrader screen state back to the fresh launcher. */
 export function resetUpgraderView(): void {
+  stopAllReviewAudio();
   leaveReview();
   doneSnapshot = null;
   resumeRequested = false;

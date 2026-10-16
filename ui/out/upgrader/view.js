@@ -2,7 +2,7 @@
    Re-rendering #/upgrader mid-run restores the running screen. */
 import { countLedger } from "./utils.js";
 import { renderSourceScreen, resolveFileListSession } from "./source.js";
-import { leaveReview, renderReviewScreen } from "./review.js";
+import { leaveReview, renderReviewScreen, stopAllReviewAudio } from "./review.js";
 import { checkFileExists, readLedgerFile } from "../api.js";
 import { closeSession, getSession, openSession } from "../store.js";
 import { beginRun, isRunActive, readConfigureForm, renderConfigure, renderDone, renderRunning, resetUpgraderSession, } from "./run.js";
@@ -44,8 +44,10 @@ async function resumeStoredSession(el) {
     return true;
 }
 function show(el, next) {
-    if (screen.name === "review" && next.name !== "review")
+    if (screen.name === "review" && next.name !== "review") {
+        stopAllReviewAudio();
         leaveReview();
+    }
     screen = next;
     paint(el);
 }
@@ -57,6 +59,7 @@ function closeAndLandFresh(el) {
 }
 /** Drop all upgrader screen state back to the fresh launcher. */
 export function resetUpgraderView() {
+    stopAllReviewAudio();
     leaveReview();
     doneSnapshot = null;
     resumeRequested = false;

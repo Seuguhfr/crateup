@@ -85,21 +85,28 @@ export const executeDbConsolidation = (opts) => invoke("execute_db_consolidation
 export const parsePlaylistsFromDb = () => invoke("parse_playlists_from_db");
 export const getPlaylistTracksFromDb = (playlistName) => invoke("get_playlist_tracks_from_db", { playlistName });
 export const getFolderTracksFromDb = (folderName) => invoke("get_folder_tracks_from_db", { folderName });
-export const updateRekordboxDbDirectly = (ledgerPath, decisions, outputPath, outputStrategy) => invoke("update_rekordbox_db_directly", {
+export const updateRekordboxDbDirectly = (ledgerPath, decisions, outputPath, outputStrategy, autoShiftCues) => invoke("update_rekordbox_db_directly", {
     ledgerPath,
     decisions,
     outputPath,
     outputStrategy,
+    autoShiftCues,
 });
-export const updateRekordboxXml = (xmlPath, ledgerPath, decisions) => invoke("update_rekordbox_xml", {
+export const updateRekordboxXml = (xmlPath, ledgerPath, decisions, autoShiftCues) => invoke("update_rekordbox_xml", {
     xmlPath,
     ledgerPath,
     decisions,
+    autoShiftCues,
 });
 export const checkRekordboxStatus = () => invoke("check_rekordbox_status");
+export const checkEngineHealth = () => invoke("check_engine_health");
 export const getDbBackups = () => invoke("get_db_backups");
+export const listRekordboxBackups = () => invoke("list_rekordbox_backups");
 export const executeBackupCleanup = (backupFilename) => invoke("execute_backup_cleanup", { backupFilename });
 export const rollbackToLatestBackup = () => invoke("rollback_to_latest_backup");
+export const rollbackToBackup = (backupFilename, keepValidPaths) => invoke("rollback_to_backup", { backupFilename, keepValidPaths });
+export const deleteDbBackup = (backupFilename) => invoke("delete_db_backup", { backupFilename });
+export const trashSupersededFiles = (paths) => invoke("trash_superseded_files", { paths });
 export const fixRekordboxDbDuplicates = () => invoke("fix_rekordbox_db_duplicates");
 export const executePlaylistIngestion = (opts) => invoke("execute_playlist_ingestion", {
     ...opts,
@@ -113,3 +120,5 @@ export const removeEmptyFolders = (folders) => invoke("remove_empty_folders", { 
 /* ---- settings ---- */
 export const getArl = () => invoke("get_arl");
 export const saveArl = (arl) => invoke("save_arl", { arl });
+export const checkArlStatus = (token) => invoke("check_arl_status", { token: token ?? null });
+export const resolveDeezerLink = (url) => invoke("resolve_deezer_link", { url });

@@ -15,12 +15,13 @@ import {
   executePlaylistIngestion,
   expandAudioPaths,
   getFileSize,
+  listen,
   openDirectory,
   selectAudioFiles,
   selectDirectory,
   selectSaveXmlFile,
 } from "../api.js";
-import { loadPrefs } from "../policy.js";
+import { loadPrefs, thresholdLabel } from "../policy.js";
 import { closeSession, getSession, openSession, updateSession } from "../store.js";
 import { esc } from "../upgrader/utils.js";
 import {
@@ -101,12 +102,51 @@ persistStaged();
 let viewEl: HTMLElement | null = null;
 let runActive = false;
 let resumeRequested = false;
+let nativeDragUnlisteners: Array<() => void> = [];
 
 export function requestIngestionResume(): void {
   resumeRequested = true;
 }
 
+export function teardownIngestion(): void {
+  nativeDragUnlisteners.forEach((u) => u());
+  nativeDragUnlisteners = [];
+  viewEl?.querySelector<HTMLElement>("#ig-drop")?.classList.remove("over");
+}
+
+function setupNativeDragDrop(): void {
+  if (nativeDragUnlisteners.length > 0) return;
+
+  const dropEl = () => viewEl?.querySelector<HTMLElement>("#ig-drop");
+
+  listen<{ paths: string[] }>("tauri://drag-drop", (payload) => {
+    dropEl()?.classList.remove("over");
+    if (state.phase !== "workbench" || runActive || state.importing) return;
+    const paths = payload?.paths;
+    if (Array.isArray(paths) && paths.length > 0) {
+      void addPaths(paths);
+    }
+  }).then((un) => nativeDragUnlisteners.push(un)).catch(() => {});
+
+  listen("tauri://drag-enter", () => {
+    if (state.phase === "workbench" && !runActive && !state.importing) {
+      dropEl()?.classList.add("over");
+    }
+  }).then((un) => nativeDragUnlisteners.push(un)).catch(() => {});
+
+  listen("tauri://drag-over", () => {
+    if (state.phase === "workbench" && !runActive && !state.importing) {
+      dropEl()?.classList.add("over");
+    }
+  }).then((un) => nativeDragUnlisteners.push(un)).catch(() => {});
+
+  listen("tauri://drag-leave", () => {
+    dropEl()?.classList.remove("over");
+  }).then((un) => nativeDragUnlisteners.push(un)).catch(() => {});
+}
+
 export function resetIngestionView(): void {
+  teardownIngestion();
   if (runActive) {
     state.phase = "workbench";
     state.error = null;
@@ -126,6 +166,7 @@ export function resetIngestionView(): void {
 
 export function renderIngestion(el: HTMLElement): void {
   viewEl = el;
+  setupNativeDragDrop();
   clearChrome();
   el.className = "screen on";
   const open = getSession();
@@ -191,7 +232,7 @@ function restoreSessionScreen(): boolean {
 function paint(): void {
   if (!viewEl) return;
   const head = phaseHead(
-    "03 / Ingestion",
+    "03 · INGESTION",
     "Ingestion Hub",
     "Loose tracks in, clean playlist out.",
   );
@@ -218,11 +259,14 @@ function workbenchHtml(): string {
   const rows =
     state.staged.length === 0
       ? `<p class="muted small">Nothing staged yet.</p>`
-      : `<div class="kv-list">${state.staged
+      : `<div class="staged-track-list">${state.staged
           .map(
-            (t) => `<div class="kv-row"><span class="k-label">${esc(t.format || "—")}</span>
-              <span class="k-value" title="${esc(t.path)}">${esc(t.name)} <span class="muted">· ${esc(t.size)}</span></span>
-              <button class="x" data-unstage="${esc(t.path)}" title="Remove">×</button></div>`,
+            (t) => `<div class="staged-track-row">
+              <span class="track-format-tag">${esc((t.format || "—").toUpperCase())}</span>
+              <span class="track-name" title="${esc(t.path)}">${esc(t.name)}</span>
+              <span class="track-size">${esc(t.size)}</span>
+              <button class="x" data-unstage="${esc(t.path)}" title="Remove">×</button>
+            </div>`,
           )
           .join("")}</div>`;
   const v = validateIngestInputs(state.staged.length, state.playlistName, state.destPath);
@@ -233,9 +277,9 @@ function workbenchHtml(): string {
         <b>${state.importing ? "Reading files…" : state.staged.length === 0 ? "Drop audio files here or click to browse" : `＋ Add more files (${state.staged.length} staged)`}</b>
         <span class="muted small">MP3 · WAV · FLAC · AIFF · M4A — folders expand non-recursively</span>
       </div>
-      <div class="frow">
-        <button class="btn" id="ig-clear" ${state.staged.length ? "" : "disabled"}>Clear staged</button>
-      </div>
+      ${state.staged.length > 0 ? `<div class="frow">
+        <button class="btn" id="ig-clear">Clear staged</button>
+      </div>` : ""}
       ${rows}
     </div>
     <div class="sect">
@@ -256,7 +300,7 @@ function workbenchHtml(): string {
       <div class="frow"><span class="fl">Cross-format</span><select class="pop" id="ig-crossfmt">
         ${opt("smart", "Merge different formats", o.crossFormat)}${opt("strict", "Keep formats separated", o.crossFormat)}</select></div>
       <div class="frow"><span class="fl">Dedup</span><select class="pop" id="ig-dedup">
-        ${opt("strict", "Exact same file", o.dedupDepth)}${opt("standard", "Same artist + title", o.dedupDepth)}${opt("fuzzy", "Audio comparison (>90%)", o.dedupDepth)}</select></div>
+        ${opt("strict", "Exact same file", o.dedupDepth)}${opt("standard", "Same artist + title", o.dedupDepth)}${opt("fuzzy", `Audio comparison (${thresholdLabel(loadPrefs().match.acousticThreshold)})`, o.dedupDepth)}</select></div>
       <div class="frow"><span class="fl">Renaming</span><select class="pop" id="ig-rename">
         ${opt("preserve", "Native filenames", o.renamingRule)}${opt("clean", "Artist - Title", o.renamingRule)}</select></div>
       <p class="muted small">Dedup prefs are shared with the Library Cleaner.</p>
@@ -280,10 +324,10 @@ function doneHtml(): string {
   const fresh = Math.max(0, r.healthy_count - r.duplicate_count - linked);
   return `<div class="sect"><h3>Ingestion complete</h3>
       <div class="stats">
-        <div><b>${fresh}</b><span>new files</span></div>
-        <div><b>${linked}</b><span>already in library</span></div>
-        <div><b>${r.duplicate_count}</b><span>duplicates filtered</span></div>
-        <div><b>${r.missing_count}</b><span>missing skipped</span></div>
+        <div class="stat"><div class="v">${fresh.toLocaleString()}</div><div class="l">new files</div></div>
+        <div class="stat"><div class="v">${linked.toLocaleString()}</div><div class="l">already in library</div></div>
+        <div class="stat"><div class="v">${r.duplicate_count.toLocaleString()}</div><div class="l">duplicates filtered</div></div>
+        <div class="stat"><div class="v">${r.missing_count.toLocaleString()}</div><div class="l">missing skipped</div></div>
       </div>
       <div class="kv-list">
         <div class="kv-row"><span class="k-label">Playlist</span><span class="k-value">${esc(state.playlistName)}</span></div>
@@ -326,10 +370,7 @@ function bind(): void {
         if (p) paths.push(p);
       }
       if (paths.length > 0) void addPaths(paths);
-      else {
-        state.error = "Drop didn't expose file paths — use click to browse instead.";
-        paint();
-      }
+      // In Tauri v2, native tauri://drag-drop handler processes the drop with full OS file paths
     });
   }
 

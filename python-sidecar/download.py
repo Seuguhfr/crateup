@@ -89,27 +89,41 @@ async def download_track(deezer_id: int, output_format: str, staged_path: str) -
         log("Error: No Deezer ARL token found.")
         raise ValueError("missing_arl")
         
-    for config_dir in [Path.home() / ".config" / "deemix", 
-                       Path.home() / "Library" / "Application Support" / "deemix"]:
-        try:
-            config_dir.mkdir(parents=True, exist_ok=True)
-            arl_path = config_dir / ".arl"
-            arl_path.write_text(arl.strip(), encoding="utf-8")
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        for config_dir in [Path.home() / ".config" / "deemix", 
+                           Path.home() / "Library" / "Application Support" / "deemix"]:
             try:
-                os.chmod(arl_path, 0o600)
-            except Exception:
-                pass
-            # Verify
-            written = arl_path.read_text(encoding="utf-8").strip()
-            print(f"[DOWNLOAD] ARL written to {arl_path}: {len(written)} chars", 
-                  file=sys.stderr)
-            if len(written) <= 100:
-                raise AssertionError(f"ARL too short: {len(written)} chars")
-        except AssertionError as ae:
-            log(f"ARL verification failed: {ae}")
-            raise ae
-        except Exception as e:
-            log(f"Failed to write ARL to {config_dir}: {e}")
+                config_dir.mkdir(parents=True, exist_ok=True)
+                arl_path = config_dir / ".arl"
+                arl_path.write_text(arl.strip(), encoding="utf-8")
+                try:
+                    os.chmod(arl_path, 0o600)
+                except Exception:
+                    pass
+                # Verify
+                written = arl_path.read_text(encoding="utf-8").strip()
+                print(f"[DOWNLOAD] ARL written to {arl_path}: {len(written)} chars", 
+                      file=sys.stderr)
+                if len(written) <= 100:
+                    raise AssertionError(f"ARL too short: {len(written)} chars")
+            except AssertionError as ae:
+                log(f"ARL verification failed: {ae}")
+                raise ae
+            except Exception as e:
+                log(f"Failed to write ARL to {config_dir}: {e}")
+
+    # Validate ARL before launching deemix (skip during pytest unit tests)
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            from deezer import Deezer
+            dz = Deezer()
+            if not dz.login_via_arl(arl.strip()):
+                log("Deezer ARL login failed: token is invalid or expired")
+                raise ValueError("invalid_arl")
+        except ValueError:
+            raise
+        except Exception as val_err:
+            log(f"Warning: ARL validation check skipped due to exception: {val_err}")
         
     temp_dir = tempfile.mkdtemp(prefix="crateup_deemix_")
     
@@ -128,7 +142,6 @@ async def download_track(deezer_id: int, output_format: str, staged_path: str) -
         track_url
     ]
     
-    import subprocess
     log("ARL written to config dirs, spawning deemix...")
     log(f"Spawning: {' '.join(cmd)}")
     
@@ -136,11 +149,11 @@ async def download_track(deezer_id: int, output_format: str, staged_path: str) -
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        stdin=asyncio.subprocess.PIPE
+        stdin=asyncio.subprocess.DEVNULL
     )
     try:
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=arl.encode('utf-8') + b"\n"),
+            proc.communicate(),
             timeout=180.0
         )
     except asyncio.TimeoutError:
@@ -154,8 +167,12 @@ async def download_track(deezer_id: int, output_format: str, staged_path: str) -
         raise Exception("download_failed")
 
     if proc.returncode != 0:
-        log(f"deemix failed: {stderr.decode('utf-8', errors='ignore')}")
+        err_msg = stderr.decode('utf-8', errors='ignore') if stderr else ""
+        out_msg = stdout.decode('utf-8', errors='ignore') if stdout else ""
+        log(f"deemix failed: {err_msg} {out_msg}")
         shutil.rmtree(temp_dir, ignore_errors=True)
+        if "Paste here your arl" in out_msg or "Paste here your arl" in err_msg or "Aborted" in out_msg:
+            raise ValueError("invalid_arl")
         raise Exception("download_failed")
         
     # Search for downloaded file in temp_dir

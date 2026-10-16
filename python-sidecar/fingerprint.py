@@ -14,6 +14,34 @@ def log(message: str) -> None:
     sys.stderr.write(f"[{now}] [FINGERPRINT] {message}\n")
     sys.stderr.flush()
 
+def is_network_error(exc: Exception) -> bool:
+    if isinstance(exc, (
+        aiohttp.ClientConnectorError,
+        aiohttp.ServerDisconnectedError,
+        aiohttp.ClientPayloadError,
+        asyncio.TimeoutError,
+        TimeoutError,
+        ConnectionResetError,
+        ConnectionRefusedError,
+    )):
+        return True
+    import socket
+    if isinstance(exc, socket.gaierror):
+        return True
+    msg = str(exc).lower()
+    return any(k in msg for k in [
+        'getaddrinfo failed',
+        'nodename nor servname provided',
+        'network is unreachable',
+        'connection reset',
+        'connection refused',
+        'timed out',
+        'temporary failure in name resolution',
+        'cannot connect to host',
+        'ssl: handshake_failure',
+        'clientoserror',
+    ])
+
 async def get_audio_duration(file_path: str) -> float:
     # 1. Try instantaneous ffprobe duration read (no audio stream decoding)
     try:
@@ -198,7 +226,12 @@ async def fingerprint_file(file_path: str) -> Dict[str, Any]:
             
         except Exception as e:
             last_error = e
-            log(f"[Attempt {attempt}/{attempts}] failed: {e}")
+            if is_network_error(e):
+                log(f"[Attempt {attempt}/{attempts}] Network error: {e}")
+                if attempt < attempts:
+                    await asyncio.sleep(2.0 * attempt)
+            else:
+                log(f"[Attempt {attempt}/{attempts}] failed: {e}")
             # Continue to next attempt
         finally:
             if os.path.exists(temp_sample_path):
@@ -209,6 +242,8 @@ async def fingerprint_file(file_path: str) -> Dict[str, Any]:
                     
     log("All fingerprinting attempts failed.")
     if last_error:
+        if is_network_error(last_error):
+            raise ValueError("network_error")
         raise last_error
     else:
         raise ValueError("unidentified")

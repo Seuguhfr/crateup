@@ -6,6 +6,12 @@ export interface LedgerEntry {
   staged_path?: string | null;
   proxy_path?: string | null;
   decision?: string;
+  peaks?: number[];
+  staged_peaks?: number[];
+  orig_rms?: number | null;
+  staged_rms?: number | null;
+  offset_ms?: number | null;
+  is_transcode?: boolean | null;
   [key: string]: unknown;
 }
 
@@ -154,9 +160,9 @@ export function longestCommonAncestor(paths: string[]): string {
   return out || "/";
 }
 
-/** Prod vs dev ledger name, matching legacy behavior. */
-export function ledgerNameForHost(port: string): string {
-  return port !== "" ? ".crateup-progress-dev.json" : ".crateup-progress.json";
+/** Single source of truth progress ledger filename per SPEC.md. */
+export function ledgerNameForHost(_port?: string): string {
+  return ".crateup-progress.json";
 }
 
 export function sanitizeSessionName(name: string): string {
@@ -217,3 +223,70 @@ export function isLosslessExt(path: string): boolean {
   const ext = extOf(path);
   return ["flac", "wav", "aiff", "aif", "alac"].includes(ext);
 }
+
+export function extractDeezerTrackId(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    const id = parseInt(trimmed, 10);
+    return id > 0 ? id : null;
+  }
+  let decoded = trimmed;
+  try {
+    decoded = decodeURIComponent(trimmed);
+  } catch {
+    // ignore decode error
+  }
+  // Matches track/123456 or track:123456 or track%2F123456
+  const trackMatch = decoded.match(/(?:track\/|track:|track%2F)(\d+)/i);
+  if (trackMatch && trackMatch[1]) {
+    const id = parseInt(trackMatch[1], 10);
+    return id > 0 ? id : null;
+  }
+  // Matches trailing numeric ID in Deezer URL path: e.g. https://www.deezer.com/.../882920
+  const urlIdMatch = decoded.match(/(?:deezer\.com\/[^\s?#]*\/)(\d+)(?:[/?#]|$)/i);
+  if (urlIdMatch && urlIdMatch[1]) {
+    const id = parseInt(urlIdMatch[1], 10);
+    return id > 0 ? id : null;
+  }
+  return null;
+}
+
+export function isPotentialDeezerUrl(raw: string): boolean {
+  const trimmed = raw.trim();
+  return (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.includes("deezer.com") ||
+    trimmed.includes("page.link")
+  );
+}
+
+export function getMissedTracks(ledger: Ledger | null): Array<{ artist: string; title: string; status: string; path: string }> {
+  if (!ledger || !ledger.files) return [];
+  const list: Array<{ artist: string; title: string; status: string; path: string }> = [];
+  const MISSED_STATUSES = new Set(["unidentified", "not_on_deezer", "download_failed"]);
+
+  for (const [relPath, entry] of Object.entries(ledger.files)) {
+    if (MISSED_STATUSES.has(entry.status)) {
+      const filename = relPath.split("/").pop() ?? relPath;
+      const artist = (entry.artist as string | undefined)?.trim() || "Unknown Artist";
+      const title = (entry.title as string | undefined)?.trim() || filename;
+      const statusLabel =
+        entry.status === "not_on_deezer"
+          ? "Not on Deezer"
+          : entry.status === "download_failed"
+            ? "Download Failed"
+            : "Unidentified by Shazam";
+
+      list.push({
+        artist,
+        title,
+        status: statusLabel,
+        path: (entry.original_abs_path as string | undefined) ?? relPath,
+      });
+    }
+  }
+  return list;
+}
+

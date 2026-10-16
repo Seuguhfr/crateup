@@ -58,10 +58,44 @@ assert(c.pending === 1 && c.committed === 1, 'countLedger pending/committed');
 assert(c.decided === 2, 'countLedger decided');
 
 // ledger names + session helpers
-assert(u.ledgerNameForHost('1420') === '.crateup-progress-dev.json', 'ledgerName dev');
+assert(u.ledgerNameForHost('1420') === '.crateup-progress.json', 'ledgerName dev');
 assert(u.ledgerNameForHost('') === '.crateup-progress.json', 'ledgerName prod');
 assert(u.sanitizeSessionName('My Mix! (2024)') === 'My_Mix___2024_', 'sanitizeSessionName');
 assert(/^\\d{8}_\\d{6}$/.test(u.sessionTimestamp(new Date(2024, 0, 2, 3, 4, 5))), 'sessionTimestamp shape');
+
+// extractDeezerTrackId
+assert(u.extractDeezerTrackId('882920') === 882920, 'extractDeezerTrackId numeric string');
+assert(u.extractDeezerTrackId('  882920  ') === 882920, 'extractDeezerTrackId trimmed');
+assert(u.extractDeezerTrackId('https://www.deezer.com/track/882920') === 882920, 'extractDeezerTrackId standard url');
+assert(u.extractDeezerTrackId('https://www.deezer.com/en/track/882920') === 882920, 'extractDeezerTrackId localized url');
+assert(u.extractDeezerTrackId('https://www.deezer.com/fr/track/882920?utm_source=deezer') === 882920, 'extractDeezerTrackId query params');
+assert(u.extractDeezerTrackId('https://www.deezer.com/album/123/track/882920') === 882920, 'extractDeezerTrackId album track url');
+assert(u.extractDeezerTrackId('track:882920') === 882920, 'extractDeezerTrackId track uri');
+assert(u.extractDeezerTrackId('https://link.deezer.com/?dest=https%3A%2F%2Fwww.deezer.com%2Ftrack%2F2415350') === 2415350, 'extractDeezerTrackId encoded dest');
+assert(u.extractDeezerTrackId('invalid') === null, 'extractDeezerTrackId invalid text');
+assert(u.extractDeezerTrackId('') === null, 'extractDeezerTrackId empty');
+
+// isPotentialDeezerUrl
+assert(u.isPotentialDeezerUrl('https://link.deezer.com/s/34FS7yPyRLun6sg8eglS9') === true, 'isPotentialDeezerUrl short link');
+assert(u.isPotentialDeezerUrl('https://deezer.page.link/abc123xyz') === true, 'isPotentialDeezerUrl page link');
+assert(u.isPotentialDeezerUrl('https://www.deezer.com/track/123') === true, 'isPotentialDeezerUrl web url');
+assert(u.isPotentialDeezerUrl('12345') === false, 'isPotentialDeezerUrl numeric id');
+assert(u.isPotentialDeezerUrl('') === false, 'isPotentialDeezerUrl empty');
+
+// getMissedTracks
+const missed = u.getMissedTracks({
+  files: {
+    '/ok.mp3': { status: 'downloaded', artist: 'A', title: 'T' },
+    '/unid.mp3': { status: 'unidentified', artist: 'Unknown', title: 'Track 2' },
+    '/notdeezer.mp3': { status: 'not_on_deezer', artist: 'Artist 3', title: 'Track 3' },
+    '/failed.mp3': { status: 'download_failed', artist: 'Artist 4', title: 'Track 4' },
+    '/pending.mp3': { status: 'pending' }
+  }
+});
+assert(missed.length === 3, 'getMissedTracks count');
+assert(missed[0].status === 'Unidentified by Shazam', 'getMissedTracks unidentified status');
+assert(missed[1].status === 'Not on Deezer', 'getMissedTracks not on deezer status');
+assert(missed[2].status === 'Download Failed', 'getMissedTracks failed status');
 
 console.log('UPGRADER_UTILS_OK');
 `;

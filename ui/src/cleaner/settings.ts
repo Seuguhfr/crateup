@@ -151,6 +151,7 @@ export interface CleanerRunRecord {
     duplicate_count: number;
     missing_list: string[];
     backup_filename: string | null;
+    superseded_paths?: string[];
   };
 }
 

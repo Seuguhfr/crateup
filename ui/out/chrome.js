@@ -40,9 +40,16 @@ export function renderDock(note, actions) {
 export function renderInspector(html) {
     const body = document.getElementById("insp-body");
     const foot = document.getElementById("insp-foot");
+    const insp = document.querySelector(".insp, #insp");
     if (!body)
         return;
     body.innerHTML = html;
+    if (!html || !html.trim() || html.includes('class="empty"')) {
+        insp?.classList.add("hidden");
+    }
+    else {
+        insp?.classList.remove("hidden");
+    }
     if (foot)
         foot.classList.add("hidden");
 }
@@ -64,11 +71,11 @@ export function clearChrome() {
     document.getElementById("stage-strip")?.classList.add("hidden");
     document.getElementById("stage-wrap")?.classList.add("hidden");
     document.getElementById("dock")?.classList.add("hidden");
-    renderInspector(`<div class="empty">Welcome.<br /><span class="sub">Context opens here while you work.</span></div>`);
+    renderInspector("");
     renderInspectorFoot("");
 }
 /* upgrader job arc: used to place the current screen on the strip. */
-export const UPGRADER_STAGES = ["Source", "Run", "Review", "Commit"];
+export const UPGRADER_STAGES = ["Source", "Configure", "Run", "Review"];
 export function renderUpgraderStage(activeIndex) {
     renderStage(UPGRADER_STAGES.map((label, i) => ({
         label,

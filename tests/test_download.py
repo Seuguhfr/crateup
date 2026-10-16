@@ -107,3 +107,17 @@ async def test_download_track_missing_arl(mock_get_arl):
     mock_get_arl.return_value = None
     with pytest.raises(ValueError, match="missing_arl"):
         await download_track(12345, "flac", "some_path.flac")
+
+@pytest.mark.asyncio
+@patch('download.get_arl')
+@patch('asyncio.create_subprocess_exec')
+async def test_download_track_invalid_arl_deemix(mock_create_proc, mock_get_arl):
+    mock_get_arl.return_value = "dummy_arl_token_long_enough_to_pass_validation_check_1234567890_1234567890_1234567890_1234567890_1234567890_1234567890"
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 1
+    mock_proc.communicate.return_value = (b"Paste here your arl:", b"")
+    mock_create_proc.return_value = mock_proc
+    
+    with pytest.raises(ValueError, match="invalid_arl"):
+        await download_track(12345, "flac", "some_path.flac")
+

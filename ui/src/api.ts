@@ -280,35 +280,86 @@ export const updateRekordboxDbDirectly = (
   decisions: Record<string, string>,
   outputPath: string,
   outputStrategy: string,
+  autoShiftCues?: boolean,
 ) =>
   invoke<void>("update_rekordbox_db_directly", {
     ledgerPath,
     decisions,
     outputPath,
     outputStrategy,
+    autoShiftCues,
   });
 
 export const updateRekordboxXml = (
   xmlPath: string,
   ledgerPath: string,
   decisions: Record<string, string>,
+  autoShiftCues?: boolean,
 ) =>
   invoke<string>("update_rekordbox_xml", {
     xmlPath,
     ledgerPath,
     decisions,
+    autoShiftCues,
   });
+
+export interface RekordboxBackup {
+  filename: string;
+  created_at: string;
+  size_bytes: number;
+  is_active: boolean;
+  is_newer_than_active: boolean;
+  total_tracks: number;
+  intact_tracks: number;
+  missing_tracks: number;
+}
+
+export interface RollbackResult {
+  restored_filename: string;
+  created_safety_backup: string | null;
+  total_tracks: number;
+  intact_tracks: number;
+  missing_tracks: number;
+  healed_paths_count: number;
+}
+
+export interface EngineHealth {
+  fpcalc_ok: boolean;
+  fpcalc_version?: string | null;
+  ffmpeg_ok: boolean;
+  ffmpeg_version?: string | null;
+  python_ok: boolean;
+  python_version?: string | null;
+  rekordbox_db_exists: boolean;
+  rekordbox_running: boolean;
+  rekordbox_db_path: string;
+}
 
 export const checkRekordboxStatus = () =>
   invoke<OpaqueResult>("check_rekordbox_status");
 
+export const checkEngineHealth = () =>
+  invoke<EngineHealth>("check_engine_health");
+
 export const getDbBackups = () => invoke<string[]>("get_db_backups");
+
+export const listRekordboxBackups = () =>
+  invoke<RekordboxBackup[]>("list_rekordbox_backups");
 
 export const executeBackupCleanup = (backupFilename: string) =>
   invoke<OpaqueResult>("execute_backup_cleanup", { backupFilename });
 
 export const rollbackToLatestBackup = () =>
-  invoke<string>("rollback_to_latest_backup");
+  invoke<RollbackResult>("rollback_to_latest_backup");
+
+export const rollbackToBackup = (backupFilename: string, keepValidPaths?: boolean) =>
+  invoke<RollbackResult>("rollback_to_backup", { backupFilename, keepValidPaths });
+
+export const deleteDbBackup = (backupFilename: string) =>
+  invoke<string>("delete_db_backup", { backupFilename });
+
+export const trashSupersededFiles = (paths: string[]) =>
+  invoke<number>("trash_superseded_files", { paths });
 
 export const fixRekordboxDbDuplicates = () =>
   invoke<number>("fix_rekordbox_db_duplicates");
@@ -361,8 +412,10 @@ export interface AuditReport {
   twins_total_extra: number;
   outside_db: string[];
   missing_db: string[];
+  streaming_db?: string[];
   skipped_dirs: string[];
   bytes_wasted: number;
+  fake_lossless?: string[];
 }
 
 export interface AuditProgress {
@@ -392,3 +445,26 @@ export const removeEmptyFolders = (folders: string[]) =>
 export const getArl = () => invoke<string>("get_arl");
 
 export const saveArl = (arl: string) => invoke<void>("save_arl", { arl });
+
+export interface ArlStatusResult {
+  valid: boolean;
+  status: "valid" | "expired" | "missing" | "network_error" | "timeout" | "error";
+  message: string;
+  user_id?: number;
+  user_name?: string;
+  is_lossless?: boolean;
+}
+
+export const checkArlStatus = (token?: string) =>
+  invoke<ArlStatusResult>("check_arl_status", { token: token ?? null });
+
+export interface ResolvedDeezerTrack {
+  original_url: string;
+  resolved_url: string | null;
+  track_id: number | null;
+  error?: string | null;
+}
+
+export const resolveDeezerLink = (url: string) =>
+  invoke<ResolvedDeezerTrack>("resolve_deezer_link", { url });
+
