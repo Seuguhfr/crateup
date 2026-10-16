@@ -25,6 +25,9 @@ jobs:
       - name: Install Project Dependencies
         run: npm install
 
+      - name: Setup Standalone Python Runtime
+        run: npm run setup:python
+
       - name: Build and Publish Release Artifacts
         uses: tauri-apps/tauri-action@v0 # <-- FIXED: Changed from @v2 to @v0
         env:
